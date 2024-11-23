@@ -11,14 +11,14 @@ The whole repository is WIP. As of now it is full of errors and does **not** rep
 #### Regarding the simulation implementation
 
 1. How to symmetrize the cytokine matrices $\kappa^\mu$ when dealing with floating point errors?
-  1. Symmetrize $\kappa^\mu$ directly or its derivative $\dot{\kappa^\mu}$?
-  2. Use $\frac{\kappa\kappa^T}{2}$ or mirror upper triangular matrix?
+    1. Symmetrize $\kappa^\mu$ directly or its derivative $\dot{\kappa^\mu}$?
+    2. Use $\frac{\kappa +\kappa^T}{2}$ or mirror upper triangular matrix?
 2. When the velocities calculating the velocities $\dot{\phi^\mu}$ divide by $N$ or $N-1$, since there shouldn't be any self coupling of the oscillators?
-3. Does the connectivity matrix $a_ij$ have a 0 diagonal, again since there shouldn't be any self coupling?
+3. Does the connectivity matrix $a_{ij}$ have a 0 diagonal, again since there shouldn't be any self coupling?
 
 
 #### Regarding the visualisations
 
 1. At what time-step are the "snapshots" of the phases $\phi^\mu$ taken?
-2. Is $\langle \dot{\phi}^\mu_{100/300}$ the mean velocity between the time-steps 100/300 or 1100/1300?
+2. Is $\langle \dot{\phi}^\mu_{100/300}\rangle$ the mean velocity between the time-steps 100/300 or 1100/1300?
 3. Are the cytokine matrices $\kappa^\mu$ also sorted? By the same key as the phases?
