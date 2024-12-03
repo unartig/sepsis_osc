@@ -5,7 +5,7 @@ import json
 from torchdiffeq import odeint
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-np.random.seed(69)
+np.random.seed(123)
 N = 200
 N_kappa = (N) ** 2
 alpha = -0.28 * np.pi  # phase lag
