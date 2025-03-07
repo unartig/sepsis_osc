@@ -1,9 +1,9 @@
-# import numpy as np
 import json
 
 import jax
-# jax.config.update("jax_enable_x64", True)  #  MATLAB defaults to double precision
-# jax.config.update("jax_platform_name", "cpu")
+
+jax.config.update("jax_enable_x64", True)  #  MATLAB defaults to double precision
+jax.config.update("jax_platform_name", "cpu")
 from diffrax import (
     diffeqsolve,
     ODETerm,
@@ -20,7 +20,7 @@ from numpy import save as np_save
 
 rand_key = jr.key(123)
 
-N = 200
+N = 5 # 200
 N_kappa = (N) ** 2
 alpha = -0.28 * jnp.pi  # phase lag
 beta = 0.66 * jnp.pi  # age parameter
@@ -42,29 +42,22 @@ a_1_ij = jnp.fill_diagonal(a_1_ij, 0, inplace=False)  # NOTE no self coupling
 def deriv(t: float, y: jnp.ndarray, args=None) -> jnp.ndarray:
     # expect 1d stacked array (phi1 (N), phi2 (N), k1 (NxN), k2 (NxN))
     # recover states from 1d array and enforce bounds
-    phi_1_i = y[0 * N:1 * N] % (jnp.pi * 2)
-    phi_2_i = y[1 * N:2 * N] % (jnp.pi * 2)
+    phi_1_i = y[0 * N : 1 * N] % (jnp.pi * 2)
+    phi_2_i = y[1 * N : 2 * N] % (jnp.pi * 2)
 
-    kappa_1_ij = y[2 * N + 0 * N_kappa:2 * N + 1 * N_kappa].reshape(N, N).clip(-1, 1)
-    kappa_1_ij = jnp.fill_diagonal(kappa_1_ij, 0, inplace=False)
-    kappa_2_ij = y[2 * N + 1 * N_kappa:2 * N + 2 * N_kappa].reshape(N, N).clip(-1, 1)
-    kappa_2_ij = jnp.fill_diagonal(kappa_2_ij, 0, inplace=False)
+    kappa_1_ij = y[2 * N + 0 * N_kappa : 2 * N + 1 * N_kappa].reshape(N, N).clip(-1, 1)
+    kappa_2_ij = y[2 * N + 1 * N_kappa : 2 * N + 2 * N_kappa].reshape(N, N).clip(-1, 1)
 
     kappa_1_ij = error_if(kappa_1_ij, jnp.sum(jnp.diag(kappa_1_ij)) != 0.0, "kappa1 diag non-zero")
     kappa_2_ij = error_if(kappa_2_ij, jnp.sum(jnp.diag(kappa_2_ij)) != 0.0, "kappa2 diag non-zero")
 
     # track bounded variables
-    y = y.at[0 * N:1 * N].set(phi_1_i)
-    y = y.at[1 * N:2 * N].set(phi_2_i)
-    y = y.at[2 * N + 0 * N_kappa:2 * N + 1 * N_kappa].set(kappa_1_ij.flatten())
-    y = y.at[2 * N + 1 * N_kappa:2 * N + 2 * N_kappa].set(kappa_2_ij.flatten())
+    y = y.at[0 * N : 1 * N].set(phi_1_i)
+    y = y.at[1 * N : 2 * N].set(phi_2_i)
+    y = y.at[2 * N + 0 * N_kappa : 2 * N + 1 * N_kappa].set(kappa_1_ij.flatten())
+    y = y.at[2 * N + 1 * N_kappa : 2 * N + 2 * N_kappa].set(kappa_2_ij.flatten())
 
-    # assert symmetry of coupling matrices
-    kappa_1_ij = error_if(kappa_1_ij, jnp.allclose(kappa_1_ij, kappa_1_ij.T), f"kappa1 non-symmetric {jnp.max(jnp.abs(kappa_1_ij - kappa_1_ij.T))}")
-    kappa_2_ij = error_if(kappa_2_ij, jnp.allclose(kappa_2_ij, kappa_2_ij.T), f"kappa2 non-symmetric {jnp.max(jnp.abs(kappa_2_ij - kappa_2_ij.T))}")
-
-    # sin in radians
-    # phi_i coupled with itself since we do the whole N?
+    # sin/cos in radians
     phi_1_diff = phi_1_i[:, jnp.newaxis] - phi_1_i
     dphi_1_i = (
         omega_1_i
@@ -72,18 +65,16 @@ def deriv(t: float, y: jnp.ndarray, args=None) -> jnp.ndarray:
         - sigma * jnp.sin(phi_1_i - phi_2_i)
     )
     dkappa_1_ij = -epsilon_1 * (kappa_1_ij + jnp.sin(phi_1_diff - beta))
-    dkappa_1_ij = (dkappa_1_ij + dkappa_1_ij.T) / 2  # keep symmetry
-    # dkappa_1_ij = dkappa_1_ij.fill_diagonal_(0)
+    dkappa_1_ij = dkappa_1_ij.at[jnp.diag_indices(N)].set(0)  # Zero diagonal
 
     phi_2_diff = phi_2_i[:, jnp.newaxis] - phi_2_i
     dphi_2_i = (
         omega_2_i
-        - (1 / (N - 1)) * jnp.sum(kappa_2_ij * jnp.sin(phi_2_diff + alpha), axis=1)
+        - (1 / (N - 1)) * jnp.sum((a_1_ij + kappa_1_ij) * jnp.sin(phi_2_diff + alpha), axis=1)
         - sigma * jnp.sin(phi_2_i - phi_1_i)
     )
     dkappa_2_ij = -epsilon_2 * (kappa_2_ij + jnp.sin(phi_2_diff - beta))
-    dkappa_2_ij = (dkappa_2_ij + dkappa_2_ij.T) / 2  # keep symmetry
-    # dkappa_2_ij = dkappa_2_ij.fill_diagonal_(0)
+    dkappa_2_ij = dkappa_2_ij.at[jnp.diag_indices(N)].set(0)  # Zero diagonal
 
     # return 1d stacked array (phi1 (N), phi2 (N), k1 (NxN), k2 (NxN))
     dy = jnp.concatenate([dphi_1_i, dphi_2_i, dkappa_1_ij.flatten(), dkappa_2_ij.flatten()])
@@ -93,15 +84,16 @@ def deriv(t: float, y: jnp.ndarray, args=None) -> jnp.ndarray:
 phi_1_init = jr.uniform(rand_key, (N)) * (2 * jnp.pi)
 phi_2_init = jr.uniform(rand_key, (N)) * (2 * jnp.pi)
 
+# kappaIni1 = sin(parStruct.beta(1))*ones(N*N,1)+0.01*(2*rand(N*N,1)-1);
+# kappa_1_init = jnp.sin(beta)*jnp.ones((N, N))+0.01*(2*jr.uniform(rand_key, (N, N)) - 1);
 kappa_1_init = jr.uniform(rand_key, (N, N)) * 2 - 1
-kappa_1_init = (kappa_1_init + kappa_1_init.T) / 2  # make symmetric
 kappa_1_init = jnp.fill_diagonal(kappa_1_init, 0, inplace=False)
 
 kappa_2_init = jnp.ones((N, N))
-kappa_2_init = (kappa_2_init + kappa_2_init.T) / 2
 kappa_2_init = jnp.fill_diagonal(kappa_2_init, 0, inplace=False)
 kappa_2_init = kappa_2_init.at[40:, :40].set(0)
 kappa_2_init = kappa_2_init.at[:40, 40:].set(0)
+
 init_condition = jnp.concatenate(
     [
         phi_1_init,
