@@ -2,15 +2,12 @@ import json
 
 import jax
 
-jax.config.update("jax_enable_x64", True)  #  MATLAB defaults to double precision
-jax.config.update("jax_platform_name", "cpu")
 from diffrax import (
     diffeqsolve,
     ODETerm,
     Dopri5,  # Dopri5 same as MATLAB ode45
     SaveAt,
     TqdmProgressMeter,
-    TextProgressMeter,
 )
 from equinox import error_if
 import jax.numpy as jnp
@@ -18,9 +15,12 @@ import jax.random as jr
 from jax import jit
 from numpy import save as np_save
 
+jax.config.update("jax_enable_x64", True)  #  MATLAB defaults to double precision
+# jax.config.update("jax_platform_name", "cpu")
+
 rand_key = jr.key(123)
 
-N = 5 # 200
+N = 200
 N_kappa = (N) ** 2
 alpha = -0.28 * jnp.pi  # phase lag
 beta = 0.66 * jnp.pi  # age parameter
@@ -29,7 +29,7 @@ epsilon_1 = 0.03  # adaption rate
 epsilon_2 = 0.3  # adaption rate
 sigma = 1
 omega_1 = omega_2 = 0
-T_init, T_dyn, T_max = 0, 0, 2000
+T_init, T_dyn, T_trans, T_max = 0, 0, 1000, 2000
 T_step = 0.05
 
 omega_1_i = jnp.ones((N,)) * omega_1
@@ -38,7 +38,7 @@ omega_2_i = jnp.ones((N,)) * omega_2
 a_1_ij = jnp.ones((N, N)) * a_1
 a_1_ij = jnp.fill_diagonal(a_1_ij, 0, inplace=False)  # NOTE no self coupling
 
-
+@jit
 def deriv(t: float, y: jnp.ndarray, args=None) -> jnp.ndarray:
     # expect 1d stacked array (phi1 (N), phi2 (N), k1 (NxN), k2 (NxN))
     # recover states from 1d array and enforce bounds
@@ -106,7 +106,7 @@ init_condition = jnp.concatenate(
 
 # @jit
 def solve():
-    t = jnp.arange(0, T_max)
+    t = jnp.arange(T_trans, T_max)
     term = ODETerm(deriv)
     solver = Dopri5()
     saveat = SaveAt(ts=t)
@@ -117,7 +117,7 @@ def solve():
         t1=T_max,
         dt0=T_step,
         y0=init_condition,
-        max_steps=int(T_max / T_step),
+        max_steps=int(T_max / T_step)+1,
         progress_meter=TqdmProgressMeter(),
         saveat=saveat,
     )
