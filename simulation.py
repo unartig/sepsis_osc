@@ -17,15 +17,13 @@ import jax
 import jax.numpy as jnp
 import jax.random as jr
 import jax.tree_util as jtu
-from jax import jit, pmap, vmap
+from jax import jit, vmap
 from jaxtyping import ScalarLike
 
 import json
 import os
 from numpy import save as np_save
 from dataclasses import dataclass
-from jax.sharding import PartitionSpec as P
-from jax.experimental.shard_map import shard_map
 
 
 @dataclass
@@ -276,7 +274,6 @@ def full_save_compressed(
     )
 
 
-# @jit
 def metric_save(t: ScalarLike, y: SystemState, args: tuple[int, ...] | None):
     y = enforce_bounds(y)
 
