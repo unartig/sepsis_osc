@@ -108,7 +108,7 @@ devices = jax.devices()
 print("jax.devices()       ", devices)
 
 rand_key = jr.key(123)
-num_parallel_runs = 50
+num_parallel_runs = 5
 rand_keys = jr.split(rand_key, num_parallel_runs)
 
 
@@ -155,7 +155,9 @@ def make_deriv(
     cos_alpha = jnp.cos(alpha)
     pi2 = jnp.array(jnp.pi * 2)
     adj = jnp.array(1 / (jN - 1))
-    diag = jnp.diag_indices(N)
+    diag = jnp.ones((jN, jN), dtype=jnp.float64) - jnp.eye(jN, dtype=jnp.float64)
+    jepsilon_1 *= diag
+    jepsilon_2 *= diag
 
     @assert_max_traces(max_traces=8)  # TODO: why is it traced that often?
     def single_system_deriv(
@@ -188,34 +190,27 @@ def make_deriv(
         sin_phi_1_diff_alpha = sin_diff_phi_1 * cos_alpha + cos_diff_phi_1 * sin_alpha
         sin_phi_2_diff_alpha = sin_diff_phi_2 * cos_alpha + cos_diff_phi_2 * sin_alpha
 
-        dphi_1_i = (
+        # (phi1 (N), phi2 (N), k1 (NxN), k2 (NxN)))
+        # reuse y as dy
+        y.phi_1 = (
             jomega_1_i
             - adj
             * jnp.einsum("bij,bij->bi", (ja_1_ij + kappa_1_ij), sin_phi_1_diff_alpha)
             - jsigma * (sin_phi_1 * cos_phi_2 - cos_phi_1 * sin_phi_2)
         )
-        dphi_2_i = (
+        y.phi_2 = (
             jomega_2_i
             - adj * jnp.einsum("bij,bij->bi", kappa_2_ij, sin_phi_2_diff_alpha)
             - jsigma * (sin_phi_2 * cos_phi_1 - cos_phi_2 * sin_phi_1)
         )
 
-        dkappa_1_ij = -jepsilon_1 * (
+        y.kappa_1 = -jepsilon_1[None, :] * (
             kappa_1_ij + sin_diff_phi_1 * cos_beta - cos_diff_phi_1 * sin_beta
         )
-        dkappa_2_ij = -jepsilon_2 * (
+        y.kappa_2 = -jepsilon_2[None, :] * (
             kappa_2_ij + sin_diff_phi_2 * cos_beta - cos_diff_phi_2 * sin_beta
         )
 
-        dkappa_1_ij = dkappa_1_ij.at[diag].set(0)
-        dkappa_2_ij = dkappa_2_ij.at[diag].set(0)
-
-        # (phi1 (N), phi2 (N), k1 (NxN), k2 (NxN)))
-        # reuse y as dy
-        y.phi_1 = dphi_1_i
-        y.phi_2 = dphi_2_i
-        y.kappa_1 = dkappa_1_ij
-        y.kappa_2 = dkappa_2_ij
         return y
 
     batched = single_system_deriv
@@ -332,7 +327,7 @@ def solve(batched_init_condition):
         stepsize_controller=stepsize_controller,
         max_steps=int(T_max / T_step) + 1,
         progress_meter=TqdmProgressMeter(),
-        saveat=saveat,
+        # saveat=saveat,
     )
     return res
 
