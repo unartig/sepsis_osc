@@ -11,19 +11,18 @@ from diffrax import (
     Bosh3,
     Ralston,
 )
-from equinox import error_if, filter_jit
 from equinox.debug import assert_max_traces
 import jax
 import jax.numpy as jnp
 import jax.random as jr
 import jax.tree_util as jtu
-from jax import jit, vmap
+from jax import vmap
 from jaxtyping import ScalarLike
 
-import json
 import os
-from numpy import save as np_save
 from dataclasses import dataclass
+
+from config.base import jax_random_seed
 
 
 @dataclass
@@ -107,8 +106,8 @@ os.environ["XLA_FLAGS"] = (
 devices = jax.devices()
 print("jax.devices()       ", devices)
 
-rand_key = jr.key(123)
-num_parallel_runs = 5
+rand_key = jr.key(jax_random_seed)
+num_parallel_runs = 1
 rand_keys = jr.split(rand_key, num_parallel_runs)
 
 
@@ -243,7 +242,6 @@ def generate_init_conditions(key: jnp.ndarray) -> SystemState:
     )
 
 
-# @jit
 def enforce_bounds(y: SystemState) -> SystemState:
     return SystemState(
         phi_1=y.phi_1 % (2 * jnp.pi),
@@ -332,27 +330,11 @@ def solve(batched_init_condition):
     return res
 
 
-# sh_gen_init_cond = shard_map(
-#     generate_init_conditions,
-#     mesh=jax.sharding.Mesh(devices, axis_names=("data",)),  # Define the device mesh
-#     in_specs=(P("data"),),  # Specify sharding pattern
-#     out_specs=P("data"),  # Ensure output is also sharded
-#     check_rep=False,
-# )
-# init_conditions = sh_gen_init_cond(rand_keys)
-
 init_conditions = vmap(generate_init_conditions)(
     rand_keys
 )  # shape: (num_parallel_runs, state)
 
-# sharded_solve = shard_map(
-#     solve,
-#     mesh=jax.sharding.Mesh(devices, axis_names=("data",)),
-#     in_specs=(P("data"),),
-#     out_specs=P(),
-#     check_rep=False,
-# )
-# sol = sharded_solve(init_conditions)
+
 sol = solve(init_conditions)
 
 if sol.ts is not None and sol.ys is not None:
@@ -386,8 +368,3 @@ if sol.ts is not None and sol.ys is not None:
     # }
     # with open(f"{dir_name}/info.json", "w") as json_file:
     #     json.dump(info, json_file)
-
-
-# TODO
-# save
-# no globals? https://docs.jax.dev/en/latest/notebooks/Common_Gotchas_in_JAX.html
