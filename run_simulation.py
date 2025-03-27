@@ -104,34 +104,28 @@ def solve(
     return result
 
 
-storage = Storage(key_dim=9)
-for C in [10, 20, 30, 40]:
-    run_conf = SystemConfig(
-        N=N,
-        C=C,
-        omega_1=omega_1,
-        omega_2=omega_2,
-        a_1=a_1,
-        epsilon_1=epsilon_1,
-        epsilon_2=epsilon_2,
-        alpha=alpha,
-        beta=beta,
-        sigma=sigma,
-    )
-    generate_init_conditions = generate_init_conditions_fixed(run_conf.N, run_conf.beta, run_conf.C)
+storage = Storage()
+for beta in np.linspace(0.4, 0.7, 50):
+    for sigma in np.linspace(0, 1.5, 50):
+        run_conf = SystemConfig(
+            N=N,
+            C=C,
+            omega_1=omega_1,
+            omega_2=omega_2,
+            a_1=a_1,
+            epsilon_1=epsilon_1,
+            epsilon_2=epsilon_2,
+            alpha=alpha,
+            beta=beta,
+            sigma=sigma,
+        )
+        generate_init_conditions = generate_init_conditions_fixed(run_conf.N, run_conf.beta, run_conf.C)
 
-    init_conditions = vmap(generate_init_conditions)(rand_keys)
-    # shape (num_parallel_runs, state)
-    sol = solve(init_conditions, run_conf.as_args, deriv)
-    if sol.ys:
-        storage.add_result(run_conf.as_index, sol.ys)
-        print(C, sol.ys.r_1[-1])
-        print(sol.ts)
+        init_conditions = vmap(generate_init_conditions)(rand_keys)
+        # shape (num_parallel_runs, state)
+        sol = solve(init_conditions, run_conf.as_args, deriv)
+        if sol.ys:
+            storage.add_result(run_conf.as_index, sol.ys)
 
-storage.close()
-
-run_conf.C = 20
-storage1 = Storage()
-res = storage1.read_result(run_conf.as_index)
-if res:
-    print(run_conf.as_index[-1], res.r_1[-1])
+    storage.close()
+    storage = Storage()
