@@ -1,28 +1,13 @@
-from diffrax import (
-    diffeqsolve,
-    ODETerm,
-    ConstantStepSize,
-    SaveAt,
-    TqdmProgressMeter,
-    # solver - from most to least accurate / slow to fast
-    Dopri8,
-    Dopri5,  # Dopri5 same as MATLAB ode45
-    Tsit5,
-    Bosh3,
-    Ralston,
-)
+from collections.abc import Callable
 from equinox.debug import assert_max_traces
 import jax
 import jax.numpy as jnp
 import jax.random as jr
 import jax.tree_util as jtu
-from jax import vmap
 from jaxtyping import ScalarLike
 
 import os
 from dataclasses import dataclass
-
-from config.base import jax_random_seed
 
 
 @dataclass
@@ -39,6 +24,20 @@ class SystemState:
     @classmethod
     def tree_unflatten(cls, aux_data, children):
         return cls(*children)
+
+    def enforce_bounds(self):
+        self.phi_1 = self.phi_1 % (2 * jnp.pi)
+        self.phi_2 = self.phi_2 % (2 * jnp.pi)
+        self.kappa_1 = jnp.clip(self.kappa_1, -1, 1)
+        self.kappa_2 = jnp.clip(self.kappa_2, -1, 1)
+        return self
+
+    def squeeze(self):
+        self.phi_1 = self.phi_1.squeeze()
+        self.phi_2 = self.phi_2.squeeze()
+        self.kappa_1 = self.kappa_1.squeeze()
+        self.kappa_2 = self.kappa_2.squeeze()
+        return self
 
 
 # Register SystemState as a JAX PyTree
@@ -94,277 +93,216 @@ jax.config.update("jax_debug_infs", False)
 # cpu/gpu flags
 os.environ["XLA_FLAGS"] = (
     # "--xla_gpu_enable_latency_hiding_scheduler=true "
-    "--xla_gpu_enable_triton_gemm=false "
-    "--xla_gpu_enable_cublaslt=true "
-    "--xla_gpu_autotune_level=0 "  # https://docs.nvidia.com/deeplearning/frameworks/tensorflow-user-guide/index.html#xla-autotune
-    "--xla_gpu_exhaustive_tiling_search=true "
+    # "--xla_gpu_enable_triton_gemm=false "
+    # "--xla_gpu_enable_cublaslt=true "
+    "--xla_gpu_autotune_level=4 "  # https://docs.nvidia.com/deeplearning/frameworks/tensorflow-user-guide/index.html#xla-autotune
+    # "--xla_gpu_exhaustive_tiling_search=true "
     # "--xla_cpu_multi_thread_eigen=false "
-    "--xla_cpu_use_thunk_runtime=false "
-    "--xla_cpu_multi_thread_eigen=true "
+    # "--xla_cpu_use_thunk_runtime=false "
+    # "--xla_cpu_multi_thread_eigen=true "
+    # "intra_op_parallelism_threads=1 "
     "--xla_force_host_platform_device_count=10 "
 )
 devices = jax.devices()
-print("jax.devices()       ", devices)
-
-rand_key = jr.key(jax_random_seed)
-num_parallel_runs = 1
-rand_keys = jr.split(rand_key, num_parallel_runs)
+print("jax.devices()", devices)
 
 
-#### Parameters
-N = 200
-N_kappa = N**2
-alpha = -0.28 * jnp.pi  # phase lag
-beta = 0.66 * jnp.pi  # age parameter
-a_1 = 1.0
-epsilon_1 = 0.03  # adaption rate
-epsilon_2 = 0.3  # adaption rate
-sigma = 1.0
-omega_1 = omega_2 = 0.0
-T_init, T_trans, T_max = 0, 1000, 2000
-T_step = 0.05
-
-omega_1_i = jnp.ones((N,)) * omega_1
-omega_2_i = jnp.ones((N,)) * omega_2
-
-a_1_ij = jnp.ones((N, N)) * a_1
-a_1_ij = a_1_ij.at[jnp.diag_indices(N)].set(0)  # NOTE no self coupling
-
-args = (N, N_kappa, alpha, beta, epsilon_1, epsilon_2, sigma)
-
-
-def make_deriv(
-    jomega_1_i: jnp.ndarray,
-    jomega_2_i: jnp.ndarray,
-    ja_1_ij: jnp.ndarray,
-    batch_size: int,
-):
-    jN, jN_kappa, jalpha, jbeta, jepsilon_1, jepsilon_2, jsigma = (
-        N,
-        N_kappa,
-        jnp.array(alpha),
-        jnp.array(beta),
-        jnp.array(epsilon_1),
-        jnp.array(epsilon_2),
-        jnp.array(sigma),
-    )
-    sin_beta = jnp.sin(beta)
-    cos_beta = jnp.cos(beta)
-    sin_alpha = jnp.sin(alpha)
-    cos_alpha = jnp.cos(alpha)
-    pi2 = jnp.array(jnp.pi * 2)
-    adj = jnp.array(1 / (jN - 1))
-    diag = jnp.ones((jN, jN), dtype=jnp.float64) - jnp.eye(jN, dtype=jnp.float64)
-    jepsilon_1 *= diag
-    jepsilon_2 *= diag
-
-    @assert_max_traces(max_traces=8)  # TODO: why is it traced that often?
-    def single_system_deriv(
-        t: ScalarLike,
-        y: SystemState,
-        args: tuple[int, ...] | None = None,
-    ) -> SystemState:
-        # recover states from the py_tree
-        phi_1_i, phi_2_i = y.phi_1 % pi2, y.phi_2 % pi2
-        kappa_1_ij, kappa_2_ij = y.kappa_1.clip(-1, 1), y.kappa_2.clip(-1, 1)
-
-        # sin/cos in radians
-        sin_phi_1, cos_phi_1 = jnp.sin(phi_1_i), jnp.cos(phi_1_i)
-        sin_phi_2, cos_phi_2 = jnp.sin(phi_2_i), jnp.cos(phi_2_i)
-
-        sin_diff_phi_1 = jnp.einsum("bi,bj->bij", sin_phi_1, cos_phi_1) - jnp.einsum(
-            "bi,bj->bij", cos_phi_1, sin_phi_1
-        )
-        cos_diff_phi_1 = jnp.einsum("bi,bj->bij", cos_phi_1, cos_phi_1) + jnp.einsum(
-            "bi,bj->bij", sin_phi_1, sin_phi_1
-        )
-
-        sin_diff_phi_2 = jnp.einsum("bi,bj->bij", sin_phi_2, cos_phi_2) - jnp.einsum(
-            "bi,bj->bij", cos_phi_2, sin_phi_2
-        )
-        cos_diff_phi_2 = jnp.einsum("bi,bj->bij", cos_phi_2, cos_phi_2) + jnp.einsum(
-            "bi,bj->bij", sin_phi_2, sin_phi_2
-        )
-
-        sin_phi_1_diff_alpha = sin_diff_phi_1 * cos_alpha + cos_diff_phi_1 * sin_alpha
-        sin_phi_2_diff_alpha = sin_diff_phi_2 * cos_alpha + cos_diff_phi_2 * sin_alpha
-
-        # (phi1 (N), phi2 (N), k1 (NxN), k2 (NxN)))
-        # reuse y as dy
-        y.phi_1 = (
-            jomega_1_i
-            - adj
-            * jnp.einsum("bij,bij->bi", (ja_1_ij + kappa_1_ij), sin_phi_1_diff_alpha)
-            - jsigma * (sin_phi_1 * cos_phi_2 - cos_phi_1 * sin_phi_2)
-        )
-        y.phi_2 = (
-            jomega_2_i
-            - adj * jnp.einsum("bij,bij->bi", kappa_2_ij, sin_phi_2_diff_alpha)
-            - jsigma * (sin_phi_2 * cos_phi_1 - cos_phi_2 * sin_phi_1)
-        )
-
-        y.kappa_1 = -jepsilon_1[None, :] * (
-            kappa_1_ij + sin_diff_phi_1 * cos_beta - cos_diff_phi_1 * sin_beta
-        )
-        y.kappa_2 = -jepsilon_2[None, :] * (
-            kappa_2_ij + sin_diff_phi_2 * cos_beta - cos_diff_phi_2 * sin_beta
-        )
-
-        return y
-
-    batched = single_system_deriv
-
-    return batched
-
-
-deriv = make_deriv(omega_1_i, omega_2_i, a_1_ij, num_parallel_runs)
-
-
-def generate_init_conditions(key: jnp.ndarray) -> SystemState:
-    phi_1_init = jr.uniform(key, (N,)) * (2 * jnp.pi)
-    phi_2_init = jr.uniform(key, (N,)) * (2 * jnp.pi)
-
-    # kappaIni1 = sin(parStruct.beta(1))*ones(N*N,1)+0.01*(2*rand(N*N,1)-1);
-    # kappa_1_init = jnp.sin(beta)*jnp.ones((N, N))+0.01*(2*jr.uniform(rand_key, (N, N)) - 1);
-    kappa_1_init = jr.uniform(key, (N, N)) * 2 - 1
-    kappa_1_init = kappa_1_init.at[jnp.diag_indices(N)].set(0)
-
-    kappa_2_init = jnp.ones((N, N))
-    kappa_2_init = kappa_2_init.at[jnp.diag_indices(N)].set(0)
-    kappa_2_init = kappa_2_init.at[40:, :40].set(0)
-    kappa_2_init = kappa_2_init.at[:40, 40:].set(0)
-
-    return SystemState(
-        phi_1=phi_1_init,
-        phi_2=phi_2_init,
-        kappa_1=kappa_1_init,
-        kappa_2=kappa_2_init,
+def build_args(
+    N: int,
+    omega_1: float,
+    omega_2: float,
+    a_1: float,
+    epsilon_1: float,
+    epsilon_2: float,
+    alpha: float,
+    beta: float,
+    sigma: float,
+) -> tuple[jnp.ndarray, ...]:
+    ja_1_ij = jnp.ones((N, N)) * a_1
+    ja_1_ij = ja_1_ij.at[jnp.diag_indices(N)].set(0)  # NOTE no self coupling
+    jsin_alpha = jnp.sin(alpha)
+    jcos_alpha = jnp.cos(alpha)
+    jsin_beta = jnp.sin(beta)
+    jcos_beta = jnp.cos(beta)
+    jpi2 = jnp.array(jnp.pi * 2)
+    jadj = jnp.array(1 / (N - 1))
+    diag = (jnp.ones((N, N)) - jnp.eye(N))[None, :]  # again no self coupling
+    jepsilon_1 = epsilon_1 * diag
+    jepsilon_2 = epsilon_2 * diag
+    jomega_1_i = jnp.ones((N,)) * omega_1
+    jomega_2_i = jnp.ones((N,)) * omega_2
+    jsigma = jnp.array(sigma)
+    return (
+        ja_1_ij,
+        jsin_alpha,
+        jcos_alpha,
+        jsin_beta,
+        jcos_beta,
+        jpi2,
+        jadj,
+        jepsilon_1,
+        jepsilon_2,
+        jsigma,
+        jomega_1_i,
+        jomega_2_i,
     )
 
 
-def enforce_bounds(y: SystemState) -> SystemState:
-    return SystemState(
-        phi_1=y.phi_1 % (2 * jnp.pi),
-        phi_2=y.phi_2 % (2 * jnp.pi),
-        kappa_1=jnp.clip(y.kappa_1, -1, 1),
-        kappa_2=jnp.clip(y.kappa_2, -1, 1),
+def generate_init_conditions_fixed(N: int, beta: float, C: int) -> Callable:
+    def inner(key: jnp.ndarray) -> SystemState:
+        phi_1_init = jr.uniform(key, (N,)) * (2 * jnp.pi)
+        phi_2_init = jr.uniform(key, (N,)) * (2 * jnp.pi)
+
+        # kappaIni1 = sin(parStruct.beta(1))*ones(N*N,1)+0.01*(2*rand(N*N,1)-1);
+        kappa_1_init = jnp.sin(beta) * jnp.ones((N, N)) + 0.01 * (
+            2 * jr.uniform(key, (N, N)) - 1
+        )
+        # kappa_1_init = jr.uniform(key, (N, N)) * 2 - 1
+        kappa_1_init = kappa_1_init.at[jnp.diag_indices(N)].set(0)
+
+        kappa_2_init = jnp.ones((N, N))
+        # TODO as fraction
+        kappa_2_init = kappa_2_init.at[jnp.diag_indices(N)].set(0)
+        kappa_2_init = kappa_2_init.at[C:, :C].set(0)
+        kappa_2_init = kappa_2_init.at[:C, C:].set(0)
+
+        return SystemState(
+            phi_1=phi_1_init,
+            phi_2=phi_2_init,
+            kappa_1=kappa_1_init,
+            kappa_2=kappa_2_init,
+        )
+
+    return inner
+
+
+@assert_max_traces(max_traces=10)  # TODO: why is it traced that often?
+def system_deriv(
+    t: ScalarLike,
+    y: SystemState,
+    args: tuple[jnp.ndarray, ...],
+) -> SystemState:
+    (
+        ja_1_ij,
+        sin_alpha,
+        cos_alpha,
+        sin_beta,
+        cos_beta,
+        pi2,
+        adj,
+        jepsilon_1,
+        jepsilon_2,
+        jsigma,
+        jomega_1_i,
+        jomega_2_i,
+    ) = args
+    # recover states from the py_tree
+    phi_1_i, phi_2_i = y.phi_1 % pi2, y.phi_2 % pi2
+    kappa_1_ij, kappa_2_ij = y.kappa_1.clip(-1, 1), y.kappa_2.clip(-1, 1)
+
+    # sin/cos in radians
+    sin_phi_1, cos_phi_1 = jnp.sin(phi_1_i), jnp.cos(phi_1_i)
+    sin_phi_2, cos_phi_2 = jnp.sin(phi_2_i), jnp.cos(phi_2_i)
+
+    sin_diff_phi_1 = jnp.einsum("bi,bj->bij", sin_phi_1, cos_phi_1) - jnp.einsum(
+        "bi,bj->bij", cos_phi_1, sin_phi_1
+    )
+    cos_diff_phi_1 = jnp.einsum("bi,bj->bij", cos_phi_1, cos_phi_1) + jnp.einsum(
+        "bi,bj->bij", sin_phi_1, sin_phi_1
     )
 
-
-def full_save_compressed(
-    t: ScalarLike, y: SystemState, args: tuple[int, ...] | None
-) -> jnp.ndarray:
-    y = enforce_bounds(y)
-    return jnp.concatenate(
-        [
-            y.phi_1,
-            y.phi_2,
-            y.kappa_1.reshape(y.phi_1.shape[0], -1),
-            y.kappa_2.reshape(y.phi_1.shape[0], -1),
-        ],
-        axis=-1,
-        dtype=jnp.float16,
+    sin_diff_phi_2 = jnp.einsum("bi,bj->bij", sin_phi_2, cos_phi_2) - jnp.einsum(
+        "bi,bj->bij", cos_phi_2, sin_phi_2
+    )
+    cos_diff_phi_2 = jnp.einsum("bi,bj->bij", cos_phi_2, cos_phi_2) + jnp.einsum(
+        "bi,bj->bij", sin_phi_2, sin_phi_2
     )
 
+    sin_phi_1_diff_alpha = sin_diff_phi_1 * cos_alpha + cos_diff_phi_1 * sin_alpha
+    sin_phi_2_diff_alpha = sin_diff_phi_2 * cos_alpha + cos_diff_phi_2 * sin_alpha
 
-def metric_save(t: ScalarLike, y: SystemState, args: tuple[int, ...] | None):
-    y = enforce_bounds(y)
-
-    ###### Kuramoto Order Parameter
-    r_1 = jnp.abs(jnp.mean(jnp.exp(1j * y.phi_1), axis=-1))
-    r_2 = jnp.abs(jnp.mean(jnp.exp(1j * y.phi_2), axis=-1))
-
-    ###### Ensemble average of the standard deviations
-    # For the derivatives we need to evaluate again ...
-    dy = deriv(0, y, None)
-    std_1 = jnp.std(dy.phi_1, axis=-1)
-    std_2 = jnp.std(dy.phi_2, axis=-1)
-    mean_1 = jnp.mean(dy.phi_1, axis=-1)
-    mean_2 = jnp.mean(dy.phi_2, axis=-1)
-    s_1 = jnp.mean(std_1)
-    s_2 = jnp.mean(std_2)
-    nstd_1 = std_1 / mean_1
-    nstd_2 = std_2 / mean_1
-    ns_1 = jnp.mean(nstd_1)
-    ns_2 = jnp.mean(nstd_2)
-
-    ###### Frequency cluster ratio
-    # check for desynchronized nodes
-    desync_1 = jnp.any(jnp.abs(y.phi_1 - mean_1[:, None]) > 1e-3, axis=-1)
-    desync_2 = jnp.any(jnp.abs(y.phi_2 - mean_2[:, None]) > 1e-3, axis=-1)
-
-    # Count number of frequency clusters
-    # Number of ensembles where at least one node deviates
-    n_f_1 = jnp.sum(desync_1)
-    n_f_2 = jnp.sum(desync_2)
-
-    f_1 = n_f_1 / y.phi_1.shape[0]  # N_f / N_E
-    f_2 = n_f_2 / y.phi_1.shape[0]
-
-    return SystemMetrics(
-        r_1=r_1, r_2=r_2, s_1=s_1, s_2=s_2, ns_1=ns_1, ns_2=ns_2, f_1=f_1, f_2=f_2
+    # (phi1 (N), phi2 (N), k1 (NxN), k2 (NxN)))
+    # reuse y as dy
+    y.phi_1 = (
+        jomega_1_i
+        - adj * jnp.einsum("bij,bij->bi", (ja_1_ij + kappa_1_ij), sin_phi_1_diff_alpha)
+        - jsigma * (sin_phi_1 * cos_phi_2 - cos_phi_1 * sin_phi_2)
+    )
+    y.phi_2 = (
+        jomega_2_i
+        - adj * jnp.einsum("bij,bij->bi", kappa_2_ij, sin_phi_2_diff_alpha)
+        - jsigma * (sin_phi_2 * cos_phi_1 - cos_phi_2 * sin_phi_1)
     )
 
-
-@filter_jit
-def solve(batched_init_condition):
-    t = jnp.arange(T_trans, T_max + T_step, T_step)
-    term = ODETerm(deriv)
-    solver = Ralston()
-    stepsize_controller = ConstantStepSize()
-    saveat = SaveAt(t0=True, ts=t, fn=metric_save)
-    # saveat = SaveAt(ts=[0, T_max], fn=metric_save)
-    res = diffeqsolve(
-        term,
-        solver,
-        y0=batched_init_condition,
-        args=args,
-        t0=T_init,
-        t1=T_max,
-        dt0=T_step,
-        stepsize_controller=stepsize_controller,
-        max_steps=int(T_max / T_step) + 1,
-        progress_meter=TqdmProgressMeter(),
-        # saveat=saveat,
+    y.kappa_1 = -jepsilon_1 * (
+        kappa_1_ij + sin_diff_phi_1 * cos_beta - cos_diff_phi_1 * sin_beta
     )
-    return res
+    y.kappa_2 = -jepsilon_2 * (
+        kappa_2_ij + sin_diff_phi_2 * cos_beta - cos_diff_phi_2 * sin_beta
+    )
+
+    return y
 
 
-init_conditions = vmap(generate_init_conditions)(
-    rand_keys
-)  # shape: (num_parallel_runs, state)
+def make_full_compressed_save(dtype: jnp.dtype = jnp.float16) -> Callable:
+    def full_compressed_save(
+        t: ScalarLike, y: SystemState, args: tuple[jnp.ndarray, ...] | None
+    ) -> jnp.ndarray:
+        y.enforce_bounds()
+        # flat array of shape (N+N+N*N+N*N)
+        return jnp.concatenate(
+            [
+                y.phi_1,
+                y.phi_2,
+                y.kappa_1.reshape(y.phi_1.shape[0], -1),
+                y.kappa_2.reshape(y.phi_1.shape[0], -1),
+            ],
+            axis=-1,
+            dtype=dtype,
+        )
+
+    return full_compressed_save
 
 
-sol = solve(init_conditions)
+def make_metric_save(deriv) -> Callable:
+    def metric_save(t: ScalarLike, y: SystemState, args: tuple[jnp.ndarray, ...]):
+        y.enforce_bounds
 
-if sol.ts is not None and sol.ys is not None:
-    print(sol.ts)
-    print(sol.ys)
-    print(sol.ys.r_1.shape)  # shape (t, state)
-    print(sol.ys[-1].s_1)  # shape (t, state)
-    # print(sol.ys[-1][0][:N].sort())  # shape (t, batchnr, state)
-    # print(sol.ts.shape, sol.ys.shape)
-    # dir_name = "test"
-    # np_save(f"{dir_name}/t_vals", sol.ts)
-    # np_save(f"{dir_name}/y_vals", sol.ys)
-    # T_tot = len(sol.ts)
+        ###### Kuramoto Order Parameter
+        r_1 = jnp.abs(jnp.mean(jnp.exp(1j * y.phi_1), axis=-1))
+        r_2 = jnp.abs(jnp.mean(jnp.exp(1j * y.phi_2), axis=-1))
 
-    # info = {
-    #     "N": N,
-    #     "N_kappa": N_kappa,
-    #     "alpha": alpha,
-    #     "beta": beta,
-    #     "a_1": a_1,
-    #     "epsilon_1": epsilon_1,
-    #     "epsilon_2": epsilon_2,
-    #     "sigma": sigma,
-    #     "omega_1": omega_1,
-    #     "omega_2": omega_2,
-    #     "T_init": T_init,
-    #     "T_trans": T_trans,
-    #     "T_max": T_max,
-    #     "T_step": T_step,
-    #     "T_tot": T_tot,
-    # }
-    # with open(f"{dir_name}/info.json", "w") as json_file:
-    #     json.dump(info, json_file)
+        ###### Ensemble average of the standard deviations
+        # For the derivatives we need to evaluate again ...
+        dy = deriv(0, y, args)
+        mean_1 = jnp.mean(dy.phi_1, axis=-1)
+        mean_2 = jnp.mean(dy.phi_2, axis=-1)
+        std_1 = jnp.std(dy.phi_1, axis=-1)
+        std_2 = jnp.std(dy.phi_2, axis=-1)
+        s_1 = jnp.mean(std_1)
+        s_2 = jnp.mean(std_2)
+        nstd_1 = std_1 / mean_1
+        nstd_2 = std_2 / mean_1
+        ns_1 = jnp.mean(nstd_1)
+        ns_2 = jnp.mean(nstd_2)
+
+        ###### Frequency cluster ratio
+        # check for desynchronized nodes
+        eps = 1e-1
+        desync_1 = jnp.any(jnp.abs(y.phi_1 - mean_1[:, None]) > eps, axis=-1)
+        desync_2 = jnp.any(jnp.abs(y.phi_2 - mean_2[:, None]) > eps, axis=-1)
+
+        # Count number of frequency clusters
+        # Number of ensembles where at least one node deviates
+        n_f_1 = jnp.sum(desync_1)
+        n_f_2 = jnp.sum(desync_2)
+
+        N_E = y.phi_1.shape[0]
+        f_1 = n_f_1 / N_E  # N_f / N_E
+        f_2 = n_f_2 / N_E
+
+        return SystemMetrics(
+            r_1=r_1, r_2=r_2, s_1=s_1, s_2=s_2, ns_1=ns_1, ns_2=ns_2, f_1=f_1, f_2=f_2
+        )
+
+    return metric_save
