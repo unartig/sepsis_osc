@@ -1,8 +1,12 @@
 matplotlib>=3.9.2
 numpy>=2.0.1
-# torch>=2.3.1
-# torchdiffeq>=0.2.5
-jax==0.5.0
-diffrax==0.6.2
+jax==0.5.3
+diffrax==0.7.0
 equinox==0.11.11
 tqdm==4.67.1
+colorlog>=0.6.9
+faiss-cpu==1.10.0
+plyvel==1.5.1
+
+# at some point we need this
+# torch>=2.3.1
