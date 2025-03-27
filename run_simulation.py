@@ -1,13 +1,11 @@
 import logging
 
-import jax
 import jax.numpy as jnp
 import jax.random as jr
 from jax import vmap, jit
 from diffrax import (
     diffeqsolve,
     ODETerm,
-    RecursiveCheckpointAdjoint,
     ConstantStepSize,
     SaveAt,
     TqdmProgressMeter,
@@ -22,19 +20,17 @@ from equinox import filter_jit
 import numpy as np
 
 
-from config import jax_random_seed
+from utils.config import jax_random_seed
+from utils.logger import setup_logging
 from simulation import (
-    build_args,
     system_deriv,
     make_full_compressed_save,
     make_metric_save,
     generate_init_conditions_fixed,
-    SystemState,
-    SystemMetrics,
+    SystemConfig,
 )
-from storage import Storage
+from storage.storage_interface import Storage
 
-from logger import setup_logging
 
 setup_logging()
 logger = logging.getLogger(__name__)
@@ -45,10 +41,10 @@ num_parallel_runs = 50
 rand_keys = jr.split(rand_key, num_parallel_runs)
 
 #### Parameters
-N = 20
+N = 200
 N_kappa = N**2
-alpha = -0.28 * jnp.pi  # phase lag
-beta = 0.66 * jnp.pi  # age parameter
+alpha = -0.28  # phase lag
+beta = 0.66  # age parameter
 a_1 = 1.0
 epsilon_1 = 0.03  # adaption rate
 epsilon_2 = 0.3  # adaption rate
@@ -72,6 +68,8 @@ def solve(
     term = ODETerm(deriv)
     solver = Bosh3()
     stepsize_controller = ConstantStepSize()
+
+    # from 0 to t_transient
     transient = diffeqsolve(
         term,
         solver,
@@ -88,6 +86,7 @@ def solve(
     if not transient.ys:
         logger.error("Failed Transient Calculation. Aborting...")
         exit(0)
+    # from t_transient + step_size to t_max
     result = diffeqsolve(
         term,
         solver,
@@ -106,35 +105,33 @@ def solve(
 
 
 storage = Storage(key_dim=9)
-params = None
-for C in [39, 40 , 41]:
-    args = build_args(N, omega_1, omega_2, a_1, epsilon_1, epsilon_2, alpha, beta, sigma)
-    generate_init_conditions = generate_init_conditions_fixed(N, beta, C)
+for C in [10, 20, 30, 40]:
+    run_conf = SystemConfig(
+        N=N,
+        C=C,
+        omega_1=omega_1,
+        omega_2=omega_2,
+        a_1=a_1,
+        epsilon_1=epsilon_1,
+        epsilon_2=epsilon_2,
+        alpha=alpha,
+        beta=beta,
+        sigma=sigma,
+    )
+    generate_init_conditions = generate_init_conditions_fixed(run_conf.N, run_conf.beta, run_conf.C)
 
     init_conditions = vmap(generate_init_conditions)(rand_keys)
     # shape (num_parallel_runs, state)
-    sol = solve(init_conditions, args, deriv)
+    sol = solve(init_conditions, run_conf.as_args, deriv)
     if sol.ys:
-        params =   (
-                omega_1,
-                omega_2,
-                a_1,
-                epsilon_1,
-                epsilon_2,
-                alpha / jnp.pi,
-                beta / jnp.pi,
-                sigma,
-                C,
-            )
-        storage.add_result(params, sol.ys)
-        print(C, sol.ys.r_1.shape)
+        storage.add_result(run_conf.as_index, sol.ys)
+        print(C, sol.ys.r_1[-1])
         print(sol.ts)
 
 storage.close()
 
-if params:
-    storage1 = Storage()
-    res = storage1.read_result(params)
-    if res:
-        print(params[-1], res.r_1[-1])
-
+run_conf.C = 20
+storage1 = Storage()
+res = storage1.read_result(run_conf.as_index)
+if res:
+    print(run_conf.as_index[-1], res.r_1[-1])

@@ -13,5 +13,6 @@ log_file = "sepsis.log"
 
 # TODO
 # Merging of two Rocks into a stone
-# FAISS  ranges for parameters, so we can normalize
 # threshold distance for retrieval
+# and exact flag
+# retrieve multiple params

@@ -100,7 +100,7 @@ class Storage:
         self.add_rocks_metric(metrics)
         self.last_id += 1
 
-    def read_result(self, params: tuple[int|float, ...]) -> None | SystemMetrics:
+    def read_result(self, params: tuple[int | float, ...]) -> None | SystemMetrics:
         logger.info(f"Getting Results for {params}, starting Pipeline")
         np_params = np.array([params], dtype=np.float32)
         index = self.find_faiss(np_params)

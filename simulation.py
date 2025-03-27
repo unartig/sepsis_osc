@@ -11,6 +11,69 @@ from dataclasses import dataclass
 
 
 @dataclass
+class SystemConfig:
+    N: int
+    C: int
+    omega_1: float
+    omega_2: float
+    a_1: float
+    epsilon_1: float
+    epsilon_2: float
+    alpha: float
+    beta: float
+    sigma: float
+    T_init: int | None = None
+    T_trans: int | None = None
+    T_max: int | None = None
+    T_step: int | None = None
+
+    @property
+    def as_args(self) -> tuple[jnp.ndarray, ...]:
+        ja_1_ij = jnp.ones((self.N, self.N)) * self.a_1
+        ja_1_ij = ja_1_ij.at[jnp.diag_indices(self.N)].set(0)  # NOTE no self coupling
+        jsin_alpha = jnp.sin(self.alpha * jnp.pi)
+        jcos_alpha = jnp.cos(self.alpha * jnp.pi)
+        jsin_beta = jnp.sin(self.beta * jnp.pi)
+        jcos_beta = jnp.cos(self.beta * jnp.pi)
+        jpi2 = jnp.array(jnp.pi * 2)
+        jadj = jnp.array(1 / (self.N - 1))
+        diag = (jnp.ones((self.N, self.N)) - jnp.eye(self.N))[None, :]  # again no self coupling
+        jepsilon_1 = self.epsilon_1 * diag
+        jepsilon_2 = self.epsilon_2 * diag
+        jomega_1_i = jnp.ones((self.N,)) * self.omega_1
+        jomega_2_i = jnp.ones((self.N,)) * self.omega_2
+        jsigma = jnp.array(self.sigma)
+        return (
+            ja_1_ij,
+            jsin_alpha,
+            jcos_alpha,
+            jsin_beta,
+            jcos_beta,
+            jpi2,
+            jadj,
+            jepsilon_1,
+            jepsilon_2,
+            jsigma,
+            jomega_1_i,
+            jomega_2_i,
+        )
+
+    @property
+    def as_index(self) -> tuple[float | int, ...]:
+        return (
+            self.omega_1,
+            self.omega_2,
+            self.a_1,
+            self.epsilon_1,
+            self.epsilon_2,
+            self.alpha / jnp.pi,
+            self.beta / jnp.pi,
+            self.sigma / 2,
+            self.C / self.N,
+        )
+
+
+@dataclass
 class SystemState:
     phi_1: jnp.ndarray  # Shape (N,)
     phi_2: jnp.ndarray  # Shape (N,)
@@ -41,9 +104,7 @@ class SystemState:
 
 
 # Register SystemState as a JAX PyTree
-jtu.register_pytree_node(
-    SystemState, SystemState.tree_flatten, SystemState.tree_unflatten
-)
+jtu.register_pytree_node(SystemState, SystemState.tree_flatten, SystemState.tree_unflatten)
 
 
 @dataclass
@@ -78,9 +139,7 @@ class SystemMetrics:
         return cls(*children)
 
 
-jtu.register_pytree_node(
-    SystemMetrics, SystemMetrics.tree_flatten, SystemMetrics.tree_unflatten
-)
+jtu.register_pytree_node(SystemMetrics, SystemMetrics.tree_flatten, SystemMetrics.tree_unflatten)
 
 #### Configurations
 # jax flags
@@ -107,61 +166,17 @@ devices = jax.devices()
 print("jax.devices()", devices)
 
 
-def build_args(
-    N: int,
-    omega_1: float,
-    omega_2: float,
-    a_1: float,
-    epsilon_1: float,
-    epsilon_2: float,
-    alpha: float,
-    beta: float,
-    sigma: float,
-) -> tuple[jnp.ndarray, ...]:
-    ja_1_ij = jnp.ones((N, N)) * a_1
-    ja_1_ij = ja_1_ij.at[jnp.diag_indices(N)].set(0)  # NOTE no self coupling
-    jsin_alpha = jnp.sin(alpha)
-    jcos_alpha = jnp.cos(alpha)
-    jsin_beta = jnp.sin(beta)
-    jcos_beta = jnp.cos(beta)
-    jpi2 = jnp.array(jnp.pi * 2)
-    jadj = jnp.array(1 / (N - 1))
-    diag = (jnp.ones((N, N)) - jnp.eye(N))[None, :]  # again no self coupling
-    jepsilon_1 = epsilon_1 * diag
-    jepsilon_2 = epsilon_2 * diag
-    jomega_1_i = jnp.ones((N,)) * omega_1
-    jomega_2_i = jnp.ones((N,)) * omega_2
-    jsigma = jnp.array(sigma)
-    return (
-        ja_1_ij,
-        jsin_alpha,
-        jcos_alpha,
-        jsin_beta,
-        jcos_beta,
-        jpi2,
-        jadj,
-        jepsilon_1,
-        jepsilon_2,
-        jsigma,
-        jomega_1_i,
-        jomega_2_i,
-    )
-
-
 def generate_init_conditions_fixed(N: int, beta: float, C: int) -> Callable:
     def inner(key: jnp.ndarray) -> SystemState:
         phi_1_init = jr.uniform(key, (N,)) * (2 * jnp.pi)
         phi_2_init = jr.uniform(key, (N,)) * (2 * jnp.pi)
 
         # kappaIni1 = sin(parStruct.beta(1))*ones(N*N,1)+0.01*(2*rand(N*N,1)-1);
-        kappa_1_init = jnp.sin(beta) * jnp.ones((N, N)) + 0.01 * (
-            2 * jr.uniform(key, (N, N)) - 1
-        )
+        kappa_1_init = jnp.sin(beta) * jnp.ones((N, N)) + 0.01 * (2 * jr.uniform(key, (N, N)) - 1)
         # kappa_1_init = jr.uniform(key, (N, N)) * 2 - 1
         kappa_1_init = kappa_1_init.at[jnp.diag_indices(N)].set(0)
 
         kappa_2_init = jnp.ones((N, N))
-        # TODO as fraction
         kappa_2_init = kappa_2_init.at[jnp.diag_indices(N)].set(0)
         kappa_2_init = kappa_2_init.at[C:, :C].set(0)
         kappa_2_init = kappa_2_init.at[:C, C:].set(0)
@@ -204,19 +219,11 @@ def system_deriv(
     sin_phi_1, cos_phi_1 = jnp.sin(phi_1_i), jnp.cos(phi_1_i)
     sin_phi_2, cos_phi_2 = jnp.sin(phi_2_i), jnp.cos(phi_2_i)
 
-    sin_diff_phi_1 = jnp.einsum("bi,bj->bij", sin_phi_1, cos_phi_1) - jnp.einsum(
-        "bi,bj->bij", cos_phi_1, sin_phi_1
-    )
-    cos_diff_phi_1 = jnp.einsum("bi,bj->bij", cos_phi_1, cos_phi_1) + jnp.einsum(
-        "bi,bj->bij", sin_phi_1, sin_phi_1
-    )
+    sin_diff_phi_1 = jnp.einsum("bi,bj->bij", sin_phi_1, cos_phi_1) - jnp.einsum("bi,bj->bij", cos_phi_1, sin_phi_1)
+    cos_diff_phi_1 = jnp.einsum("bi,bj->bij", cos_phi_1, cos_phi_1) + jnp.einsum("bi,bj->bij", sin_phi_1, sin_phi_1)
 
-    sin_diff_phi_2 = jnp.einsum("bi,bj->bij", sin_phi_2, cos_phi_2) - jnp.einsum(
-        "bi,bj->bij", cos_phi_2, sin_phi_2
-    )
-    cos_diff_phi_2 = jnp.einsum("bi,bj->bij", cos_phi_2, cos_phi_2) + jnp.einsum(
-        "bi,bj->bij", sin_phi_2, sin_phi_2
-    )
+    sin_diff_phi_2 = jnp.einsum("bi,bj->bij", sin_phi_2, cos_phi_2) - jnp.einsum("bi,bj->bij", cos_phi_2, sin_phi_2)
+    cos_diff_phi_2 = jnp.einsum("bi,bj->bij", cos_phi_2, cos_phi_2) + jnp.einsum("bi,bj->bij", sin_phi_2, sin_phi_2)
 
     sin_phi_1_diff_alpha = sin_diff_phi_1 * cos_alpha + cos_diff_phi_1 * sin_alpha
     sin_phi_2_diff_alpha = sin_diff_phi_2 * cos_alpha + cos_diff_phi_2 * sin_alpha
@@ -234,20 +241,14 @@ def system_deriv(
         - jsigma * (sin_phi_2 * cos_phi_1 - cos_phi_2 * sin_phi_1)
     )
 
-    y.kappa_1 = -jepsilon_1 * (
-        kappa_1_ij + sin_diff_phi_1 * cos_beta - cos_diff_phi_1 * sin_beta
-    )
-    y.kappa_2 = -jepsilon_2 * (
-        kappa_2_ij + sin_diff_phi_2 * cos_beta - cos_diff_phi_2 * sin_beta
-    )
+    y.kappa_1 = -jepsilon_1 * (kappa_1_ij + sin_diff_phi_1 * cos_beta - cos_diff_phi_1 * sin_beta)
+    y.kappa_2 = -jepsilon_2 * (kappa_2_ij + sin_diff_phi_2 * cos_beta - cos_diff_phi_2 * sin_beta)
 
     return y
 
 
 def make_full_compressed_save(dtype: jnp.dtype = jnp.float16) -> Callable:
-    def full_compressed_save(
-        t: ScalarLike, y: SystemState, args: tuple[jnp.ndarray, ...] | None
-    ) -> jnp.ndarray:
+    def full_compressed_save(t: ScalarLike, y: SystemState, args: tuple[jnp.ndarray, ...] | None) -> jnp.ndarray:
         y.enforce_bounds()
         # flat array of shape (N+N+N*N+N*N)
         return jnp.concatenate(
@@ -288,7 +289,7 @@ def make_metric_save(deriv) -> Callable:
 
         ###### Frequency cluster ratio
         # check for desynchronized nodes
-        eps = 1e-1
+        eps = 1e-1  # TODO what is the value here?
         desync_1 = jnp.any(jnp.abs(y.phi_1 - mean_1[:, None]) > eps, axis=-1)
         desync_2 = jnp.any(jnp.abs(y.phi_2 - mean_2[:, None]) > eps, axis=-1)
 
@@ -301,8 +302,6 @@ def make_metric_save(deriv) -> Callable:
         f_1 = n_f_1 / N_E  # N_f / N_E
         f_2 = n_f_2 / N_E
 
-        return SystemMetrics(
-            r_1=r_1, r_2=r_2, s_1=s_1, s_2=s_2, ns_1=ns_1, ns_2=ns_2, f_1=f_1, f_2=f_2
-        )
+        return SystemMetrics(r_1=r_1, r_2=r_2, s_1=s_1, s_2=s_2, ns_1=ns_1, ns_2=ns_2, f_1=f_1, f_2=f_2)
 
     return metric_save
