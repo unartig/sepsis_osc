@@ -119,13 +119,14 @@ for beta in np.linspace(0.4, 0.7, 50):
             beta=beta,
             sigma=sigma,
         )
-        generate_init_conditions = generate_init_conditions_fixed(run_conf.N, run_conf.beta, run_conf.C)
+        if not storage.read_result(run_conf.as_index, threshold=0.0):
+            generate_init_conditions = generate_init_conditions_fixed(run_conf.N, run_conf.beta, run_conf.C)
 
-        init_conditions = vmap(generate_init_conditions)(rand_keys)
-        # shape (num_parallel_runs, state)
-        sol = solve(init_conditions, run_conf.as_args, deriv)
-        if sol.ys:
-            storage.add_result(run_conf.as_index, sol.ys)
+            init_conditions = vmap(generate_init_conditions)(rand_keys)
+            # shape (num_parallel_runs, state)
+            sol = solve(init_conditions, run_conf.as_args, deriv)
+            if sol.ys:
+                storage.add_result(run_conf.as_index, sol.ys)
 
-    storage.close()
-    storage = Storage()
+            storage.close()
+            storage = Storage()

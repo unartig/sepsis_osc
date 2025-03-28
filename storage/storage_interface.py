@@ -29,7 +29,7 @@ class Storage:
         # key: FAISS-index, value: npz compressed SystemMetric
         self.__db_metric = plyvel.DB(self.metrics_kv_name, create_if_missing=True)
         last_id_bytes = self.__db_metric.get(b"faiss_last_id")
-        self.last_id = int(last_id_bytes.decode()) if last_id_bytes else 0
+        self.current_idx = int(last_id_bytes.decode()) + 1 if last_id_bytes else 0
 
     def __setup_faiss(self, db_name: str):
         index = faiss.IndexFlatL2(self.key_dim)  # L2 (Euclidean) distance
@@ -42,22 +42,22 @@ class Storage:
         return index
 
     def add_faiss(self, key: np.ndarray):
-        logger.info(f"Adding key {key[0]} to FAISS index as [{self.last_id}] ")
+        logger.info(f"Adding key {key[0]} to FAISS index as [{self.current_idx}] ")
         self.__db_keys.add(key)
-        self.__db_metric.put(b"faiss_last_id", str(self.last_id).encode())
+        self.__db_metric.put(b"faiss_last_id", str(self.current_idx).encode())
 
     def write_faiss(self):
         logger.info(f"Writing FAISS index to {self.parameter_k_name}")
         faiss.write_index(self.__db_keys, db_parameter_keys)
 
-    def find_faiss(self, query_key: np.ndarray, k: int = 1):
+    def find_faiss(self, query_key: np.ndarray, k: int = 1) -> tuple[np.ndarray, np.ndarray]:
         logger.info(f"Searching {query_key} in FAISS index")
         distances, indices = self.__db_keys.search(query_key, k=k)
         logger.info(f"Found vectors have distance {distances}")
-        return indices
+        return indices, distances
 
     def add_rocks_metric(self, metrics: SystemMetrics):
-        logger.info(f"Adding SystemMetrics with key {self.last_id} to RocksDB")
+        logger.info(f"Adding SystemMetrics with key {self.current_idx} to RocksDB")
         with open("storage/tmp.npz", "wb") as f:
             np.savez_compressed(
                 f,
@@ -71,7 +71,7 @@ class Storage:
                 f_2=metrics.f_2,
             )
         with open("storage/tmp.npz", "rb") as f:
-            self.__db_metric.put(f"metrics_{str(self.last_id)}".encode(), f.read())
+            self.__db_metric.put(f"metrics_{str(self.current_idx)}".encode(), f.read())
 
     def read_rocks_metric(self, key: str) -> SystemMetrics:
         logger.info(f"Reading SystemMetrics with key {key} from RocksDB")
@@ -98,13 +98,17 @@ class Storage:
         np_params = np.array([params], dtype=np.float32)
         self.add_faiss(np_params)
         self.add_rocks_metric(metrics)
-        self.last_id += 1
+        self.current_idx += 1
 
-    def read_result(self, params: tuple[int | float, ...]) -> None | SystemMetrics:
+    def read_result(self, params: tuple[int | float, ...], threshold=np.inf) -> None | SystemMetrics:
         logger.info(f"Getting Results for {params}, starting Pipeline")
         np_params = np.array([params], dtype=np.float32)
-        index = self.find_faiss(np_params)
-        return self.read_rocks_metric(str(index[0][0]))
+        index, distance = self.find_faiss(np_params)
+        if distance[0][0] <= threshold:
+            logger.info(f"Found Parameter set with distance {distance[0][0]} <= threshold {threshold}")
+            return self.read_rocks_metric(str(index[0][0]))
+        logger.info(f"Could not find parameter set with distance {distance[0][0]} <= threshold {threshold}")
+        return None
 
     def close(self):
         self.write_faiss()
