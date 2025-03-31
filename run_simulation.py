@@ -40,27 +40,17 @@ rand_key = jr.key(jax_random_seed)
 num_parallel_runs = 50
 rand_keys = jr.split(rand_key, num_parallel_runs)
 
-#### Parameters
-N = 200
-N_kappa = N**2
-alpha = -0.28  # phase lag
-beta = 0.66  # age parameter
-a_1 = 1.0
-epsilon_1 = 0.03  # adaption rate
-epsilon_2 = 0.3  # adaption rate
-sigma = 1.0
-T_init, T_trans, T_max = 0, 100, 200
-T_step = 0.05
-omega_1 = omega_2 = 0.0
-C = 40  # local infection
-
 
 deriv = system_deriv
 metric_save = make_metric_save(system_deriv)
 
 
-@filter_jit
+# @filter_jit
 def solve(
+    T_init,
+    T_trans,
+    T_max,
+    T_step,
     batched_init_condition,
     args,
     deriv,
@@ -90,7 +80,7 @@ def solve(
     result = diffeqsolve(
         term,
         solver,
-        y0=transient.ys.squeeze().enforce_bounds(),
+        y0=transient.ys.last().enforce_bounds(),
         solver_state=transient.solver_state,
         args=args,
         t0=T_trans,
@@ -104,9 +94,24 @@ def solve(
     return result
 
 
+#### Parameters
+N = 200
+N_kappa = N**2
+alpha = -0.28  # phase lag
+beta = 0.66  # age parameter
+a_1 = 1.0
+epsilon_1 = 0.03  # adaption rate
+epsilon_2 = 0.3  # adaption rate
+sigma = 1.0
+T_init, T_trans, T_max = 0, 10, 20
+T_step = 0.05
+omega_1 = omega_2 = 0.0
+C = 40  # local infection
+
+
 storage = Storage()
-for beta in np.linspace(0.4, 0.7, 50):
-    for sigma in np.linspace(0, 1.5, 50):
+for beta in np.linspace(0.4, 0.7, 100):
+    for sigma in np.linspace(0, 1.5, 100):
         run_conf = SystemConfig(
             N=N,
             C=C,
@@ -124,7 +129,7 @@ for beta in np.linspace(0.4, 0.7, 50):
 
             init_conditions = vmap(generate_init_conditions)(rand_keys)
             # shape (num_parallel_runs, state)
-            sol = solve(init_conditions, run_conf.as_args, deriv)
+            sol = solve(T_init, T_trans, T_max, T_step, init_conditions, run_conf.as_args, deriv)
             if sol.ys:
                 storage.add_result(run_conf.as_index, sol.ys)
 

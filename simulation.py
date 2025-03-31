@@ -95,12 +95,21 @@ class SystemState:
         self.kappa_2 = jnp.clip(self.kappa_2, -1, 1)
         return self
 
-    def squeeze(self):
-        self.phi_1 = self.phi_1.squeeze()
-        self.phi_2 = self.phi_2.squeeze()
-        self.kappa_1 = self.kappa_1.squeeze()
-        self.kappa_2 = self.kappa_2.squeeze()
+    def last(self):
+        self.phi_1 = self.phi_1[-1]
+        self.phi_2 = self.phi_2[-1]
+        self.kappa_1 = self.kappa_1[-1]
+        self.kappa_2 = self.kappa_2[-1]
         return self
+
+    def astype(self, dtype: jnp.dtype = jnp.float64):
+        return SystemState(
+            phi_1=self.phi_1.astype(dtype),
+            phi_2=self.phi_2.astype(dtype),
+            kappa_1=self.kappa_1.astype(dtype),
+            kappa_2=self.kappa_2.astype(dtype)
+        )
+        
 
 
 # Register SystemState as a JAX PyTree
@@ -191,7 +200,7 @@ def generate_init_conditions_fixed(N: int, beta: float, C: int) -> Callable:
     return inner
 
 
-@assert_max_traces(max_traces=10)  # TODO: why is it traced that often?
+# @assert_max_traces(max_traces=20)  # TODO: why is it traced that often?
 def system_deriv(
     t: ScalarLike,
     y: SystemState,
@@ -250,22 +259,24 @@ def system_deriv(
 def make_full_compressed_save(dtype: jnp.dtype = jnp.float16) -> Callable:
     def full_compressed_save(t: ScalarLike, y: SystemState, args: tuple[jnp.ndarray, ...] | None) -> jnp.ndarray:
         y.enforce_bounds()
-        # flat array of shape (N+N+N*N+N*N)
-        return jnp.concatenate(
-            [
-                y.phi_1,
-                y.phi_2,
-                y.kappa_1.reshape(y.phi_1.shape[0], -1),
-                y.kappa_2.reshape(y.phi_1.shape[0], -1),
-            ],
-            axis=-1,
-            dtype=dtype,
-        )
+        return y.astype(dtype)
 
     return full_compressed_save
 
 
 def make_metric_save(deriv) -> Callable:
+    def mean_angle(angles, axis=None):
+        angles = jnp.asarray(angles)
+        sin_vals = jnp.sin(angles)
+        cos_vals = jnp.cos(angles)
+        return jnp.arctan2(jnp.mean(sin_vals, axis=axis), jnp.mean(cos_vals, axis=axis))
+
+    def std_angle(angles, axis=None):
+        angles = jnp.asarray(angles)
+        mean_ang = mean_angle(angles, axis=axis)
+        angular_diff = jnp.angle(jnp.exp(1j * (angles - jnp.expand_dims(mean_ang, axis))))  # Wrap differences to [-pi, pi]
+        return jnp.sqrt(jnp.mean(angular_diff ** 2, axis=axis))
+    
     def metric_save(t: ScalarLike, y: SystemState, args: tuple[jnp.ndarray, ...]):
         y.enforce_bounds
 
@@ -276,10 +287,10 @@ def make_metric_save(deriv) -> Callable:
         ###### Ensemble average of the standard deviations
         # For the derivatives we need to evaluate again ...
         dy = deriv(0, y, args)
-        mean_1 = jnp.mean(dy.phi_1, axis=-1)
-        mean_2 = jnp.mean(dy.phi_2, axis=-1)
-        std_1 = jnp.std(dy.phi_1, axis=-1)
-        std_2 = jnp.std(dy.phi_2, axis=-1)
+        mean_1 = mean_angle(dy.phi_1, axis=-1)
+        mean_2 = mean_angle(dy.phi_2, axis=-1)
+        std_1 = std_angle(dy.phi_1, axis=-1)
+        std_2 = std_angle(dy.phi_2, axis=-1)
         s_1 = jnp.mean(std_1)
         s_2 = jnp.mean(std_2)
         nstd_1 = std_1 / mean_1
