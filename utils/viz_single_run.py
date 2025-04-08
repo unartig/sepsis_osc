@@ -104,7 +104,7 @@ def gif_phase_plt(phis_1: np.ndarray, phis_2: np.ndarray, filename="phis.gif"):
         ax.clear()
         plot_phase_snapshot(phis_1, phis_2, t=t, ax=ax)
         ax.set_xlim(0, 2 * N)
-        ax.set_xlabel("Index [0-199] Parenchymal, [200- 400] Immune Layer")
+        ax.set_xlabel(f"Index [0-{int(N/2)-1}] Parenchymal, [{int(N/2)-1} - {N}] Immune Layer")
         ax.set_ylabel("Phase / π")
         ax.set_title(f"Time step: {t}")
         return []

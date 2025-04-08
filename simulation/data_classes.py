@@ -139,12 +139,15 @@ class SystemMetrics:
     # Kuramoto Order Parameter
     r_1: jnp.ndarray | np.ndarray  # shape (batch_size,)
     r_2: jnp.ndarray | np.ndarray  # shape (batch_size,)
+    # Ensemble average velocity
+    m_1: ScalarLike | jnp.ndarray | np.ndarray
+    m_2: ScalarLike | jnp.ndarray | np.ndarray
     # Ensemble average std
     s_1: ScalarLike | jnp.ndarray | np.ndarray  # for a single run these are scalars
     s_2: ScalarLike | jnp.ndarray | np.ndarray
-    # Ensemble average normed std
-    ns_1: ScalarLike | jnp.ndarray | np.ndarray
-    ns_2: ScalarLike | jnp.ndarray | np.ndarray
+    # Ensemble phase entropy
+    q_1: ScalarLike | jnp.ndarray | np.ndarray
+    q_2: ScalarLike | jnp.ndarray | np.ndarray
     # Frequency cluster ratio
     f_1: ScalarLike | jnp.ndarray | np.ndarray
     f_2: ScalarLike | jnp.ndarray | np.ndarray
@@ -153,10 +156,12 @@ class SystemMetrics:
         return (
             self.r_1,
             self.r_2,
+            self.m_1,
+            self.m_2,
             self.s_1,
             self.s_2,
-            self.ns_1,
-            self.ns_2,
+            self.q_1,
+            self.q_2,
             self.f_1,
             self.f_2,
         ), None
@@ -169,10 +174,12 @@ class SystemMetrics:
         return SystemMetrics(
             jnp.asarray(self.r_1).copy(),
             jnp.asarray(self.r_2).copy(),
+            jnp.asarray(self.m_1).copy(),
+            jnp.asarray(self.m_2).copy(),
             jnp.asarray(self.s_1).copy(),
             jnp.asarray(self.s_2).copy(),
-            jnp.asarray(self.ns_1).copy(),
-            jnp.asarray(self.ns_2).copy(),
+            jnp.asarray(self.q_1).copy(),
+            jnp.asarray(self.q_2).copy(),
             jnp.asarray(self.f_1).copy(),
             jnp.asarray(self.f_2).copy(),
         )

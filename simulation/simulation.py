@@ -80,6 +80,7 @@ def system_deriv(
     kappa_1_ij, kappa_2_ij = y.kappa_1.clip(-1, 1), y.kappa_2.clip(-1, 1)
 
     # sin/cos in radians
+    # https://mediatum.ub.tum.de/doc/1638503/1638503.pdf
     sin_phi_1, cos_phi_1 = jnp.sin(phi_1_i), jnp.cos(phi_1_i)
     sin_phi_2, cos_phi_2 = jnp.sin(phi_2_i), jnp.cos(phi_2_i)
 
@@ -178,6 +179,15 @@ def make_metric_save(deriv) -> Callable:
         )  # Wrap differences to [-pi, pi]
         return jnp.sqrt(jnp.mean(angular_diff**2, axis=axis))
 
+    def phase_entropy(phis: jnp.ndarray, num_bins=30):
+        hist, bin_edges = jnp.histogram(phis, bins=num_bins, range=(0, 2 * jnp.pi), density=True)
+
+        hist = jnp.clip(hist, 1e-10, 1)
+
+        # Shannon entropy
+        entropy = -jnp.sum(hist * jnp.log(hist) * (bin_edges[1] - bin_edges[0]))  # bin width is constant
+        return entropy
+
     def metric_save(t: ScalarLike, y: SystemState, args: tuple[jnp.ndarray, ...]):
         y.enforce_bounds()
 
@@ -185,25 +195,24 @@ def make_metric_save(deriv) -> Callable:
         r_1 = jnp.abs(jnp.mean(jnp.exp(1j * y.phi_1), axis=-1))
         r_2 = jnp.abs(jnp.mean(jnp.exp(1j * y.phi_2), axis=-1))
 
-        ###### Ensemble average of the standard deviations
+        ###### Entropy of Phase System
+        q_1 = phase_entropy(y.phi_1)
+        q_2 = phase_entropy(y.phi_2)
+
+        ###### Ensemble average and avergage of the standard deviations
         # For the derivatives we need to evaluate again ...
         dy = deriv(0, y, args)
-        mean_1 = mean_angle(dy.phi_1, axis=-1)
-        mean_2 = mean_angle(dy.phi_2, axis=-1)
-        std_1 = std_angle(dy.phi_1, axis=-1)
-        std_2 = std_angle(dy.phi_2, axis=-1)
-        s_1 = jnp.mean(std_1)
-        s_2 = jnp.mean(std_2)
-        nstd_1 = std_1 / mean_1
-        nstd_2 = std_2 / mean_2
-        ns_1 = jnp.mean(nstd_1)
-        ns_2 = jnp.mean(nstd_2)
+        m_1 = jnp.mean(mean_angle(dy.phi_1, axis=-1))
+        m_2 = jnp.mean(mean_angle(dy.phi_2, axis=-1))
+
+        s_1 = jnp.mean(std_angle(dy.phi_1, axis=-1))
+        s_2 = jnp.mean(std_angle(dy.phi_2, axis=-1))
 
         ###### Frequency cluster ratio
         # check for desynchronized nodes
         eps = 1e-1  # TODO what is the value here?
-        desync_1 = jnp.any(jnp.abs(y.phi_1 - mean_1[:, None]) > eps, axis=-1)
-        desync_2 = jnp.any(jnp.abs(y.phi_2 - mean_2[:, None]) > eps, axis=-1)
+        desync_1 = jnp.any(jnp.abs(y.phi_1 - m_1[:, None]) > eps, axis=-1)
+        desync_2 = jnp.any(jnp.abs(y.phi_2 - m_2[:, None]) > eps, axis=-1)
 
         # Count number of frequency clusters
         # Number of ensembles where at least one node deviates
@@ -214,6 +223,6 @@ def make_metric_save(deriv) -> Callable:
         f_1 = n_f_1 / N_E  # N_f / N_E
         f_2 = n_f_2 / N_E
 
-        return SystemMetrics(r_1=r_1, r_2=r_2, s_1=s_1, s_2=s_2, ns_1=ns_1, ns_2=ns_2, f_1=f_1, f_2=f_2)
+        return SystemMetrics(r_1=r_1, r_2=r_2, m_1=m_1, m_2=m_2, s_1=s_1, s_2=s_2, q_1=q_1, q_2=q_2, f_1=f_1, f_2=f_2)
 
     return metric_save
