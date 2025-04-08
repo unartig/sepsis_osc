@@ -56,32 +56,61 @@ def plot_kappa(kappas: np.ndarray, t=-1, ax=None):
     return ax
 
 
-def gif_phase_plt(phis_1: np.ndarray, phis_2: np.ndarray):
+def plot_kuramoto(phis: np.ndarray, t: int = -1, ax=None, color: str = ""):
+    if not ax:
+        fig = plt.figure()
+        ax = fig.add_subplot(111, projection="polar")
+    color = color if color else "tab:blue"
+    radii = np.ones_like(phis[t])
+    ax.scatter(phis[t], radii, c=color)
+
+    z = np.exp(1j * phis[t])
+    order_param = np.mean(z)
+    R = np.abs(order_param)
+    psi = np.angle(order_param)
+    ax.annotate(
+        "",
+        xy=(psi, R),
+        xytext=(0, 0),
+        arrowprops=dict(facecolor="black", shrink=0.0, width=2, headwidth=8),
+    )
+
+
+def gif_kuramoto_plt(phis_1: np.ndarray, phis_2: np.ndarray, filename="kuramoto.gif"):
     T, N = phis_1.shape
-    fig, ax = plt.subplots()
-    scat1 = ax.scatter([], [], color="blue", label="phis_1", s=2)
-    scat2 = ax.scatter([], [], color="orange", label="phis_2", s=2)
-    ax.set_xlim(0, 2 * N)
-    ax.set_ylim(0, 2)
-    ax.set_xlabel("Index")
-    ax.set_ylabel("Phase / π")
-    ax.legend()
+    fig, (ax1, ax2) = plt.subplots(1, 2, subplot_kw={"projection": "polar"}, figsize=(8, 4))
 
     def update(t):
-        y1 = phis_1[t] / np.pi
-        y2 = phis_2[t] / np.pi
-        x1 = np.arange(N)
-        x2 = np.arange(N) + N
-        scat1.set_offsets(np.column_stack([x1, y1]))
-        scat2.set_offsets(np.column_stack([x2, y2]))
+        ax1.clear()
+        plot_kuramoto(phis_1, t=t, ax=ax1, color="blue")
+        ax1.set_title(f"Parenchymal Layer — t={t}")
+
+        ax2.clear()
+        plot_kuramoto(phis_2, t=t, ax=ax2, color="orange")
+        ax2.set_title(f"Immune Layer — t={t}")
+
+        return []
+
+    ani = FuncAnimation(fig, update, frames=T, blit=False)
+    ani.save(filename, writer=PillowWriter(fps=10))
+    plt.close(fig)
+
+
+def gif_phase_plt(phis_1: np.ndarray, phis_2: np.ndarray, filename="phis.gif"):
+    T, N = phis_1.shape
+    fig, ax = plt.subplots()
+
+    def update(t):
+        ax.clear()
+        plot_phase_snapshot(phis_1, phis_2, t=t, ax=ax)
+        ax.set_xlim(0, 2 * N)
+        ax.set_xlabel("Index [0-199] Parenchymal, [200- 400] Immune Layer")
+        ax.set_ylabel("Phase / π")
         ax.set_title(f"Time step: {t}")
-        return scat1, scat2
+        return []
 
-    ani = FuncAnimation(fig, update, frames=T, blit=True)
-
-    ani.save("phis.gif", writer=PillowWriter(fps=3))
-
-    plt.show()
+    ani = FuncAnimation(fig, update, frames=T, blit=False)
+    ani.save(filename, writer=PillowWriter(fps=10))
     plt.close(fig)
 
 
@@ -157,7 +186,7 @@ if __name__ == "__main__":
     # romega_2 = (sol.ys.phi_2[-1, :] - sol.ys.phi_2[1, :]) / ((T_max - last_t) * T_step)
     # plot_mean_phase_velos(romega_1, romega_2)
 
-    print((ys.phi_1[-1].mean() - ys.phi_2[-1].mean()) / 2 * np.pi)
+    print((ys.phi_1[-1].mean() - ys.phi_2[-1].mean()) / np.pi)
     ts = ts[~jnp.isinf(ts)]
     print(ys.phi_1.shape)
 
@@ -169,5 +198,10 @@ if __name__ == "__main__":
     plot_kappa(ys.kappa_2, 0)
 
     plot_phase_space_time(ys.phi_1)
+
+    plot_kuramoto(ys.phi_1)
+    plot_kuramoto(ys.phi_1, 0)
+
     # gif_phase_plt(ys.phi_1, ys.phi_2)
+    gif_kuramoto_plt(ys.phi_1, ys.phi_2)
     plt.show()
