@@ -4,3 +4,5 @@ __pycache__
 pyrightconfig.json
 *.npz
 *.log
+/storage/*SepsisMetrics.db/*
+/storage/other/*SepsisMetrics.db/*

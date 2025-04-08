@@ -6,7 +6,8 @@ equinox==0.11.11
 tqdm==4.67.1
 colorlog>=0.6.9
 faiss-cpu==1.10.0
-plyvel==1.5.1
+msgpack-numpy==0.4.8
+rocksdb-py==0.0.5
 
 # at some point we need this
 # torch>=2.3.1
