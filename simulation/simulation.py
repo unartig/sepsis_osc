@@ -202,8 +202,10 @@ def make_metric_save(deriv) -> Callable:
         ###### Ensemble average and avergage of the standard deviations
         # For the derivatives we need to evaluate again ...
         dy = deriv(0, y, args)
-        m_1 = jnp.mean(mean_angle(dy.phi_1, axis=-1))
-        m_2 = jnp.mean(mean_angle(dy.phi_2, axis=-1))
+        mean_1 = mean_angle(dy.phi_1, axis=-1)
+        mean_2 = mean_angle(dy.phi_2, axis=-1)
+        m_1 = jnp.mean(mean_1)
+        m_2 = jnp.mean(mean_2)
 
         s_1 = jnp.mean(std_angle(dy.phi_1, axis=-1))
         s_2 = jnp.mean(std_angle(dy.phi_2, axis=-1))
@@ -211,8 +213,8 @@ def make_metric_save(deriv) -> Callable:
         ###### Frequency cluster ratio
         # check for desynchronized nodes
         eps = 1e-1  # TODO what is the value here?
-        desync_1 = jnp.any(jnp.abs(y.phi_1 - m_1[:, None]) > eps, axis=-1)
-        desync_2 = jnp.any(jnp.abs(y.phi_2 - m_2[:, None]) > eps, axis=-1)
+        desync_1 = jnp.any(jnp.abs(y.phi_1 - mean_1[:, None]) > eps, axis=-1)
+        desync_2 = jnp.any(jnp.abs(y.phi_2 - mean_2[:, None]) > eps, axis=-1)
 
         # Count number of frequency clusters
         # Number of ensembles where at least one node deviates
