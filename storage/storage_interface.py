@@ -13,6 +13,10 @@ from simulation.data_classes import SystemMetrics
 logger = logging.getLogger(__name__)
 
 
+def pprint_key(key: list[float] | tuple[float, ...] | np.ndarray) -> tuple[float, ...]:
+    return tuple(round(float(x), 4) for x in key)
+
+
 class Storage:
     def __init__(
         self,
@@ -53,7 +57,7 @@ class Storage:
     def __setup_rocksdb(self, db_name: str):
         opts = rock.Option()
         opts.create_if_missing(True)
-        # opts.set_allow_mmap_reads(True)
+        opts.set_allow_mmap_reads(True)
 
         rocksdb = rock.open(db_name, opts=opts)
         last_id_bytes = rocksdb.get(b"faiss_last_id")
@@ -70,7 +74,6 @@ class Storage:
                 )
 
         logger.info(f"Successfully loaded {len(self.__memory_cache)} metrics into memory.")
-        print(self.current_idx, len(self.__memory_cache))
 
     def add_faiss(
         self,
@@ -84,7 +87,7 @@ class Storage:
         query_key: np.ndarray,
         k: int = 1,
     ) -> tuple[np.ndarray, np.ndarray]:
-        logger.info(f"Searching {query_key[0]} in FAISS index")
+        logger.info(f"Searching {pprint_key(query_key[0])} in FAISS index")
         distances, indices = self.__db_keys.search(query_key, k=k)
         logger.info(f"Found vectors with distance {distances}, index {indices}")
         return indices, distances
@@ -157,16 +160,17 @@ class Storage:
         np_params = np.array([params], dtype=np.float32)
         index, distance = self.find_faiss(np_params)
         if distance != 0.0:
-            logger.info(f"Adding new Results for {params}, starting Pipeline")
+            logger.info(f"Adding new Results for {pprint_key(params)}, starting Pipeline")
             np_params = np.array([params], dtype=np.float32)
             self.add_faiss(np_params)
             self.add_metric(metrics, None, str(self.current_idx))
             self.current_idx += 1
             return True
         if overwrite:
-            logger.info(f"Adding new Results for {params}, starting Pipeline")
+            logger.info(f"Adding new Results for {pprint_key(params)}, starting Pipeline")
             np_params = np.array([params], dtype=np.float32)
             self.add_metric(metrics, None, index=str(int(index[0][0])))
+            return True
 
         logger.info("Will not overwrite")
         return False
@@ -176,7 +180,7 @@ class Storage:
         params: tuple[int | float, ...] | np.ndarray,
         threshold=np.inf,
     ) -> None | SystemMetrics:
-        logger.info(f"Getting Metrics for {params}")
+        logger.info(f"Getting Metrics for {pprint_key(params)}")
         np_params = np.array([params], dtype=np.float32)
         index, distance = self.find_faiss(np_params)
         if distance[0][0] <= threshold:
@@ -232,19 +236,19 @@ class Storage:
         )
         return merged_metrics
 
-    def close(
-        self,
-    ):
+    def write(self):
         logger.info(f"Writing FAISS index to {self.parameter_k_name}")
         faiss.write_index(self.__db_keys, self.parameter_k_name)
         logger.info(f"Writing RocksDB to {self.metrics_kv_name}")
         for index, data in self.__memory_cache.items():
             self.__db_metric.set(f"metrics_{index}".encode(), data)
-        # TODO when do we lose the correct index?
-        if self.current_idx == 0 and len(self.__memory_cache) != 0:
-            self.current_idx = len(self.__memory_cache)
-        self.__db_metric.set(b"faiss_last_id", str(self.current_idx).encode())
+        self.__db_metric.set(b"faiss_last_id", str(self.current_idx - 1).encode())
         logger.info("All in-memory data has been saved to RocksDB")
+
+    def close(
+        self,
+    ):
+        self.write()
         self.__db_metric.close()
 
     def merge(
