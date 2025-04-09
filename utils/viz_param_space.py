@@ -1,11 +1,11 @@
 import logging
 
-import numpy as np
 import matplotlib.pyplot as plt
+import numpy as np
 
+from simulation.data_classes import SystemConfig
 from storage.storage_interface import Storage
 from utils.logger import setup_logging
-from simulation.data_classes import SystemConfig
 
 setup_logging()
 logger = logging.getLogger(__name__)

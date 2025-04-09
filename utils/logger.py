@@ -1,6 +1,8 @@
 import logging
+
 import colorlog
-from utils.config import log_level, log_file
+
+from utils.config import log_file, log_level
 
 
 def setup_logging():

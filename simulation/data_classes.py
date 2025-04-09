@@ -2,8 +2,8 @@ from dataclasses import dataclass
 
 import jax.numpy as jnp
 import jax.tree_util as jtu
-from jaxtyping import ScalarLike
 import numpy as np
+from jaxtyping import ScalarLike
 
 
 @dataclass

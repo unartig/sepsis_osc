@@ -1,6 +1,5 @@
-import numpy as np
 import matplotlib.pyplot as plt
-
+import numpy as np
 from matplotlib.animation import FuncAnimation, PillowWriter
 
 # import fastplotlib as fpl
@@ -115,20 +114,20 @@ def gif_phase_plt(phis_1: np.ndarray, phis_2: np.ndarray, filename="phis.gif"):
 
 
 if __name__ == "__main__":
-    import jax.random as jr
     import jax.numpy as jnp
+    import jax.random as jr
+    from diffrax import Bosh3, Dopri5, ODETerm, PIDController
     from jax import vmap
-    from diffrax import ODETerm, Dopri5, Bosh3, PIDController
 
     from run_simulation import solve
-    from utils.config import jax_random_seed
+    from simulation.data_classes import SystemConfig, SystemState
     from simulation.simulation import (
         generate_init_conditions_fixed,
-        system_deriv,
-        matlab_deriv,
         make_full_compressed_save,
+        matlab_deriv,
+        system_deriv,
     )
-    from simulation.data_classes import SystemConfig, SystemState
+    from utils.config import jax_random_seed
 
     rand_key = jr.key(jax_random_seed)
     num_parallel_runs = 1
@@ -176,10 +175,10 @@ if __name__ == "__main__":
     print(ys.kappa_1.shape)
     ts = np.asarray(sol.ts).squeeze()
     dys = SystemState(
-        phi_1=np.gradient(ys.phi_1, axis=0),
-        phi_2=np.gradient(ys.phi_2, axis=0),
-        kappa_1=np.gradient(ys.kappa_1, axis=(-1, -2)),
-        kappa_2=np.gradient(ys.kappa_2, axis=(-1, -2)),
+        phi_1=np.gradient(ys.phi_1, axis=0) * (1 / T_step),
+        phi_2=np.gradient(ys.phi_2, axis=0) * (1 / T_step),
+        kappa_1=np.gradient(ys.kappa_1 * (1 / T_step), axis=(-2, -1)),
+        kappa_2=np.gradient(ys.kappa_2 * (1 / T_step), axis=(-2, -1)),
     )
     # last_t = 5
     # romega_1 = (sol.ys.phi_1[-1, :] - sol.ys.phi_1[1, :]) / ((T_max - last_t) * T_step)
@@ -190,9 +189,10 @@ if __name__ == "__main__":
     ts = ts[~jnp.isinf(ts)]
     print(ys.phi_1.shape)
 
+    # TODO sorting :^)
     plot_phase_snapshot(ys.phi_1, ys.phi_2, -1)
     plot_phase_progression(ys.phi_1, ys.phi_2, range(-21, -1))
-    plot_phase_snapshot(np.asarray(dys.phi_1 * (1 / T_step)), np.asarray(dys.phi_2 * (1 / T_step)), -1)
+    plot_phase_snapshot(np.asarray(dys.phi_1), np.asarray(dys.phi_2 * (1 / T_step)), -1)
 
     plot_kappa(ys.kappa_2, -1)
     plot_kappa(ys.kappa_2, 0)

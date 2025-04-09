@@ -1,10 +1,10 @@
 import logging
 
-from collections.abc import Callable
-import jax
 import jax.numpy as jnp
 import jax.random as jr
-from jax import vmap, jit
+import numpy as np
+from equinox import filter_jit
+from jax import vmap
 from diffrax import (
     _step_size_controller,
     diffeqsolve,
@@ -20,20 +20,18 @@ from diffrax import (
     Bosh3,
     Ralston,
 )
-from equinox import filter_jit
-import numpy as np
 
-from utils.config import jax_random_seed
-from utils.logger import setup_logging
+from simulation.data_classes import SystemConfig
 from simulation.simulation import (
-    system_deriv,
-    matlab_deriv,
+    generate_init_conditions_fixed,
     make_full_compressed_save,
     make_metric_save,
-    generate_init_conditions_fixed,
+    matlab_deriv,
+    system_deriv,
 )
-from simulation.data_classes import SystemConfig
 from storage.storage_interface import Storage
+from utils.config import jax_random_seed
+from utils.logger import setup_logging
 
 
 @filter_jit
@@ -78,7 +76,7 @@ if __name__ == "__main__":
 
     term = ODETerm(system_deriv)
 
-    size = (50, 50)
+    size = (2, 2)
     mat = np.zeros(size)
     xs = np.linspace(0.4, 0.7, size[0])
     ys = np.linspace(0.0, 1.5, size[1])
@@ -89,8 +87,6 @@ if __name__ == "__main__":
         parameter_k_name=db_k,
         metrics_kv_name=db_m,
     )
-    storage.current_idx = 0
-    i = 0
     for c_frac in [0.05, 0.1, 0.2, 0.3, 0.4, 0.5]:
         for x, beta in enumerate(xs):
             for y, sigma in enumerate(ys):
@@ -105,13 +101,14 @@ if __name__ == "__main__":
                     epsilon_1=0.03,  # adaption rate
                     epsilon_2=0.3,  # adaption rate
                     alpha=-0.28,  # phase lage
-                    beta=0.5,  # age parameter
-                    sigma=1.0,
+                    beta=beta,  # age parameter
+                    sigma=sigma,
                     T_init=0,
                     T_trans=90,
                     T_max=100,
                     T_step=0.05,
                 )
+
                 if not storage.read_result(run_conf.as_index, threshold=0.0):
                     generate_init_conditions = generate_init_conditions_fixed(run_conf.N, run_conf.beta, run_conf.C)
 
@@ -134,9 +131,4 @@ if __name__ == "__main__":
                     logger.info(f"Solved in {sol.stats["num_steps"]} steps")
                     if sol.ys:
                         storage.add_result(run_conf.as_index, sol.ys.copy(), overwrite=False)
-            storage.close()
-            storage = Storage(
-                key_dim=9,
-                parameter_k_name=db_m,
-                metrics_kv_name=db_k,
-            )
+            storage.write()

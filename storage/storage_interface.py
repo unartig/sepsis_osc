@@ -3,12 +3,11 @@ import logging
 import faiss
 import msgpack
 import msgpack_numpy as mnp
-
-import rocksdbpy as rock
 import numpy as np
+import rocksdbpy as rock
 
-from utils.config import db_parameter_keys, db_metrics_key_value
 from simulation.data_classes import SystemMetrics
+from utils.config import db_metrics_key_value, db_parameter_keys
 
 logger = logging.getLogger(__name__)
 
@@ -256,6 +255,7 @@ class Storage:
         other: "Storage",
         overwrite: bool = False,
     ) -> "None | Storage":
+        # Merges other into self
         if self.key_dim != other.key_dim:
             logger.error(f"Cannot merge Storages with different Key dimension (got {self.key_dim} and {other.key_dim})")
             return None
@@ -269,7 +269,6 @@ class Storage:
             logger.info(f"Checking for other parameter-set {key}")
             metrics = other.read_result(key, threshold=0.0)
             if metrics:
-
                 success = self.add_result(key, metrics, overwrite=overwrite)
                 added += 1 if success else 0
         logger.info(f"Added {added} keys by merging")

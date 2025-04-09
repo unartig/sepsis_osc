@@ -1,7 +1,7 @@
 import logging
-from utils.logger import setup_logging
+
 from storage.storage_interface import Storage
-import numpy as np
+from utils.logger import setup_logging
 
 setup_logging()
 logger = logging.getLogger(__name__)

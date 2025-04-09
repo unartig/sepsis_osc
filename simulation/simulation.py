@@ -1,20 +1,21 @@
+import os
 from collections.abc import Callable
-from equinox.debug import assert_max_traces
+
 import jax
 import jax.numpy as jnp
 import jax.random as jr
+from equinox.debug import assert_max_traces
 from jaxtyping import ScalarLike
-import os
 
-from simulation.data_classes import SystemState, SystemMetrics
+from simulation.data_classes import SystemMetrics, SystemState
 
 #### Configurations
 # jax flags
 jax.config.update("jax_enable_x64", True)  #  MATLAB defaults to double precision
 # jax.config.update("jax_platform_name", "cpu")
+# jax.config.update("jax_disable_jit", True)
 jax.config.update("jax_debug_nans", False)
 jax.config.update("jax_debug_infs", False)
-# jax.config.update("jax_disable_jit", True)
 
 # cpu/gpu flags
 os.environ["XLA_FLAGS"] = (
@@ -93,7 +94,7 @@ def system_deriv(
     sin_phi_1_diff_alpha = sin_diff_phi_1 * cos_alpha + cos_diff_phi_1 * sin_alpha
     sin_phi_2_diff_alpha = sin_diff_phi_2 * cos_alpha + cos_diff_phi_2 * sin_alpha
 
-    # (phi1 (N), phi2 (N), k1 (NxN), k2 (NxN)))
+    # (phi1 (bxN), phi2 (bxN), k1 (bxNxN), k2 (bxNxN)))
     phi_1 = (
         jomega_1_i
         - adj * jnp.einsum("bij,bij->bi", (ja_1_ij + kappa_1_ij), sin_phi_1_diff_alpha)
@@ -199,7 +200,7 @@ def make_metric_save(deriv) -> Callable:
         q_1 = phase_entropy(y.phi_1)
         q_2 = phase_entropy(y.phi_2)
 
-        ###### Ensemble average and avergage of the standard deviations
+        ###### Ensemble average velocites and average of the standard deviations
         # For the derivatives we need to evaluate again ...
         dy = deriv(0, y, args)
         mean_1 = mean_angle(dy.phi_1, axis=-1)
