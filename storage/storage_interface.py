@@ -22,6 +22,7 @@ class Storage:
         key_dim: int = 9,
         parameter_k_name: str = "",
         metrics_kv_name: str = "",
+        use_mem_cache: bool = True,
     ):
         parameter_k_name = db_parameter_keys if not parameter_k_name else parameter_k_name
         metrics_kv_name = db_metrics_key_value if not metrics_kv_name else metrics_kv_name
@@ -38,8 +39,10 @@ class Storage:
         self.__db_metric, self.current_idx = self.__setup_rocksdb(self.metrics_kv_name)
 
         # Memory Cache for faster lookups
-        self.__memory_cache = {}
-        self.__setup_memory_cache()
+        self.use_mem_cache = use_mem_cache
+        self.__memory_cache: dict[str, bytes] = {}
+        if self.use_mem_cache:
+            self.__setup_memory_cache()
 
     def __setup_faiss(
         self,
@@ -94,13 +97,12 @@ class Storage:
     def add_metric(
         self,
         metrics: SystemMetrics | None,
-        packed_data: dict | None,
+        packed_data: bytes | None,
         index: str = "",
     ):
         if not index:
             logger.error("Cannot save empty key in MemoryCache")
             return
-        logger.info(f"Adding SystemMetrics with key {index} to MemoryCache")
         if metrics and not packed_data:
             packed_data = msgpack.packb(
                 {
@@ -119,20 +121,30 @@ class Storage:
             )
 
         if packed_data:
-            self.__memory_cache[index] = packed_data
+            if self.use_mem_cache:
+                logger.info(f"Adding SystemMetrics with key {index} to MemoryCache")
+                self.__memory_cache[index] = packed_data
+            else:
+                logger.info(f"Adding SystemMetrics with key {index} to RocksDB")
+                self.__db_metric.set(f"metrics_{index}".encode(), packed_data)
 
     def read_metric(
         self,
         key: str,
     ) -> SystemMetrics | None:
-        logger.info(f"Reading SystemMetrics with key {key} from MemoryCache")
 
-        if key in self.__memory_cache:
-            data_bytes = self.__memory_cache[key]
-            logger.info(f"Found SystemMetrics for {key} in MemoryCache")
+        if self.use_mem_cache:
+            logger.info(f"Reading SystemMetrics with key {key} from MemoryCache")
+            if key in self.__memory_cache:
+                data_bytes = self.__memory_cache[key]
+            else:
+                logger.info(f"Could not find SystemMetrics for {key} in MemoryCache")
+                return None
         else:
-            logger.info(f"Could not find SystemMetrics for {key} in MemoryCache")
-            return None
+            logger.info(f"Reading SystemMetrics with key {key} from RocksDB")
+            data_bytes = self.__db_metric.get(f"metrics_{key}".encode())
+            if not data_bytes:
+                logger.info(f"Could not find SystemMetrics for {key} in RocksDB")
 
         unpacked = msgpack.unpackb(data_bytes, object_hook=mnp.decode)
 
@@ -155,7 +167,6 @@ class Storage:
         metrics: SystemMetrics,
         overwrite: bool = False,
     ) -> bool:
-        # TODO fix overwrite
         np_params = np.array([params], dtype=np.float32)
         index, distance = self.find_faiss(np_params)
         if distance != 0.0:
@@ -239,8 +250,9 @@ class Storage:
         logger.info(f"Writing FAISS index to {self.parameter_k_name}")
         faiss.write_index(self.__db_keys, self.parameter_k_name)
         logger.info(f"Writing RocksDB to {self.metrics_kv_name}")
-        for index, data in self.__memory_cache.items():
-            self.__db_metric.set(f"metrics_{index}".encode(), data)
+        if self.use_mem_cache:
+            for index, data in self.__memory_cache.items():
+                self.__db_metric.set(f"metrics_{index}".encode(), data)
         self.__db_metric.set(b"faiss_last_id", str(self.current_idx - 1).encode())
         logger.info("All in-memory data has been saved to RocksDB")
 
