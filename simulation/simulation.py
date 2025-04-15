@@ -139,11 +139,20 @@ def matlab_deriv(
     return SystemState(phi_1=phi_1, phi_2=phi_2, kappa_1=kappa_1, kappa_2=kappa_2)
 
 
-def make_full_compressed_save(dtype: jnp.dtype = jnp.float16) -> Callable:
+def make_full_compressed_save(
+    deriv, dtype: jnp.dtype = jnp.float16, save_y: bool = True, save_dy: bool = True
+) -> Callable:
     # TODO also return dy?
-    def full_compressed_save(t: ScalarLike, y: SystemState, args: tuple[jnp.ndarray, ...] | None) -> SystemState:
+    def full_compressed_save(
+        t: ScalarLike, y: SystemState, args: tuple[jnp.ndarray, ...] | None
+    ) -> tuple[SystemState, SystemState] | SystemState:
         y.enforce_bounds()
-        return y.astype(dtype)
+        if save_y and not save_dy:
+            return y.astype(dtype)
+        dy = deriv(0, y, args)
+        if save_dy and not save_y:
+            return dy.astype(dtype)
+        return y.astype(dtype), dy.astype(dtype)
 
     return full_compressed_save
 

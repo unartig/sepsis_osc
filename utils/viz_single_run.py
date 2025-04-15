@@ -1,6 +1,8 @@
-import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.animation import FuncAnimation, PillowWriter
+import matplotlib.pyplot as plt
+
+from simulation.data_classes import SystemConfig, SystemState
 
 # import fastplotlib as fpl
 # from PIL import Image
@@ -25,8 +27,8 @@ def plot_phase_snapshot(phis_1: np.ndarray, phis_2: np.ndarray, t: int = -1, ax=
         _, ax = plt.subplots(1, 1)
     n = phis_1.shape[-1]
 
-    ax.scatter(np.arange(n), phis_1[t, :] / np.pi, s=5)
-    ax.scatter(np.arange(n) + n, phis_2[t, :] / np.pi, s=5)
+    ax.scatter(np.arange(n), np.sort(phis_1[t, :] / np.pi), s=5, label="Parenchymal Cells")
+    ax.scatter(np.arange(n) + n, np.sort(phis_2[t, :] / np.pi), s=5, label="Immune Cells")
     ax.set_ylim(0, 2)
 
     return ax
@@ -39,6 +41,23 @@ def plot_phase_progression(phis_1: np.ndarray, phis_2: np.ndarray, ts: list[int]
     for t, ax in zip(ts, axes):
         plot_phase_snapshot(phis_1, phis_2, int(t), ax)
     return axes
+
+
+def plot_snapshot(ys: SystemState, dys: SystemState, t: int = -1):
+    fig, axes = plt.subplots(1, 2, sharey=True, squeeze=True, figsize=(5, 2))
+    axes = axes.flatten()
+    plot_phase_snapshot(np.asarray(ys.phi_1), np.asarray(ys.phi_2), t, axes[0])
+    plot_phase_snapshot(np.asarray(dys.phi_1), np.asarray(dys.phi_2), t, axes[1])
+
+    axes[0].set_title("Snapshot of Phases")
+    axes[0].set_xlim(0, 2 * N)
+    axes[0].set_xlabel("Index j")
+    axes[0].legend()
+    axes[0].set_ylabel("Phase / π")
+    axes[1].set_title("Snapshot of Phase-Velocities")
+    axes[1].set_xlim(0, 2 * N)
+    axes[1].set_xlabel("Index j")
+    fig.tight_layout()
 
 
 def plot_phase_space_time(phis: np.ndarray, ax=None):
@@ -103,7 +122,7 @@ def gif_phase_plt(phis_1: np.ndarray, phis_2: np.ndarray, filename="phis.gif"):
         ax.clear()
         plot_phase_snapshot(phis_1, phis_2, t=t, ax=ax)
         ax.set_xlim(0, 2 * N)
-        ax.set_xlabel(f"Index [0-{int(N/2)-1}] Parenchymal, [{int(N/2)-1} - {N}] Immune Layer")
+        ax.set_xlabel(f"Index [0-{int(N/2)-1}] Parenchymal (blue), [{int(N/2)} - {N}] Immune Layer (orange)")
         ax.set_ylabel("Phase / π")
         ax.set_title(f"Time step: {t}")
         return []
@@ -116,11 +135,10 @@ def gif_phase_plt(phis_1: np.ndarray, phis_2: np.ndarray, filename="phis.gif"):
 if __name__ == "__main__":
     import jax.numpy as jnp
     import jax.random as jr
-    from diffrax import Bosh3, Dopri5, ODETerm, PIDController
+    from diffrax import Bosh3, Dopri5, Dopri8, ODETerm, PIDController
     from jax import vmap
 
     from run_simulation import solve
-    from simulation.data_classes import SystemConfig, SystemState
     from simulation.simulation import (
         generate_init_conditions_fixed,
         make_full_compressed_save,
@@ -129,10 +147,10 @@ if __name__ == "__main__":
     )
     from utils.config import jax_random_seed
 
-    rand_key = jr.key(jax_random_seed)
+    rand_key = jr.key(jax_random_seed + 1234)
     num_parallel_runs = 1
     rand_keys = jr.split(rand_key, num_parallel_runs)
-    full_save = make_full_compressed_save(jnp.float32)
+    full_save = make_full_compressed_save(system_deriv, jnp.float32)
     term = ODETerm(system_deriv)
     solver = Dopri5()
     stepsize_controller = PIDController(rtol=1e-4, atol=1e-7, dtmax=0.1)
@@ -148,15 +166,14 @@ if __name__ == "__main__":
         epsilon_1=0.03,  # adaption rate
         epsilon_2=0.3,  # adaption rate
         alpha=-0.28,  # phase lage
-        beta=0.5,  # age parameter
-        sigma=1.0,
+        beta=0.69,  # age parameter
+        sigma=1,
     )
-    T_init, T_trans, T_max = 0, 0, 100
+    T_init, T_trans, T_max = 0, 1950, 2000
     T_step = 0.05
     generate_init_conditions = generate_init_conditions_fixed(run_conf.N, run_conf.beta, run_conf.C)
 
     init_conditions = vmap(generate_init_conditions)(rand_keys)
-    # shape (num_parallel_runs, state)
     sol = solve(
         T_init,
         T_trans,
@@ -171,37 +188,31 @@ if __name__ == "__main__":
     )
     if not sol.ys:
         exit(0)
-    ys = sol.ys.squeeze().remove_infs().enforce_bounds()
-    print(ys.kappa_1.shape)
+    ys, dys = sol.ys
+    ys, dys = ys.squeeze().remove_infs().enforce_bounds(), dys.squeeze().remove_infs().enforce_bounds()
     ts = np.asarray(sol.ts).squeeze()
-    dys = SystemState(
-        phi_1=np.gradient(ys.phi_1, axis=0) * (1 / T_step),
-        phi_2=np.gradient(ys.phi_2, axis=0) * (1 / T_step),
-        kappa_1=np.gradient(ys.kappa_1 * (1 / T_step), axis=(-2, -1)),
-        kappa_2=np.gradient(ys.kappa_2 * (1 / T_step), axis=(-2, -1)),
-    )
+    ts = ts[~jnp.isinf(ts)]
+    print(dys.kappa_1.shape)
     # last_t = 5
     # romega_1 = (sol.ys.phi_1[-1, :] - sol.ys.phi_1[1, :]) / ((T_max - last_t) * T_step)
     # romega_2 = (sol.ys.phi_2[-1, :] - sol.ys.phi_2[1, :]) / ((T_max - last_t) * T_step)
     # plot_mean_phase_velos(romega_1, romega_2)
 
     print((ys.phi_1[-1].mean() - ys.phi_2[-1].mean()) / np.pi)
-    ts = ts[~jnp.isinf(ts)]
-    print(ys.phi_1.shape)
 
-    # TODO sorting :^)
-    plot_phase_snapshot(ys.phi_1, ys.phi_2, -1)
+    # plot_phase_snapshot(ys.phi_1, ys.phi_2, -1)
     plot_phase_progression(ys.phi_1, ys.phi_2, range(-21, -1))
-    plot_phase_snapshot(np.asarray(dys.phi_1), np.asarray(dys.phi_2 * (1 / T_step)), -1)
+    # plot_phase_snapshot(np.asarray(dys.phi_1), np.asarray(dys.phi_2), -1)
+    plot_snapshot(ys, dys)
 
-    plot_kappa(ys.kappa_2, -1)
-    plot_kappa(ys.kappa_2, 0)
+    # plot_kappa(ys.kappa_2, -1)
+    # plot_kappa(ys.kappa_2, 0)
 
-    plot_phase_space_time(ys.phi_1)
+    # plot_phase_space_time(ys.phi_1)
 
-    plot_kuramoto(ys.phi_1)
-    plot_kuramoto(ys.phi_1, 0)
+    # plot_kuramoto(ys.phi_1)
+    # plot_kuramoto(ys.phi_1, 0)
 
     # gif_phase_plt(ys.phi_1, ys.phi_2)
-    gif_kuramoto_plt(ys.phi_1, ys.phi_2)
+    # gif_kuramoto_plt(ys.phi_1, ys.phi_2)
     plt.show()
