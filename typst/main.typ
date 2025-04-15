@@ -21,6 +21,8 @@
   ],
 )
 
+#let mean(f) =  $angle.l$ +  f + $angle.r$
+
 = Notes
 == Base ODE-System
 $
@@ -46,6 +48,25 @@ the computational cost for the left hand side for $N$ oscillators can be reduced
 [Different solver accuracy, but very similar],
 [They are not batching the computation],
 )
+
+== Metrics
+=== Kuramoto Parameter
+Kuramoto Order Parameter CIT
+$
+R^mu_2 = 1/N abs(sum^N_j e^(i dot phi_j (t))) "   with " 0<=R^mu_2<=1
+$
+$R^mu_2=0$ splay-state and $R^mu_2=1$ is fully synchronized.
+
+=== Fisher Information
+In @fisher-info they mention for a two layer network:
+$
+mean(phi^mu) = 1/N sum^N_j phi^mu_j \
+
+Omega_12 = R^1_2(1+sin(mean(phi^1)-mean(phi^2))) \
+Omega_21 = R^2_2(1+sin(mean(phi^2)-mean(phi^1))) \
+Delta Omega = Omega_12 - Omega_21 "and " Delta R_2 = R^1_2 - R^2_1
+$
+to provide useful measures of the two-layer synchronosation behaviour
 
 == Data
 MIMIC-3
