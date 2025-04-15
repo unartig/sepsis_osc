@@ -1,32 +1,14 @@
-import os
 from collections.abc import Callable
 
-import jax
 import jax.numpy as jnp
 import jax.random as jr
 from equinox.debug import assert_max_traces
 from jaxtyping import ScalarLike
 
 from simulation.data_classes import SystemMetrics, SystemState
+from utils.jax_config import setup_jax
 
-#### Configurations
-# jax flags
-jax.config.update("jax_enable_x64", True)  #  MATLAB defaults to double precision
-# jax.config.update("jax_platform_name", "cpu")
-# jax.config.update("jax_disable_jit", True)
-jax.config.update("jax_debug_nans", False)
-jax.config.update("jax_debug_infs", False)
-
-# cpu/gpu flags
-os.environ["XLA_FLAGS"] = (
-    "--xla_gpu_enable_latency_hiding_scheduler=true "
-    "--xla_gpu_enable_triton_gemm=false "
-    "--xla_gpu_enable_cublaslt=true "
-    "--xla_gpu_autotune_level=4 "  # https://docs.nvidia.com/deeplearning/frameworks/tensorflow-user-guide/index.html#xla-autotune
-    "--xla_gpu_exhaustive_tiling_search=true "
-)
-devices = jax.devices()
-print("jax.devices()", devices)
+setup_jax()
 
 
 def generate_init_conditions_fixed(N: int, beta: float, C: int) -> Callable:
@@ -158,6 +140,7 @@ def matlab_deriv(
 
 
 def make_full_compressed_save(dtype: jnp.dtype = jnp.float16) -> Callable:
+    # TODO also return dy?
     def full_compressed_save(t: ScalarLike, y: SystemState, args: tuple[jnp.ndarray, ...] | None) -> SystemState:
         y.enforce_bounds()
         return y.astype(dtype)
@@ -166,13 +149,13 @@ def make_full_compressed_save(dtype: jnp.dtype = jnp.float16) -> Callable:
 
 
 def make_metric_save(deriv) -> Callable:
-    def mean_angle(angles, axis=-1):
+    def mean_angle(angles, axis=-1) -> jnp.ndarray:
         angles = jnp.asarray(angles)
         sin_vals = jnp.sin(angles)
         cos_vals = jnp.cos(angles)
         return jnp.arctan2(jnp.mean(sin_vals, axis=axis), jnp.mean(cos_vals, axis=axis))
 
-    def std_angle(angles, axis=-1):
+    def std_angle(angles, axis=-1) -> jnp.ndarray:
         angles = jnp.asarray(angles)
         mean_ang = mean_angle(angles, axis=axis)
         angular_diff = jnp.angle(
@@ -180,7 +163,8 @@ def make_metric_save(deriv) -> Callable:
         )  # Wrap differences to [-pi, pi]
         return jnp.sqrt(jnp.mean(angular_diff**2, axis=axis))
 
-    def phase_entropy(phis: jnp.ndarray, num_bins=30):
+    # TODO return full histogram?
+    def phase_entropy(phis, num_bins=30) -> jnp.ndarray:
         hist, bin_edges = jnp.histogram(phis, bins=num_bins, range=(0, 2 * jnp.pi), density=True)
 
         hist = jnp.clip(hist, 1e-10, 1)

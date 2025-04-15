@@ -1,9 +1,8 @@
 from dataclasses import dataclass
 
+from jaxtyping import Array, Float
 import jax.numpy as jnp
 import jax.tree_util as jtu
-import numpy as np
-from jaxtyping import ScalarLike
 
 
 @dataclass
@@ -71,10 +70,10 @@ class SystemConfig:
 
 @dataclass
 class SystemState:
-    phi_1: jnp.ndarray  # Shape (N,)
-    phi_2: jnp.ndarray  # Shape (N,)
-    kappa_1: jnp.ndarray  # Shape (N, N)
-    kappa_2: jnp.ndarray  # Shape (N, N)
+    phi_1: Float[Array, "t batch N"]
+    phi_2: Float[Array, "t batch N"]
+    kappa_1: Float[Array, "t batch N N"]
+    kappa_2: Float[Array, "t batch N N"]
 
     # Required for JAX to recognize it as a PyTree
     def tree_flatten(self):
@@ -137,20 +136,20 @@ jtu.register_pytree_node(SystemState, SystemState.tree_flatten, SystemState.tree
 @dataclass
 class SystemMetrics:
     # Kuramoto Order Parameter
-    r_1: jnp.ndarray | np.ndarray  # shape (batch_size,)
-    r_2: jnp.ndarray | np.ndarray  # shape (batch_size,)
+    r_1: Float[Array, "t batch 1"]
+    r_2: Float[Array, "t batch 1"]
     # Ensemble average velocity
-    m_1: ScalarLike | jnp.ndarray | np.ndarray
-    m_2: ScalarLike | jnp.ndarray | np.ndarray
+    m_1: Float[Array, "t 1"]
+    m_2: Float[Array, "t 1"]
     # Ensemble average std
-    s_1: ScalarLike | jnp.ndarray | np.ndarray  # for a single run these are scalars
-    s_2: ScalarLike | jnp.ndarray | np.ndarray
+    s_1: Float[Array, "t 1"]
+    s_2: Float[Array, "t 1"]
     # Ensemble phase entropy
-    q_1: ScalarLike | jnp.ndarray | np.ndarray
-    q_2: ScalarLike | jnp.ndarray | np.ndarray
+    q_1: Float[Array, "t 1"]
+    q_2: Float[Array, "t 1"]
     # Frequency cluster ratio
-    f_1: ScalarLike | jnp.ndarray | np.ndarray
-    f_2: ScalarLike | jnp.ndarray | np.ndarray
+    f_1: Float[Array, "t 1"]
+    f_2: Float[Array, "t 1"]
 
     def tree_flatten(self):
         return (
