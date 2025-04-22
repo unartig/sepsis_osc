@@ -2,25 +2,38 @@ import logging
 
 import matplotlib.pyplot as plt
 import numpy as np
+import jax.numpy as jnp
 
-from simulation.data_classes import SystemConfig
+from simulation.data_classes import SystemConfig, SystemMetrics
 from storage.storage_interface import Storage
 from utils.logger import setup_logging
 
 setup_logging()
 logger = logging.getLogger(__name__)
 
-size = (100, 100)
-mat1 = np.zeros(size)
-mat2 = np.zeros(size)
+size = (20, 20)
+mat1 = jnp.zeros(size)
+mat2 = jnp.zeros(size)
 xs = np.linspace(0.4, 0.7, size[0])
 ys = np.linspace(0, 1.5, size[1])
 storage = Storage(
     key_dim=9,
-    metrics_kv_name="storage/100x100N100_02CSepsisMetrics.db/",
-    parameter_k_name="storage/100x100N100_02CSepsisParameters_index.bin",
+    metrics_kv_name="storage/SepsisMetrics.db/",
+    parameter_k_name="storage/SepsisParameters_index.bin",
 )
 params = np.ndarray((*size, 9))
+metrix = SystemMetrics(
+    r_1=mat1.copy(),
+    r_2=mat2.copy(),
+    m_1=mat1.copy(),
+    m_2=mat2.copy(),
+    s_1=mat1.copy(),
+    s_2=mat2.copy(),
+    q_1=mat1.copy(),
+    q_2=mat2.copy(),
+    f_1=mat1.copy(),
+    f_2=mat2.copy(),
+)
 for x, beta in enumerate(xs):
     for y, sigma in enumerate(ys):
         N = 100
@@ -32,38 +45,58 @@ for x, beta in enumerate(xs):
             a_1=1.0,
             epsilon_1=0.03,
             epsilon_2=0.3,
-            alpha=0.66,
+            alpha=-0.28,
             beta=beta,
             sigma=sigma,
         )
         params[x, y] = np.array(run_conf.as_index)
         metrics = storage.read_result(run_conf.as_index, threshold=0.0)
         if metrics:
-            mat1[x, y] = np.clip(np.mean(np.asarray(metrics.s_1)), -np.inf, 0.15)
-            mat2[x, y] = np.clip(np.mean(np.asarray(metrics.s_2)), -np.inf, 0.15)
 
-# results = storage.read_multiple_results(params, threshold=0.0)
-# if not results:
-#     exit(0)
-# mat1 = np.asarray(results.s_1).mean(axis=-1)
-# mat2 = np.asarray(results.s_2).mean(axis=-1)
-mat1 = mat1[:, ::-1].T  # np.mean(np.asarray(results.s_1), axis=-1)
-mat2 = mat2[:, ::-1].T  # np.mean(np.asarray(results.s_2), axis=-1)
-vmin = min(mat1.min(), mat2.min())
-vmax = max(mat1.max(), mat2.max())
-fig = plt.figure()
-ax = fig.subplots(1, 2)
-cax1 = ax[0].matshow(mat1, vmin=vmin, vmax=vmax, interpolation="none")
-cax2 = ax[1].matshow(mat2, vmin=vmin, vmax=vmax, interpolation="none")
-fig.colorbar(cax1, ax=ax, location="right", shrink=0.7)
+            metrix.r_1 = metrix.r_1.at[-y, x].set(np.clip(np.mean(np.asarray(metrics.r_1)[-1, :]), -np.inf, np.inf))
+            metrix.r_2 = metrix.r_2.at[-y, x].set(np.clip(np.mean(np.asarray(metrics.r_2)[-1, :]), -np.inf, np.inf))
+            metrix.s_1 = metrix.s_1.at[-y, x].set(np.clip(np.mean(np.asarray(metrics.s_1)), -np.inf, np.inf))
+            metrix.s_2 = metrix.s_2.at[-y, x].set(np.clip(np.mean(np.asarray(metrics.s_2)), -np.inf, np.inf))
+            metrix.m_1 = metrix.m_1.at[-y, x].set(np.clip(np.mean(np.asarray(metrics.m_1)), -np.inf, np.inf))
+            metrix.m_2 = metrix.m_2.at[-y, x].set(np.clip(np.mean(np.asarray(metrics.m_2)), -np.inf, np.inf))
+            metrix.q_1 = metrix.q_1.at[-y, x].set(np.clip(np.mean(np.asarray(metrics.q_1)), -np.inf, np.inf))
+            metrix.q_2 = metrix.q_2.at[-y, x].set(np.clip(np.mean(np.asarray(metrics.q_2)), -np.inf, np.inf))
+            metrix.f_1 = metrix.f_1.at[-y, x].set(np.clip(np.mean(np.asarray(metrics.f_1)), -np.inf, np.inf))
+            metrix.f_2 = metrix.f_2.at[-y, x].set(np.clip(np.mean(np.asarray(metrics.f_2)), -np.inf, np.inf))
 
-num_ticks = 5  # Change this for more/less ticks
-xtick_positions = np.linspace(0, len(xs) - 1, num_ticks, dtype=int)
-ytick_positions = np.linspace(0, len(ys) - 1, num_ticks, dtype=int)
-for a in ax:
-    a.set_xticks(xtick_positions)
-    a.set_xticklabels([f"{val:.2f}" for val in xs[xtick_positions]], rotation=45)
-    a.set_yticks(ytick_positions)
-    a.set_yticklabels([f"{val:.2f}" for val in ys[ytick_positions]][::-1])
-plt.show()
 storage.close()
+print(metrix)
+num_ticks = 5
+
+
+def plot_metric(m1, m2, ax):
+    ax1, ax2 = ax[0], ax[1]
+    vmin = jnp.min(jnp.array([m1, m2]))
+    vmax = jnp.max(jnp.array([m1, m2]))
+    cax1 = ax1.matshow(m1, vmin=vmin, vmax=vmax, interpolation="none")
+    cax2 = ax2.matshow(m2, vmin=vmin, vmax=vmax, interpolation="none")
+    fig.colorbar(cax2, ax=ax, location="bottom", shrink=0.7)
+    xtick_positions = np.linspace(0, len(xs) - 1, num_ticks, dtype=int)
+    ytick_positions = np.linspace(0, len(ys) - 1, num_ticks, dtype=int)
+    for a in ax:
+        a.set_xticks(xtick_positions)
+        a.set_xticklabels([f"{val:.2f}" for val in xs[xtick_positions]], rotation=45)
+        a.set_yticks(ytick_positions)
+        a.set_yticklabels([f"{val:.2f}" for val in ys[ytick_positions]][::-1])
+
+
+fig = plt.figure()
+ax = fig.subplots(2, 5)
+
+plot_metric(metrix.r_1, metrix.r_2, ax[:, 0])
+ax[0, 0].set_title("Kuramoto Order Parameter R")
+plot_metric(metrix.s_1, metrix.s_2, ax[:, 1])
+ax[0, 1].set_title("Mean Phase Velocity Std")
+plot_metric(metrix.m_1, metrix.m_2, ax[:, 2])
+ax[0, 2].set_title("Mean Phase Velocity")
+plot_metric(metrix.q_1, metrix.q_2, ax[:, 3])
+ax[0, 3].set_title("Mean Entropy")
+plot_metric(metrix.f_1, metrix.f_2, ax[:, 4])
+ax[0, 4].set_title("Fraction of Cluster")
+
+plt.show()
