@@ -70,10 +70,10 @@ class SystemConfig:
 
 @dataclass
 class SystemState:
-    phi_1: Float[Array, "t batch N"]
-    phi_2: Float[Array, "t batch N"]
-    kappa_1: Float[Array, "t batch N N"]
-    kappa_2: Float[Array, "t batch N N"]
+    phi_1: Float[Array, "t ensemble N"]
+    phi_2: Float[Array, "t ensemble N"]
+    kappa_1: Float[Array, "t ensemble N N"]
+    kappa_2: Float[Array, "t ensemble N N"]
 
     # Required for JAX to recognize it as a PyTree
     def tree_flatten(self):
@@ -98,7 +98,7 @@ class SystemState:
         return self
 
     def squeeze(self) -> "SystemState":
-        # when running with batch size 1, we want to get rid of the batch dimension
+        # when running with ensemble size 1, we want to get rid of the ensemble dimension
         self.phi_1 = self.phi_1.squeeze()
         self.phi_2 = self.phi_2.squeeze()
         self.kappa_1 = self.kappa_1.squeeze(axis=1)
@@ -136,8 +136,8 @@ jtu.register_pytree_node(SystemState, SystemState.tree_flatten, SystemState.tree
 @dataclass
 class SystemMetrics:
     # Kuramoto Order Parameter
-    r_1: Float[Array, "t batch 1"]
-    r_2: Float[Array, "t batch 1"]
+    r_1: Float[Array, "t ensemble 1"]
+    r_2: Float[Array, "t ensemble 1"]
     # Ensemble average velocity
     m_1: Float[Array, "t 1"]
     m_2: Float[Array, "t 1"]

@@ -138,16 +138,15 @@ if __name__ == "__main__":
     from diffrax import Bosh3, Dopri5, Dopri8, ODETerm, PIDController
     from jax import vmap
 
-    from run_simulation import solve
+    from utils.run_simulation import solve
     from simulation.simulation import (
         generate_init_conditions_fixed,
         make_full_compressed_save,
-        matlab_deriv,
         system_deriv,
     )
     from utils.config import jax_random_seed
 
-    rand_key = jr.key(jax_random_seed + 1234)
+    rand_key = jr.key(jax_random_seed + 123)
     num_parallel_runs = 1
     rand_keys = jr.split(rand_key, num_parallel_runs)
     full_save = make_full_compressed_save(system_deriv, jnp.float32)
@@ -167,9 +166,9 @@ if __name__ == "__main__":
         epsilon_2=0.3,  # adaption rate
         alpha=-0.28,  # phase lage
         beta=0.69,  # age parameter
-        sigma=1,
+        sigma=0.25,
     )
-    T_init, T_trans, T_max = 0, 1950, 2000
+    T_init, T_trans, T_max = 0, 0, 100
     T_step = 0.05
     generate_init_conditions = generate_init_conditions_fixed(run_conf.N, run_conf.beta, run_conf.C)
 
@@ -201,11 +200,12 @@ if __name__ == "__main__":
     print((ys.phi_1[-1].mean() - ys.phi_2[-1].mean()) / np.pi)
 
     # plot_phase_snapshot(ys.phi_1, ys.phi_2, -1)
-    plot_phase_progression(ys.phi_1, ys.phi_2, range(-21, -1))
+    # plot_phase_progression(ys.phi_1, ys.phi_2, range(-21, -1))
     # plot_phase_snapshot(np.asarray(dys.phi_1), np.asarray(dys.phi_2), -1)
     plot_snapshot(ys, dys)
 
-    # plot_kappa(ys.kappa_2, -1)
+    plot_kappa(ys.kappa_2, -1)
+    plot_kappa(ys.kappa_1, -1)
     # plot_kappa(ys.kappa_2, 0)
 
     # plot_phase_space_time(ys.phi_1)

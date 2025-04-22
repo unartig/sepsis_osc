@@ -93,56 +93,9 @@ def system_deriv(
     return SystemState(phi_1=phi_1, phi_2=phi_2, kappa_1=kappa_1, kappa_2=kappa_2)
 
 
-def matlab_deriv(
-    t: ScalarLike,
-    y: SystemState,
-    args: tuple[jnp.ndarray, ...],
-) -> SystemState:
-    (
-        ja_1_ij,
-        sin_alpha,
-        cos_alpha,
-        sin_beta,
-        cos_beta,
-        pi2,
-        adj,
-        jepsilon_1,
-        jepsilon_2,
-        jsigma,
-        jomega_1_i,
-        jomega_2_i,
-    ) = args
-    # recover states from the py_tree
-    phi_1_i, phi_2_i = y.phi_1 % pi2, y.phi_2 % pi2
-    kappa_1_ij, kappa_2_ij = y.kappa_1.clip(-1, 1), y.kappa_2.clip(-1, 1)
-
-    # sin/cos in radians
-    sin_phi_1, cos_phi_1 = jnp.sin(phi_1_i), jnp.cos(phi_1_i)
-    sin_phi_2, cos_phi_2 = jnp.sin(phi_2_i), jnp.cos(phi_2_i)
-
-    # expand dims to broadcast outer product [i:]*[:j]->[ij]
-    sin_diff_phi_1 = jnp.einsum("bi,bj->bij", sin_phi_1, cos_phi_1) - jnp.einsum("bi,bj->bij", cos_phi_1, sin_phi_1)
-    cos_diff_phi_1 = jnp.einsum("bi,bj->bij", cos_phi_1, cos_phi_1) + jnp.einsum("bi,bj->bij", sin_phi_1, sin_phi_1)
-
-    sin_diff_phi_2 = jnp.einsum("bi,bj->bij", sin_phi_2, cos_phi_2) - jnp.einsum("bi,bj->bij", cos_phi_2, sin_phi_2)
-    cos_diff_phi_2 = jnp.einsum("bi,bj->bij", cos_phi_2, cos_phi_2) + jnp.einsum("bi,bj->bij", sin_phi_2, sin_phi_2)
-
-    sin_phi_1_diff_alpha = sin_diff_phi_1 * cos_alpha + cos_diff_phi_1 * sin_alpha
-    sin_phi_2_diff_alpha = sin_diff_phi_2 * cos_alpha + cos_diff_phi_2 * sin_alpha
-
-    # (phi1 (bxN), phi2 (bxN), k1 (bxNxN), k2 (bxNxN)))
-    phi_1 = jomega_1_i - jsigma * jnp.einsum("bij,bij->bi", sin_phi_1_diff_alpha, ja_1_ij * (1 + kappa_1_ij))
-    phi_2 = jomega_2_i - jsigma * jnp.einsum("bij,bij->bi", sin_phi_2_diff_alpha, ja_1_ij * kappa_2_ij)
-
-    kappa_1 = -jepsilon_1 * (kappa_1_ij + (sin_diff_phi_1 * cos_beta - cos_diff_phi_1 * sin_beta))
-    kappa_2 = -jepsilon_2 * (kappa_2_ij + (sin_diff_phi_2 * cos_beta - cos_diff_phi_2 * sin_beta))
-    return SystemState(phi_1=phi_1, phi_2=phi_2, kappa_1=kappa_1, kappa_2=kappa_2)
-
-
 def make_full_compressed_save(
     deriv, dtype: jnp.dtype = jnp.float16, save_y: bool = True, save_dy: bool = True
 ) -> Callable:
-    # TODO also return dy?
     def full_compressed_save(
         t: ScalarLike, y: SystemState, args: tuple[jnp.ndarray, ...] | None
     ) -> tuple[SystemState, SystemState] | SystemState:
@@ -172,8 +125,7 @@ def make_metric_save(deriv) -> Callable:
         )  # Wrap differences to [-pi, pi]
         return jnp.sqrt(jnp.mean(angular_diff**2, axis=axis))
 
-    # TODO return full histogram?
-    def phase_entropy(phis, num_bins=30) -> jnp.ndarray:
+    def phase_entropy(phis, num_bins=36) -> jnp.ndarray:
         hist, bin_edges = jnp.histogram(phis, bins=num_bins, range=(0, 2 * jnp.pi), density=True)
 
         hist = jnp.clip(hist, 1e-10, 1)

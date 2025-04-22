@@ -26,7 +26,6 @@ from simulation.simulation import (
     generate_init_conditions_fixed,
     make_full_compressed_save,
     make_metric_save,
-    matlab_deriv,
     system_deriv,
 )
 from storage.storage_interface import Storage
