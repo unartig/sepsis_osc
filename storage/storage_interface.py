@@ -3,11 +3,28 @@ import logging
 import faiss
 import msgpack
 import msgpack_numpy as mnp
+import jax.numpy as jnp
 import numpy as np
 import rocksdbpy as rock
 
 from simulation.data_classes import SystemMetrics
 from utils.config import db_metrics_key_value, db_parameter_keys
+
+from functools import wraps
+from time import time
+
+
+def timing(f):
+    @wraps(f)
+    def wrap(*args, **kw):
+        ts = time()
+        result = f(*args, **kw)
+        te = time()
+        print("func:%r took: %2.6f sec" % (f.__name__, te - ts))
+        return result
+
+    return wrap
+
 
 logger = logging.getLogger(__name__)
 
@@ -37,6 +54,7 @@ class Storage:
         # key: FAISS-index, value: Serialized SystemMetric
         self.metrics_kv_name = metrics_kv_name
         self.__db_metric, self.current_idx = self.__setup_rocksdb(self.metrics_kv_name)
+        self._starting_index = self.current_idx
 
         # Memory Cache for faster lookups
         self.use_mem_cache = use_mem_cache
@@ -81,7 +99,7 @@ class Storage:
         self,
         key: np.ndarray,
     ):
-        logger.info(f"Adding key {key[0]} to FAISS index as [{self.current_idx}] ")
+        logger.info(f"Adding key {pprint_key(key[0])} to FAISS index as [{self.current_idx}] ")
         self.__db_keys.add(key)
 
     def find_faiss(
@@ -199,6 +217,7 @@ class Storage:
         logger.info(f"Will not use parameter-set with distance {distance[0][0]} <= threshold {threshold}")
         return None
 
+    @timing
     def read_multiple_results(
         self,
         params: np.ndarray,
@@ -233,33 +252,39 @@ class Storage:
             return None
 
         merged_metrics = SystemMetrics(
-            r_1=np.stack([r.r_1 for r in valid_results]).reshape(original_shape + (-1,)),
-            r_2=np.stack([r.r_2 for r in valid_results]).reshape(original_shape + (-1,)),
-            m_1=np.stack([r.m_1 for r in valid_results]).reshape(original_shape + (-1,)),
-            m_2=np.stack([r.m_2 for r in valid_results]).reshape(original_shape + (-1,)),
-            s_1=np.stack([r.s_1 for r in valid_results]).reshape(original_shape + (-1,)),
-            s_2=np.stack([r.s_2 for r in valid_results]).reshape(original_shape + (-1,)),
-            q_1=np.stack([r.q_1 for r in valid_results]).reshape(original_shape + (-1,)),
-            q_2=np.stack([r.q_2 for r in valid_results]).reshape(original_shape + (-1,)),
-            f_1=np.stack([r.f_1 for r in valid_results]).reshape(original_shape + (-1,)),
-            f_2=np.stack([r.f_2 for r in valid_results]).reshape(original_shape + (-1,)),
+            r_1=jnp.asarray(np.stack([r.r_1 for r in valid_results]).reshape(original_shape + (-1,))),
+            r_2=jnp.asarray(np.stack([r.r_2 for r in valid_results]).reshape(original_shape + (-1,))),
+            m_1=jnp.asarray(np.stack([r.m_1 for r in valid_results]).reshape(original_shape + (-1,))),
+            m_2=jnp.asarray(np.stack([r.m_2 for r in valid_results]).reshape(original_shape + (-1,))),
+            s_1=jnp.asarray(np.stack([r.s_1 for r in valid_results]).reshape(original_shape + (-1,))),
+            s_2=jnp.asarray(np.stack([r.s_2 for r in valid_results]).reshape(original_shape + (-1,))),
+            q_1=jnp.asarray(np.stack([r.q_1 for r in valid_results]).reshape(original_shape + (-1,))),
+            q_2=jnp.asarray(np.stack([r.q_2 for r in valid_results]).reshape(original_shape + (-1,))),
+            f_1=jnp.asarray(np.stack([r.f_1 for r in valid_results]).reshape(original_shape + (-1,))),
+            f_2=jnp.asarray(np.stack([r.f_2 for r in valid_results]).reshape(original_shape + (-1,))),
         )
+        t = merged_metrics.m_1.shape[-1]
+        n = int(merged_metrics.r_1.shape[-1] / t)
+        merged_metrics.r_1 = merged_metrics.r_1.reshape(original_shape + (t, n))
+        merged_metrics.r_2 = merged_metrics.r_2.reshape(original_shape + (t, n))
         return merged_metrics
 
     def write(self):
+        # TODO write only news
         logger.info(f"Writing FAISS index to {self.parameter_k_name}")
         faiss.write_index(self.__db_keys, self.parameter_k_name)
         logger.info(f"Writing RocksDB to {self.metrics_kv_name}")
         if self.use_mem_cache:
             for index, data in self.__memory_cache.items():
                 self.__db_metric.set(f"metrics_{index}".encode(), data)
-        self.__db_metric.set(b"faiss_last_id", str(self.current_idx - 1).encode())
+        self.__db_metric.set(b"faiss_last_id", str(self.current_idx).encode())
         logger.info("All in-memory data has been saved to RocksDB")
 
     def close(
         self,
     ):
-        self.write()
+        if self.current_idx != self._starting_index:
+            self.write()
         self.__db_metric.close()
 
     def merge(
