@@ -111,18 +111,20 @@ def make_full_compressed_save(
 
 
 def make_metric_save(deriv) -> Callable:
+
     def mean_angle(angles, axis=-1) -> jnp.ndarray:
         angles = jnp.asarray(angles)
         sin_vals = jnp.sin(angles)
         cos_vals = jnp.cos(angles)
         return jnp.arctan2(jnp.mean(sin_vals, axis=axis), jnp.mean(cos_vals, axis=axis))
 
+    def diff_angle(a1, a2) -> jnp.ndarray:
+        return jnp.angle(jnp.exp(1j * (a1 - a2)))  # Wrap differences to [-pi, pi]
+
     def std_angle(angles, axis=-1) -> jnp.ndarray:
         angles = jnp.asarray(angles)
         mean_ang = mean_angle(angles, axis=axis)
-        angular_diff = jnp.angle(
-            jnp.exp(1j * (angles - jnp.expand_dims(mean_ang, axis)))
-        )  # Wrap differences to [-pi, pi]
+        angular_diff = diff_angle(angles, jnp.expand_dims(mean_ang, axis))
         return jnp.sqrt(jnp.mean(angular_diff**2, axis=axis))
 
     def phase_entropy(phis, num_bins=36) -> jnp.ndarray:
@@ -158,9 +160,9 @@ def make_metric_save(deriv) -> Callable:
 
         ###### Frequency cluster ratio
         # check for desynchronized nodes
-        eps = 1e-1  # TODO what is the value here?
-        desync_1 = jnp.any(jnp.abs(y.phi_1 - mean_1[:, None]) > eps, axis=-1)
-        desync_2 = jnp.any(jnp.abs(y.phi_2 - mean_2[:, None]) > eps, axis=-1)
+        eps = 10 / 360  # TODO what is the value here?
+        desync_1 = jnp.any(diff_angle(y.phi_1, mean_1[:, None]) > eps, axis=-1)
+        desync_2 = jnp.any(diff_angle(y.phi_2, mean_2[:, None]) > eps, axis=-1)
 
         # Count number of frequency clusters
         # Number of ensembles where at least one node deviates
