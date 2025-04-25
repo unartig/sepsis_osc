@@ -1,8 +1,9 @@
 from dataclasses import dataclass
+from typing import Optional
 
-from jaxtyping import Array, Float
 import jax.numpy as jnp
 import jax.tree_util as jtu
+from jaxtyping import Array, Float
 
 
 @dataclass
@@ -17,10 +18,10 @@ class SystemConfig:
     alpha: float  # phase lag
     beta: float  # plasticity (age parameter)
     sigma: float  # interlayer coupling
-    T_init: int | None = None
-    T_trans: int | None = None
-    T_max: int | None = None
-    T_step: float | None = None
+    T_init: Optional[int] = None
+    T_trans: Optional[int] = None
+    T_max: Optional[int] = None
+    T_step: Optional[float] = None
 
     @property
     def as_args(self) -> tuple[jnp.ndarray, ...]:
@@ -86,8 +87,9 @@ class SystemState:
     def enforce_bounds(self) -> "SystemState":
         self.phi_1 = self.phi_1 % (2 * jnp.pi)
         self.phi_2 = self.phi_2 % (2 * jnp.pi)
-        self.kappa_1 = jnp.clip(self.kappa_1, -1, 1)
-        self.kappa_2 = jnp.clip(self.kappa_2, -1, 1)
+        # its written but not actually done
+        # self.kappa_1 = jnp.clip(self.kappa_1, -1, 1)
+        # self.kappa_2 = jnp.clip(self.kappa_2, -1, 1)
         return self
 
     def last(self) -> "SystemState":
@@ -150,6 +152,9 @@ class SystemMetrics:
     # Frequency cluster ratio
     f_1: Float[Array, "t 1"]
     f_2: Float[Array, "t 1"]
+    # Splay State Ratio
+    sr_1: Optional[Float[Array, "t 1"]] = None
+    sr_2: Optional[Float[Array, "t 1"]] = None
 
     def tree_flatten(self):
         return (
@@ -181,6 +186,32 @@ class SystemMetrics:
             jnp.asarray(self.q_2).copy(),
             jnp.asarray(self.f_1).copy(),
             jnp.asarray(self.f_2).copy(),
+            jnp.asarray(self.sr_1).copy() if self.sr_1 else None,
+            jnp.asarray(self.sr_2).copy() if self.sr_1 else None,
+        )
+
+    def add_follow_ups(self) -> "SystemMetrics":
+        sr_1 = jnp.asarray(self.r_1)
+        sr_2 = jnp.asarray(self.r_2)
+        self.sr_1 = jnp.sum(sr_1 < 0.3, axis=-1) / sr_1.shape[-1]
+        self.sr_2 = jnp.sum(sr_2 < 0.3, axis=-1) / sr_2.shape[-1]
+        return self
+
+    def as_single(self) -> "SystemMetrics":
+        self.add_follow_ups()
+        return SystemMetrics(
+            jnp.mean(jnp.asarray(self.r_1)[:, :, -1, :], axis=(-1,)),
+            jnp.mean(jnp.asarray(self.r_2)[:, :, -1, :], axis=(-1,)),
+            jnp.mean(jnp.asarray(self.s_1), axis=-1),
+            jnp.mean(jnp.asarray(self.s_2), axis=-1),
+            jnp.mean(jnp.asarray(self.m_1), axis=-1),
+            jnp.mean(jnp.asarray(self.m_2), axis=-1),
+            jnp.mean(jnp.asarray(self.q_1), axis=-1),
+            jnp.mean(jnp.asarray(self.q_2), axis=-1),
+            jnp.mean(jnp.asarray(self.f_1), axis=-1),
+            jnp.mean(jnp.asarray(self.f_2), axis=-1),
+            self.sr_1[-1] if self.sr_1 else None,  # for our dumb type checkers
+            self.sr_2[-1] if self.sr_2 else None,
         )
 
 

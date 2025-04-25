@@ -1,4 +1,5 @@
 from collections.abc import Callable
+from typing import Optional
 
 import jax.numpy as jnp
 import jax.random as jr
@@ -13,14 +14,13 @@ setup_jax()
 
 def generate_init_conditions_fixed(N: int, beta: float, C: int) -> Callable:
     def inner(key: jnp.ndarray) -> SystemState:
-
         keys = jr.split(key, 3)
         phi_1_init = jr.uniform(keys[0], (N,)) * (2 * jnp.pi)
         phi_2_init = jr.uniform(keys[1], (N,)) * (2 * jnp.pi)
 
         # kappaIni1 = sin(parStruct.beta(1))*ones(N*N,1)+0.01*(2*rand(N*N,1)-1);
-        kappa_1_init = jnp.ones((N, N)) + 0.01 * (2 * jr.uniform(keys[2], (N, N)) - 1)
-        # kappa_1_init = jr.uniform(keys[3], (N, N)) * 2 - 1
+        # kappa_1_init = jnp.ones((N, N)) + 0.01 * (2 * jr.uniform(keys[2], (N, N)) - 1)
+        kappa_1_init = jr.uniform(keys[2], (N, N)) * 2 - 1
         kappa_1_init = kappa_1_init.at[jnp.diag_indices(N)].set(0)
 
         kappa_2_init = jnp.ones((N, N))
@@ -60,7 +60,7 @@ def system_deriv(
     ) = args
     # recover states from the py_tree
     phi_1_i, phi_2_i = y.phi_1 % pi2, y.phi_2 % pi2
-    kappa_1_ij, kappa_2_ij = y.kappa_1.clip(-1, 1), y.kappa_2.clip(-1, 1)
+    kappa_1_ij, kappa_2_ij = y.kappa_1, y.kappa_2
 
     # sin/cos in radians
     # https://mediatum.ub.tum.de/doc/1638503/1638503.pdf
@@ -97,7 +97,7 @@ def make_full_compressed_save(
     deriv, dtype: jnp.dtype = jnp.float16, save_y: bool = True, save_dy: bool = True
 ) -> Callable:
     def full_compressed_save(
-        t: ScalarLike, y: SystemState, args: tuple[jnp.ndarray, ...] | None
+        t: ScalarLike, y: SystemState, args: Optional[tuple[jnp.ndarray, ...]]
     ) -> tuple[SystemState, SystemState] | SystemState:
         y.enforce_bounds()
         if save_y and not save_dy:
@@ -111,7 +111,6 @@ def make_full_compressed_save(
 
 
 def make_metric_save(deriv) -> Callable:
-
     def mean_angle(angles, axis=-1) -> jnp.ndarray:
         angles = jnp.asarray(angles)
         sin_vals = jnp.sin(angles)
