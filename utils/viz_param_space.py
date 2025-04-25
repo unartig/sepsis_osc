@@ -11,14 +11,20 @@ from utils.logger import setup_logging
 setup_logging()
 logger = logging.getLogger(__name__)
 
-size = (100, 100)
-xs = np.linspace(0.4, 0.7, size[0])
-ys = np.linspace(0.0, 1.5, size[1])
+xs_step = 0.00303030303030305
+ys_step = 0.01515151515151515
+xs = np.arange(0.0, 1.5, xs_step)
+ys = np.arange(0.0, 2.0, ys_step)
+
+orig_xs = [np.argmin(np.abs(xs - x)) for x in [0.4, 0.7]]
+orig_ys = [len(ys) - np.argmin(np.abs(ys - y)) - 1 for y in [0.0, 1.5]]
+
+size = (len(ys), len(xs))
 storage = Storage(
     key_dim=9,
     metrics_kv_name="storage/SepsisMetrics.db/",
     parameter_k_name="storage/SepsisParameters_index.bin",
-    use_mem_cache=False,
+    use_mem_cache=True,
 )
 params = np.ndarray((*size, 9))
 
@@ -35,71 +41,65 @@ for x, beta in enumerate(xs):
             epsilon_1=0.03,
             epsilon_2=0.3,
             alpha=-0.28,
-            beta=beta,
-            sigma=sigma,
+            beta=float(beta),
+            sigma=float(sigma),
         )
         params[-y, x] = np.array(run_conf.as_index)
 
 metrix = storage.read_multiple_results(params)
+storage.close()
 if not metrix:
     exit(0)
-metrix.r_1 = np.clip(np.mean(np.asarray(metrix.r_1)[:, :, -1, :], axis=(-1,)), -np.inf, np.inf)
-metrix.r_2 = np.clip(np.mean(np.asarray(metrix.r_2)[:, :, -1, :], axis=(-1,)), -np.inf, np.inf)
-metrix.s_1 = np.clip(np.mean(np.asarray(metrix.s_1), axis=-1), -np.inf, np.inf)
-metrix.s_2 = np.clip(np.mean(np.asarray(metrix.s_2), axis=-1), -np.inf, np.inf)
-metrix.m_1 = np.clip(np.mean(np.asarray(metrix.m_1), axis=-1), -np.inf, np.inf)
-metrix.m_2 = np.clip(np.mean(np.asarray(metrix.m_2), axis=-1), -np.inf, np.inf)
-metrix.q_1 = np.clip(np.mean(np.asarray(metrix.q_1), axis=-1), -np.inf, np.inf)
-metrix.q_2 = np.clip(np.mean(np.asarray(metrix.q_2), axis=-1), -np.inf, np.inf)
-metrix.f_1 = np.clip(np.mean(np.asarray(metrix.f_1), axis=-1), -np.inf, np.inf)
-metrix.f_2 = np.clip(np.mean(np.asarray(metrix.f_2), axis=-1), -np.inf, np.inf)
-storage.close()
-num_ticks = 5
+metrix = metrix.as_single()
+num_ticks = 10
 
 
-def plot_metric(m1, m2, ax, log=False):
-    ax1, ax2 = ax[0], ax[1]
-    fig = ax1.figure
+def pretty_plot(metric_parenchymal, metric_immune, title, filename, figure_dir, fs=(8, 6), show=False):
+    fig, axes = plt.subplots(2, 1, figsize=fs)
 
-    if log:
-        norm1 = LogNorm(vmin=float(np.min(m1)), vmax=float(np.max(m1)))
-        norm2 = LogNorm(vmin=float(np.min(m2)), vmax=float(np.max(m2)))
-        cax1 = ax1.matshow(m1, interpolation="none", norm=norm1)
-        cax2 = ax2.matshow(m2, interpolation="none", norm=norm2)
-    else:
-        cax1 = ax1.matshow(m1, vmin=float(np.min(m1)), vmax=float(np.max(m1)), interpolation="none")
-        cax2 = ax2.matshow(m2, vmin=float(np.min(m2)), vmax=float(np.max(m2)), interpolation="none")
+    # Enhanced heatmap plotting
+    im0 = axes[0].imshow(metric_parenchymal, aspect="auto", cmap="viridis")
+    im1 = axes[1].imshow(metric_immune, aspect="auto", cmap="viridis")
 
-    # Add individual colorbars for each subplot
-    fig.colorbar(cax1, ax=ax1, location="bottom", shrink=0.7)
-    fig.colorbar(cax2, ax=ax2, location="bottom", shrink=0.7)
+    # Clearer titles and labels
+    axes[0].set_title(f"{title}\nParenchymal Layer", fontsize=14)
+    axes[1].set_title(f"{title}\nImmune Layer", fontsize=14)
+    axes[0].set_ylabel(r"$\sigma$", fontsize=12)
+    axes[1].set_ylabel(r"$\sigma$", fontsize=12)
+    axes[1].set_xlabel(r"$\beta / \pi$", fontsize=12)
+    axes[0].set_xlabel(r"$\beta / \pi$", fontsize=12)
 
-    # Set tick labels
     xtick_positions = np.linspace(0, len(xs) - 1, num_ticks, dtype=int)
     ytick_positions = np.linspace(0, len(ys) - 1, num_ticks, dtype=int)
-
-    for a in ax:
+    for a in axes:
         a.set_xticks(xtick_positions)
         a.set_xticklabels([f"{val:.2f}" for val in xs[xtick_positions]], rotation=45)
         a.set_yticks(ytick_positions)
         a.set_yticklabels([f"{val:.2f}" for val in ys[ytick_positions]][::-1])
+        a.plot(orig_xs, [orig_ys[0], orig_ys[0]], color="white", linewidth=0.5)
+        a.plot(orig_xs, [orig_ys[1], orig_ys[1]], color="white", linewidth=0.5)
+        a.plot([orig_xs[0], orig_xs[0]], orig_ys, color="white", linewidth=0.5)
+        a.plot([orig_xs[1], orig_xs[1]], orig_ys, color="white", linewidth=0.5)
 
+    # Add a colorbar to each subplot
+    fig.colorbar(im0, ax=axes[0], location="right", shrink=0.8)
+    fig.colorbar(im1, ax=axes[1], location="right", shrink=0.8)
 
-fig = plt.figure()
-ax = fig.subplots(2, 5)
+    plt.tight_layout()  # Adjust layout
+    plt.savefig(f"{figure_dir}/{filename}.svg", format="svg")
+    if show:
+        plt.show()
+    else:
+        plt.close(fig)
+
 
 log = False
-plot_metric(metrix.r_1, metrix.r_2, ax[:, 0], log=log)
-ax[0, 0].set_title("Kuramoto Order Parameter R")
-ax[0, 0].set_ylabel("Parenchymal Layer\nsigma")
-ax[1, 0].set_ylabel("Immune Layer\nsigma")
-plot_metric(metrix.s_1, metrix.s_2, ax[:, 1], log=log)
-ax[0, 1].set_title("Mean Phase Velocity Std")
-plot_metric(metrix.m_1, metrix.m_2, ax[:, 2], log=log)
-ax[0, 2].set_title("Mean Phase Velocity")
-plot_metric(metrix.q_1, metrix.q_2, ax[:, 3], log=log)
-ax[0, 3].set_title("Mean Entropy")
-plot_metric(metrix.f_1, metrix.f_2, ax[:, 4], log=log)
-ax[0, 4].set_title("Fraction of Cluster")
-
-plt.show()
+show = False
+figure_dir = "figures"
+fs = (8, 8)
+pretty_plot(metrix.r_1, metrix.r_2, "Kuramoto Order Parameter R", "kuramoto_beta_sigma", figure_dir, fs, show)
+pretty_plot(metrix.sr_1, metrix.sr_2, "Splay Ratio", "splay_ratio_beta_sigma", figure_dir, fs, show)
+pretty_plot(metrix.s_1, metrix.s_2, "Mean Phase Velocity Std", "std_beta_sigma", figure_dir, fs, show)
+pretty_plot(metrix.m_1, metrix.m_2, "Mean Phase Velocity", "mean_beta_sigma", figure_dir, fs, show)
+pretty_plot(metrix.q_1, metrix.q_2, "Entropy", "entropy_beta_sigma", figure_dir, fs, show)
+pretty_plot(metrix.f_1, metrix.f_2, "Cluster Fraction", "cluster_beta_sigma", figure_dir, fs, show)
