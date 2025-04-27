@@ -151,8 +151,6 @@ def make_metric_save(deriv) -> Callable:
         dy = deriv(0, y, args)
         mean_1 = mean_angle(dy.phi_1, axis=-1)
         mean_2 = mean_angle(dy.phi_2, axis=-1)
-        m_1 = jnp.mean(mean_1)
-        m_2 = jnp.mean(mean_2)
 
         s_1 = jnp.mean(std_angle(dy.phi_1, axis=-1))
         s_2 = jnp.mean(std_angle(dy.phi_2, axis=-1))
@@ -172,6 +170,8 @@ def make_metric_save(deriv) -> Callable:
         f_1 = n_f_1 / N_E  # N_f / N_E
         f_2 = n_f_2 / N_E
 
-        return SystemMetrics(r_1=r_1, r_2=r_2, m_1=m_1, m_2=m_2, s_1=s_1, s_2=s_2, q_1=q_1, q_2=q_2, f_1=f_1, f_2=f_2)
+        return SystemMetrics(
+            r_1=r_1, r_2=r_2, m_1=mean_1, m_2=mean_2, s_1=s_1, s_2=s_2, q_1=q_1, q_2=q_2, f_1=f_1, f_2=f_2
+        )
 
     return metric_save

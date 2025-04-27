@@ -3,6 +3,7 @@ from typing import Optional
 
 import jax.numpy as jnp
 import jax.tree_util as jtu
+import numpy as np
 from jaxtyping import Array, Float
 
 
@@ -71,10 +72,10 @@ class SystemConfig:
 
 @dataclass
 class SystemState:
-    phi_1: Float[Array, "t ensemble N"]
-    phi_2: Float[Array, "t ensemble N"]
-    kappa_1: Float[Array, "t ensemble N N"]
-    kappa_2: Float[Array, "t ensemble N N"]
+    phi_1: Float[Array, "t ensemble N"] | np.ndarray
+    phi_2: Float[Array, "t ensemble N"] | np.ndarray
+    kappa_1: Float[Array, "t ensemble N N"] | np.ndarray
+    kappa_2: Float[Array, "t ensemble N N"] | np.ndarray
 
     # Required for JAX to recognize it as a PyTree
     def tree_flatten(self):
@@ -138,23 +139,23 @@ jtu.register_pytree_node(SystemState, SystemState.tree_flatten, SystemState.tree
 @dataclass
 class SystemMetrics:
     # Kuramoto Order Parameter
-    r_1: Float[Array, "t ensemble 1"]
-    r_2: Float[Array, "t ensemble 1"]
+    r_1: Float[Array, "t ensemble 1"] | np.ndarray
+    r_2: Float[Array, "t ensemble 1"] | np.ndarray
     # Ensemble average velocity
-    m_1: Float[Array, "t 1"]
-    m_2: Float[Array, "t 1"]
+    m_1: Float[Array, "t 1"] | np.ndarray
+    m_2: Float[Array, "t 1"] | np.ndarray
     # Ensemble average std
-    s_1: Float[Array, "t 1"]
-    s_2: Float[Array, "t 1"]
+    s_1: Float[Array, "t 1"] | np.ndarray
+    s_2: Float[Array, "t 1"] | np.ndarray
     # Ensemble phase entropy
-    q_1: Float[Array, "t 1"]
-    q_2: Float[Array, "t 1"]
+    q_1: Float[Array, "t 1"] | np.ndarray
+    q_2: Float[Array, "t 1"] | np.ndarray
     # Frequency cluster ratio
-    f_1: Float[Array, "t 1"]
-    f_2: Float[Array, "t 1"]
+    f_1: Float[Array, "t 1"] | np.ndarray
+    f_2: Float[Array, "t 1"] | np.ndarray
     # Splay State Ratio
-    sr_1: Optional[Float[Array, "t 1"]] = None
-    sr_2: Optional[Float[Array, "t 1"]] = None
+    sr_1: Optional[Float[Array, "t 1"] | np.ndarray] = None
+    sr_2: Optional[Float[Array, "t 1"] | np.ndarray] = None
 
     def tree_flatten(self):
         return (
@@ -186,32 +187,30 @@ class SystemMetrics:
             jnp.asarray(self.q_2).copy(),
             jnp.asarray(self.f_1).copy(),
             jnp.asarray(self.f_2).copy(),
-            jnp.asarray(self.sr_1).copy() if self.sr_1 else None,
-            jnp.asarray(self.sr_2).copy() if self.sr_1 else None,
+            jnp.asarray(self.sr_1).copy() if self.sr_1 is not None else None,
+            jnp.asarray(self.sr_2).copy() if self.sr_1 is not None else None,
         )
 
     def add_follow_ups(self) -> "SystemMetrics":
-        sr_1 = jnp.asarray(self.r_1)
-        sr_2 = jnp.asarray(self.r_2)
-        self.sr_1 = jnp.sum(sr_1 < 0.3, axis=-1) / sr_1.shape[-1]
-        self.sr_2 = jnp.sum(sr_2 < 0.3, axis=-1) / sr_2.shape[-1]
+        self.sr_1 = jnp.sum(self.r_1 < 0.2, axis=-1) / self.r_1.shape[-1]
+        self.sr_2 = jnp.sum(self.r_2 < 0.2, axis=-1) / self.r_2.shape[-1]
         return self
 
     def as_single(self) -> "SystemMetrics":
         self.add_follow_ups()
         return SystemMetrics(
-            jnp.mean(jnp.asarray(self.r_1)[:, :, -1, :], axis=(-1,)),
-            jnp.mean(jnp.asarray(self.r_2)[:, :, -1, :], axis=(-1,)),
-            jnp.mean(jnp.asarray(self.s_1), axis=-1),
-            jnp.mean(jnp.asarray(self.s_2), axis=-1),
+            jnp.mean(jnp.asarray(self.r_1)[..., -1, :], axis=(-1,)),
+            jnp.mean(jnp.asarray(self.r_2)[..., -1, :], axis=(-1,)),
+            jnp.mean(jnp.asarray(self.s_1)[..., -1], axis=-1),
+            jnp.mean(jnp.asarray(self.s_2)[..., -1], axis=-1),
             jnp.mean(jnp.asarray(self.m_1), axis=-1),
             jnp.mean(jnp.asarray(self.m_2), axis=-1),
             jnp.mean(jnp.asarray(self.q_1), axis=-1),
             jnp.mean(jnp.asarray(self.q_2), axis=-1),
             jnp.mean(jnp.asarray(self.f_1), axis=-1),
             jnp.mean(jnp.asarray(self.f_2), axis=-1),
-            self.sr_1[-1] if self.sr_1 else None,  # for our dumb type checkers
-            self.sr_2[-1] if self.sr_2 else None,
+            self.sr_1[..., -1] if self.sr_1 is not None else None,
+            self.sr_2[..., -1] if self.sr_2 is not None else None,
         )
 
 
