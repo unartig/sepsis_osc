@@ -20,10 +20,11 @@ orig_xs = [np.argmin(np.abs(xs - x)) for x in [0.4, 0.7]]
 orig_ys = [len(ys) - np.argmin(np.abs(ys - y)) - 1 for y in [0.0, 1.5]]
 
 size = (len(ys), len(xs))
+db_str = ""  # other/Tiny"
 storage = Storage(
     key_dim=9,
-    metrics_kv_name="storage/SepsisMetrics.db/",
-    parameter_k_name="storage/SepsisParameters_index.bin",
+    metrics_kv_name=f"storage/{db_str}SepsisMetrics.db/",
+    parameter_k_name=f"storage/{db_str}SepsisParameters_index.bin",
     use_mem_cache=True,
 )
 params = np.ndarray((*size, 9))
@@ -50,7 +51,6 @@ metrix = storage.read_multiple_results(params)
 storage.close()
 if not metrix:
     exit(0)
-metrix = metrix.as_single()
 num_ticks = 10
 
 
@@ -93,6 +93,8 @@ def pretty_plot(metric_parenchymal, metric_immune, title, filename, figure_dir, 
         plt.close(fig)
 
 
+print(metrix.sr_1.shape)
+print(metrix.sr_2.sum() / metrix.sr_2.size)
 log = False
 show = False
 figure_dir = "figures"

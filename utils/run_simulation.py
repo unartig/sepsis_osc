@@ -68,28 +68,29 @@ if __name__ == "__main__":
     np.set_printoptions(suppress=True, linewidth=120)
 
     rand_key = jr.key(jax_random_seed)
-    num_parallel_runs = 50
+    num_parallel_runs = 20
     rand_keys = jr.split(rand_key, num_parallel_runs)
 
     metric_save = make_metric_save(system_deriv)
 
+    solver = Dopri5()
     term = ODETerm(system_deriv)
 
-    size = (2, 2)
-    mat = np.zeros(size)
-    xs = np.linspace(0.4, 0.7, size[0])
-    ys = np.linspace(0.0, 1.5, size[1])
-    db_k = ""
-    db_m = ""
+    xs_step = 0.00303030303030305
+    xs = np.arange(0.0, 1.5, xs_step)
+    ys_step = 0.01515151515151515
+    ys = np.arange(0.0, 2.0, ys_step)
+    db_str = ""
     storage = Storage(
         key_dim=9,
-        parameter_k_name=db_k,
-        metrics_kv_name=db_m,
+        metrics_kv_name=f"storage/{db_str}SepsisMetrics.db/",
+        parameter_k_name=f"storage/{db_str}SepsisParameters_index.bin",
+        use_mem_cache=False,
     )
-    for c_frac in [0.05, 0.1, 0.2, 0.3, 0.4, 0.5]:
+    for c_frac in [0.2]:
         for x, beta in enumerate(xs):
             for y, sigma in enumerate(ys):
-                N = 200
+                N = 100
                 C = int(N * c_frac)
                 run_conf = SystemConfig(
                     N=N,
@@ -100,19 +101,19 @@ if __name__ == "__main__":
                     epsilon_1=0.03,  # adaption rate
                     epsilon_2=0.3,  # adaption rate
                     alpha=-0.28,  # phase lage
-                    beta=beta,  # age parameter
-                    sigma=sigma,
+                    beta=float(beta),  # age parameter
+                    sigma=float(sigma),
                     T_init=0,
-                    T_trans=90,
-                    T_max=100,
-                    T_step=0.05,
+                    T_trans=150,
+                    T_max=200,
+                    T_step=0.1,
                 )
-
+                logger.info(f"New config {run_conf.as_index}")
                 if not storage.read_result(run_conf.as_index, threshold=0.0):
+                    logger.info("Starting solve")
                     generate_init_conditions = generate_init_conditions_fixed(run_conf.N, run_conf.beta, run_conf.C)
 
-                    solver = Dopri5()
-                    stepsize_controller = PIDController(rtol=1e-3, atol=1e-6)
+                    stepsize_controller = PIDController(rtol=1e-4, atol=1e-7)
                     init_conditions = vmap(generate_init_conditions)(rand_keys)
                     # shape (num_parallel_runs, state)
                     sol = solve(
@@ -127,7 +128,8 @@ if __name__ == "__main__":
                         stepsize_controller,
                         metric_save,
                     )
-                    logger.info(f"Solved in {sol.stats["num_steps"]} steps")
+                    logger.info(f"Solved in {sol.stats['num_steps']} steps")
                     if sol.ys:
+                        logger.info("Saving Result")
                         storage.add_result(run_conf.as_index, sol.ys.copy(), overwrite=False)
             storage.write()

@@ -168,7 +168,7 @@ def gif_phase_plt(phis_1: np.ndarray, phis_2: np.ndarray, ts: np.ndarray, deriv:
         ax.clear()
         plot_phase_snapshot(phis_1, phis_2, t=t, deriv=deriv, ax=ax)
         ax.set_xlim(0, 2 * N)
-        ax.set_xlabel(f"Index [0-{int(N / 2) - 1}] Parenchymal (blue), [{int(N / 2)} - {N}] Immune Layer (orange)")
+        ax.set_xlabel(f"Index [0-{int(N) - 1}] Parenchymal (blue), [{int(N)} - {N * 2}] Immune Layer (orange)")
         ax.set_ylabel("Phase / π")
         ax.set_title(f"Time step: {float(ts[t]):.4f}")
         return []
@@ -192,13 +192,13 @@ if __name__ == "__main__":
     )
     from utils.config import jax_random_seed
 
-    rand_key = jr.key(jax_random_seed)
+    rand_key = jr.key(jax_random_seed + 12345)
     num_parallel_runs = 1
     rand_keys = jr.split(rand_key, num_parallel_runs)
     full_save = make_full_compressed_save(system_deriv, jnp.float32)
     term = ODETerm(system_deriv)
     solver = Bosh3()
-    stepsize_controller = PIDController(rtol=1e-4, atol=1e-7)
+    stepsize_controller = PIDController(rtol=1e-4, atol=1e-7, dtmax=0.1)
 
     #### Parameters
     N = 200
@@ -211,11 +211,11 @@ if __name__ == "__main__":
         epsilon_1=0.03,  # adaption rate
         epsilon_2=0.3,  # adaption rate
         alpha=-0.28,  # phase lage
-        beta=0.83,  # age parameter
-        sigma=0.25,
+        beta=0.4,  # age parameter
+        sigma=1,
     )  # b 0.83, s 0.25, rseed + 0
-    T_init, T_trans, T_max = 0, 1000, 2000
-    T_step = 1
+    T_init, T_trans, T_max = 0, 0, 100
+    T_step = 0.05
     generate_init_conditions = generate_init_conditions_fixed(run_conf.N, run_conf.beta, run_conf.C)
 
     init_conditions = vmap(generate_init_conditions)(rand_keys)
@@ -252,10 +252,10 @@ if __name__ == "__main__":
     # plot_phase_snapshot(np.asarray(dys.phi_1), np.asarray(dys.phi_2), -1)
     plot_snapshot(ys, dys)
 
-    plot_kappa(ys.kappa_1, ys.kappa_2, 0)
-    plot_kappa(ys.kappa_1, ys.kappa_2, -1)
+    # plot_kappa(ys.kappa_1, ys.kappa_2, 0)
+    # plot_kappa(ys.kappa_1, ys.kappa_2, -1)
 
-    plot_phase_space_time(ys.phi_1, ys.phi_2)
+    # plot_phase_space_time(ys.phi_1, ys.phi_2)
 
     # plot_kuramoto(ys.phi_1, 0)
     # plot_kuramoto(ys.phi_1)
