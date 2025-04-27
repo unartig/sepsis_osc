@@ -3,6 +3,9 @@ jax_random_seed = 12
 np_random_seed = 12
 random_seed = 12
 
+# Workers
+max_workers = 22
+
 # DB names
 db_parameter_keys = "storage/SepsisParameters_index.bin"
 db_metrics_key_value = "storage/SepsisMetrics.db"

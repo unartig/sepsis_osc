@@ -7,13 +7,19 @@ setup_logging()
 logger = logging.getLogger(__name__)
 
 
-base = Storage()
+base_str = "Tiny"
+base = Storage(
+    parameter_k_name=f"storage/other/{base_str}SepsisParameters_index.bin",
+    metrics_kv_name=f"storage/other/{base_str}SepsisMetrics.db",
+)
+
+other_str = "Big"
 other = Storage(
     key_dim=9,
-    parameter_k_name="storage/other/ColabSepsisParameters_index.bin",
-    metrics_kv_name="storage/other/ColabSepsisMetrics.db",
+    parameter_k_name=f"storage/other/{other_str}SepsisParameters_index.bin",
+    metrics_kv_name=f"storage/other/{other_str}SepsisMetrics.db",
+    use_mem_cache=False,
 )
-print(other.parameter_k_name)
 print(base.current_idx, other.current_idx)
-# base.merge(other)
-# base.close()
+base.merge(other)
+base.close()

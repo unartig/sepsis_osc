@@ -3,15 +3,21 @@ import logging
 import faiss
 import msgpack
 import msgpack_numpy as mnp
-import jax.numpy as jnp
+from jax.numpy import asarray as asjnp
 import numpy as np
 import rocksdbpy as rock
 
+from typing import Optional
+
 from simulation.data_classes import SystemMetrics
-from utils.config import db_metrics_key_value, db_parameter_keys
+from utils.config import db_metrics_key_value, db_parameter_keys, max_workers
+import concurrent.futures
 
 from functools import wraps
 from time import time
+import jax
+
+jax.config.update("jax_platform_name", "cpu")
 
 
 def timing(f):
@@ -61,6 +67,7 @@ class Storage:
         self.__memory_cache: dict[str, bytes] = {}
         if self.use_mem_cache:
             self.__setup_memory_cache()
+            self.__new_indices = set()
 
     def __setup_faiss(
         self,
@@ -84,14 +91,23 @@ class Storage:
         current_idx = int(last_id_bytes.decode()) if last_id_bytes else 0
         return rocksdb, current_idx
 
+    @timing
     def __setup_memory_cache(self):
-        for key, data_bytes in self.__db_metric.iterator():
+        def extract_key_data(pair):
+            key, data_bytes = pair
             if key.startswith(b"metrics_"):
-                self.add_metric(
-                    None,
-                    data_bytes,
-                    str(key.decode()).lstrip("metrics_"),
-                )
+                return str(key.decode()).lstrip("metrics_"), data_bytes
+            return None
+
+        def insert_metric(kv):
+            if kv:
+                key, data_bytes = kv
+                self.__memory_cache[key] = data_bytes
+
+        logger.info("Preloading memory cache from RocksDB...")
+        with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+            kv_pairs = executor.map(extract_key_data, self.__db_metric.iterator())
+            executor.map(insert_metric, filter(None, kv_pairs))
 
         logger.info(f"Successfully loaded {len(self.__memory_cache)} metrics into memory.")
 
@@ -107,15 +123,19 @@ class Storage:
         query_key: np.ndarray,
         k: int = 1,
     ) -> tuple[np.ndarray, np.ndarray]:
-        logger.info(f"Searching {pprint_key(query_key[0])} in FAISS index")
+        logger.info(
+            f"Searching {pprint_key(query_key[0]) if query_key.shape[0] == 1 else str(len(query_key)) + ' keys'} in FAISS index"
+        )
         distances, indices = self.__db_keys.search(query_key, k=k)
-        logger.info(f"Found vectors with distance {distances}, index {indices}")
+        logger.info(
+            f"Found vectors with distance {distances if query_key.size == 1 else np.sum(distances)}, index {indices if query_key.size == 1 else (int(indices.min()), int(indices.max()))}"
+        )
         return indices, distances
 
     def add_metric(
         self,
-        metrics: SystemMetrics | None,
-        packed_data: bytes | None,
+        metrics: Optional[SystemMetrics],
+        packed_data: Optional[bytes],
         index: str = "",
     ):
         if not index:
@@ -134,6 +154,8 @@ class Storage:
                     "q_2": np.asarray(metrics.q_2),
                     "f_1": np.asarray(metrics.f_1),
                     "f_2": np.asarray(metrics.f_2),
+                    "sr_1": np.asarray(metrics.sr_1),
+                    "sr_2": np.asarray(metrics.sr_2),
                 },
                 default=mnp.encode,
             )
@@ -142,6 +164,7 @@ class Storage:
             if self.use_mem_cache:
                 logger.info(f"Adding SystemMetrics with key {index} to MemoryCache")
                 self.__memory_cache[index] = packed_data
+                self.__new_indices.add(index)
             else:
                 logger.info(f"Adding SystemMetrics with key {index} to RocksDB")
                 self.__db_metric.set(f"metrics_{index}".encode(), packed_data)
@@ -149,8 +172,7 @@ class Storage:
     def read_metric(
         self,
         key: str,
-    ) -> SystemMetrics | None:
-
+    ) -> Optional[SystemMetrics]:
         if self.use_mem_cache:
             logger.info(f"Reading SystemMetrics with key {key} from MemoryCache")
             if key in self.__memory_cache:
@@ -177,6 +199,8 @@ class Storage:
             q_2=unpacked["q_2"],
             f_1=unpacked["f_1"],
             f_2=unpacked["f_2"],
+            # sr_1=unpacked["sr_1"],
+            # sr_2=unpacked["sr_2"],
         )
 
     def add_result(
@@ -185,6 +209,7 @@ class Storage:
         metrics: SystemMetrics,
         overwrite: bool = False,
     ) -> bool:
+        metrics = metrics.as_single()
         np_params = np.array([params], dtype=np.float32)
         index, distance = self.find_faiss(np_params)
         if distance != 0.0:
@@ -207,7 +232,7 @@ class Storage:
         self,
         params: tuple[int | float, ...] | np.ndarray,
         threshold=np.inf,
-    ) -> None | SystemMetrics:
+    ) -> Optional[SystemMetrics]:
         logger.info(f"Getting Metrics for {pprint_key(params)}")
         np_params = np.array([params], dtype=np.float32)
         index, distance = self.find_faiss(np_params)
@@ -221,69 +246,88 @@ class Storage:
     def read_multiple_results(
         self,
         params: np.ndarray,
-        threshold=0.0,  # for multi read we dont want to miss
-    ) -> None | SystemMetrics:
+        threshold=0.0,
+    ) -> Optional[SystemMetrics]:
         logger.info(f"Getting Metrics for multiple queries with shape {params.shape}")
 
-        # flatten for faiss lookup
         original_shape = params.shape[:-1]
         np_params = np.asarray(params, dtype=np.float32).reshape(-1, params.shape[-1])
 
         indices, distances = self.find_faiss(np_params)
+        indices = indices.reshape(original_shape)
 
-        # back to original shape
-        indices = indices.reshape(original_shape + (indices.shape[-1],))
-        distances = distances.reshape(original_shape + (distances.shape[-1],))
+        print(original_shape)
+        inds = [(r, c) for r in range(original_shape[0]) for c in range(original_shape[1])]
 
-        # function to be vectorized
-        def fetch_metric(index, distance):
-            if distance <= threshold:
-                # other = Storage(self.key_dim, "", self.metrics_kv_name)
-                return self.read_metric(str(index))
-            return None
-
-        vectorized_fetch = np.vectorize(fetch_metric, otypes=[object])
-        results = vectorized_fetch(indices, distances)
-
-        # Filter out None values and extract attributes into separate arrays
-        valid_results = [r for r in results.flatten() if r is not None]
-
-        if not valid_results:
-            return None
-
-        merged_metrics = SystemMetrics(
-            r_1=jnp.asarray(np.stack([r.r_1 for r in valid_results]).reshape(original_shape + (-1,))),
-            r_2=jnp.asarray(np.stack([r.r_2 for r in valid_results]).reshape(original_shape + (-1,))),
-            m_1=jnp.asarray(np.stack([r.m_1 for r in valid_results]).reshape(original_shape + (-1,))),
-            m_2=jnp.asarray(np.stack([r.m_2 for r in valid_results]).reshape(original_shape + (-1,))),
-            s_1=jnp.asarray(np.stack([r.s_1 for r in valid_results]).reshape(original_shape + (-1,))),
-            s_2=jnp.asarray(np.stack([r.s_2 for r in valid_results]).reshape(original_shape + (-1,))),
-            q_1=jnp.asarray(np.stack([r.q_1 for r in valid_results]).reshape(original_shape + (-1,))),
-            q_2=jnp.asarray(np.stack([r.q_2 for r in valid_results]).reshape(original_shape + (-1,))),
-            f_1=jnp.asarray(np.stack([r.f_1 for r in valid_results]).reshape(original_shape + (-1,))),
-            f_2=jnp.asarray(np.stack([r.f_2 for r in valid_results]).reshape(original_shape + (-1,))),
+        res = SystemMetrics(
+            r_1=np.empty(original_shape + (1,)),
+            r_2=np.empty(original_shape + (1,)),
+            m_1=np.empty(original_shape + (1,)),
+            m_2=np.empty(original_shape + (1,)),
+            s_1=np.empty(original_shape + (1,)),
+            s_2=np.empty(original_shape + (1,)),
+            q_1=np.empty(original_shape + (1,)),
+            q_2=np.empty(original_shape + (1,)),
+            f_1=np.empty(original_shape + (1,)),
+            f_2=np.empty(original_shape + (1,)),
+            sr_1=np.empty(original_shape + (1,)),
+            sr_2=np.empty(original_shape + (1,)),
         )
-        t = merged_metrics.m_1.shape[-1]
-        n = int(merged_metrics.r_1.shape[-1] / t)
-        merged_metrics.r_1 = merged_metrics.r_1.reshape(original_shape + (t, n))
-        merged_metrics.r_2 = merged_metrics.r_2.reshape(original_shape + (t, n))
-        return merged_metrics
+        if distances.sum() != 0.0:
+            logger.error("Could not match bulk query")
+            return None
+
+        # Batch read the data from cache or RocksDB
+        def fetch_and_unpack(ind: tuple[int, int]):
+            key = str(indices[ind])
+            if self.use_mem_cache:
+                raw = self.__memory_cache.get(key)
+            else:
+                raw = self.__db_metric.get(f"metrics_{key}".encode())
+            if not raw:
+                return False
+            unpacked = msgpack.unpackb(raw, object_hook=mnp.decode)
+
+            res.r_1[ind] = unpacked["r_1"]
+            res.r_2[ind] = unpacked["r_2"]
+            res.m_1[ind] = unpacked["m_1"]
+            res.m_2[ind] = unpacked["m_2"]
+            res.s_1[ind] = unpacked["s_1"]
+            res.s_2[ind] = unpacked["s_2"]
+            res.q_1[ind] = unpacked["q_1"]
+            res.q_2[ind] = unpacked["q_2"]
+            res.f_1[ind] = unpacked["f_1"]
+            res.f_2[ind] = unpacked["f_2"]
+            if res.sr_1 is not None and res.sr_2 is not None:
+                res.sr_1[ind] = unpacked["sr_1"]
+                res.sr_2[ind] = unpacked["sr_2"]
+            return True
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+            valid_results = executor.map(fetch_and_unpack, inds)
+
+        if not any(valid_results):
+            logger.error("Retrieved invalid metrics")
+            return None
+
+        logger.info("Successfuly fetched bulk metrics")
+        return res
 
     def write(self):
-        # TODO write only news
         logger.info(f"Writing FAISS index to {self.parameter_k_name}")
         faiss.write_index(self.__db_keys, self.parameter_k_name)
         logger.info(f"Writing RocksDB to {self.metrics_kv_name}")
         if self.use_mem_cache:
-            for index, data in self.__memory_cache.items():
-                self.__db_metric.set(f"metrics_{index}".encode(), data)
+            for index in self.__new_indices:
+                self.__db_metric.set(f"metrics_{index}".encode(), self.__memory_cache[index])
+            self.__new_indices = set()
         self.__db_metric.set(b"faiss_last_id", str(self.current_idx).encode())
         logger.info("All in-memory data has been saved to RocksDB")
 
     def close(
         self,
     ):
-        if self.current_idx != self._starting_index:
+        if self.use_mem_cache and len(self.__new_indices) != 0:
             self.write()
         self.__db_metric.close()
 
@@ -291,7 +335,7 @@ class Storage:
         self,
         other: "Storage",
         overwrite: bool = False,
-    ) -> "None | Storage":
+    ) -> "Optional[Storage]":
         # Merges other into self
         if self.key_dim != other.key_dim:
             logger.error(f"Cannot merge Storages with different Key dimension (got {self.key_dim} and {other.key_dim})")
@@ -303,7 +347,7 @@ class Storage:
         other_keys = other.__db_keys.reconstruct_n(0, other.__db_keys.ntotal)
         added = 0
         for key in other_keys:
-            logger.info(f"Checking for other parameter-set {key}")
+            logger.info(f"Checking for other parameter-set {pprint_key(key)}")
             metrics = other.read_result(key, threshold=0.0)
             if metrics:
                 success = self.add_result(key, metrics, overwrite=overwrite)
