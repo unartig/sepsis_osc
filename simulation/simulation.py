@@ -50,7 +50,6 @@ def system_deriv(
         cos_alpha,
         sin_beta,
         cos_beta,
-        pi2,
         adj,
         jepsilon_1,
         jepsilon_2,
@@ -58,14 +57,10 @@ def system_deriv(
         jomega_1_i,
         jomega_2_i,
     ) = args
-    # recover states from the py_tree
-    phi_1_i, phi_2_i = y.phi_1 % pi2, y.phi_2 % pi2
-    kappa_1_ij, kappa_2_ij = y.kappa_1, y.kappa_2
-
     # sin/cos in radians
     # https://mediatum.ub.tum.de/doc/1638503/1638503.pdf
-    sin_phi_1, cos_phi_1 = jnp.sin(phi_1_i), jnp.cos(phi_1_i)
-    sin_phi_2, cos_phi_2 = jnp.sin(phi_2_i), jnp.cos(phi_2_i)
+    sin_phi_1, cos_phi_1 = jnp.sin(y.phi_1), jnp.cos(y.phi_1)
+    sin_phi_2, cos_phi_2 = jnp.sin(y.phi_2), jnp.cos(y.phi_2)
 
     # expand dims to broadcast outer product [i:]*[:j]->[ij]
     sin_diff_phi_1 = jnp.einsum("bi,bj->bij", sin_phi_1, cos_phi_1) - jnp.einsum("bi,bj->bij", cos_phi_1, sin_phi_1)
@@ -79,16 +74,16 @@ def system_deriv(
     # (phi1 (bxN), phi2 (bxN), k1 (bxNxN), k2 (bxNxN)))
     phi_1 = (
         jomega_1_i
-        - adj * jnp.einsum("bij,bij->bi", (ja_1_ij + kappa_1_ij), sin_phi_1_diff_alpha)
+        - adj * jnp.einsum("bij,bij->bi", (ja_1_ij + y.kappa_1), sin_phi_1_diff_alpha)
         - jsigma * (sin_phi_1 * cos_phi_2 - cos_phi_1 * sin_phi_2)
     )
     phi_2 = (
         jomega_2_i
-        - adj * jnp.einsum("bij,bij->bi", kappa_2_ij, sin_phi_2_diff_alpha)
+        - adj * jnp.einsum("bij,bij->bi", y.kappa_2, sin_phi_2_diff_alpha)
         - jsigma * (sin_phi_2 * cos_phi_1 - cos_phi_2 * sin_phi_1)
     )
-    kappa_1 = -jepsilon_1 * (kappa_1_ij + (sin_diff_phi_1 * cos_beta - cos_diff_phi_1 * sin_beta))
-    kappa_2 = -jepsilon_2 * (kappa_2_ij + (sin_diff_phi_2 * cos_beta - cos_diff_phi_2 * sin_beta))
+    kappa_1 = -jepsilon_1 * (y.kappa_1 + (sin_diff_phi_1 * cos_beta - cos_diff_phi_1 * sin_beta))
+    kappa_2 = -jepsilon_2 * (y.kappa_2 + (sin_diff_phi_2 * cos_beta - cos_diff_phi_2 * sin_beta))
 
     return SystemState(phi_1=phi_1, phi_2=phi_2, kappa_1=kappa_1, kappa_2=kappa_2)
 

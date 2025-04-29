@@ -32,7 +32,6 @@ class SystemConfig:
         jcos_alpha = jnp.cos(self.alpha * jnp.pi)
         jsin_beta = jnp.sin(self.beta * jnp.pi)
         jcos_beta = jnp.cos(self.beta * jnp.pi)
-        jpi2 = jnp.array(jnp.pi * 2, jnp.float64)
         jadj = jnp.array(1 / (self.N - 1), jnp.float64)
         diag = (jnp.ones((self.N, self.N), jnp.float64) - jnp.eye(self.N))[None, :]  # again no self coupling
         jepsilon_1 = jnp.array(self.epsilon_1, jnp.float64) * diag
@@ -46,7 +45,6 @@ class SystemConfig:
             jcos_alpha,
             jsin_beta,
             jcos_beta,
-            jpi2,
             jadj,
             jepsilon_1,
             jepsilon_2,
@@ -201,8 +199,8 @@ class SystemMetrics:
         return SystemMetrics(
             jnp.mean(jnp.asarray(self.r_1)[..., -1, :], axis=(-1,)),
             jnp.mean(jnp.asarray(self.r_2)[..., -1, :], axis=(-1,)),
-            jnp.mean(jnp.asarray(self.s_1)[..., -1], axis=-1),
-            jnp.mean(jnp.asarray(self.s_2)[..., -1], axis=-1),
+            jnp.asarray(self.s_1)[..., -1],
+            jnp.asarray(self.s_2)[..., -1],
             jnp.mean(jnp.asarray(self.m_1), axis=-1),
             jnp.mean(jnp.asarray(self.m_2), axis=-1),
             jnp.mean(jnp.asarray(self.q_1), axis=-1),
