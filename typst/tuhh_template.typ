@@ -1,5 +1,6 @@
 #import "@preview/acrostiche:0.4.0": *
 #import "@preview/equate:0.3.1": equate
+
 // Workaround for the lack of an `std` scope.
 #let std-bibliography = bibliography
 
