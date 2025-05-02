@@ -155,6 +155,23 @@ class SystemMetrics:
     sr_1: Optional[Float[Array, "t 1"] | np.ndarray] = None
     sr_2: Optional[Float[Array, "t 1"] | np.ndarray] = None
 
+    @property
+    def shape(self):
+        return (
+            self.r_1.shape,
+            self.r_2.shape,
+            self.m_1.shape,
+            self.m_2.shape,
+            self.s_1.shape,
+            self.s_2.shape,
+            self.q_1.shape,
+            self.q_2.shape,
+            self.f_1.shape,
+            self.f_2.shape,
+            self.sr_1.shape if self.sr_1 is not None else None,
+            self.sr_2.shape if self.sr_2 is not None else None,
+        )
+
     def tree_flatten(self):
         return (
             self.r_1,
@@ -175,40 +192,43 @@ class SystemMetrics:
 
     def copy(self) -> "SystemMetrics":
         return SystemMetrics(
-            jnp.asarray(self.r_1).copy(),
-            jnp.asarray(self.r_2).copy(),
-            jnp.asarray(self.m_1).copy(),
-            jnp.asarray(self.m_2).copy(),
-            jnp.asarray(self.s_1).copy(),
-            jnp.asarray(self.s_2).copy(),
-            jnp.asarray(self.q_1).copy(),
-            jnp.asarray(self.q_2).copy(),
-            jnp.asarray(self.f_1).copy(),
-            jnp.asarray(self.f_2).copy(),
-            jnp.asarray(self.sr_1).copy() if self.sr_1 is not None else None,
-            jnp.asarray(self.sr_2).copy() if self.sr_1 is not None else None,
+            r_1=jnp.asarray(self.r_1).copy(),
+            r_2=jnp.asarray(self.r_2).copy(),
+            m_1=jnp.asarray(self.m_1).copy(),
+            m_2=jnp.asarray(self.m_2).copy(),
+            s_1=jnp.asarray(self.s_1).copy(),
+            s_2=jnp.asarray(self.s_2).copy(),
+            q_1=jnp.asarray(self.q_1).copy(),
+            q_2=jnp.asarray(self.q_2).copy(),
+            f_1=jnp.asarray(self.f_1).copy(),
+            f_2=jnp.asarray(self.f_2).copy(),
+            sr_1=jnp.asarray(self.sr_1).copy() if self.sr_1 is not None else None,
+            sr_2=jnp.asarray(self.sr_2).copy() if self.sr_1 is not None else None,
         )
 
     def add_follow_ups(self) -> "SystemMetrics":
-        self.sr_1 = jnp.sum(self.r_1 < 0.2, axis=-1) / self.r_1.shape[-1]
-        self.sr_2 = jnp.sum(self.r_2 < 0.2, axis=-1) / self.r_2.shape[-1]
+        if not self.sr_1 and self.r_1.size > 1:
+            self.sr_1 = jnp.sum(self.r_1 < 0.2, axis=-1) / self.r_1.shape[-1]
+            self.sr_2 = jnp.sum(self.r_2 < 0.2, axis=-1) / self.r_2.shape[-1]
         return self
 
     def as_single(self) -> "SystemMetrics":
-        self.add_follow_ups()
+        if self.r_1.size <= 1:  # already single
+            return self
+
         return SystemMetrics(
-            jnp.mean(jnp.asarray(self.r_1)[..., -1, :], axis=(-1,)),
-            jnp.mean(jnp.asarray(self.r_2)[..., -1, :], axis=(-1,)),
-            jnp.asarray(self.s_1)[..., -1],
-            jnp.asarray(self.s_2)[..., -1],
-            jnp.mean(jnp.asarray(self.m_1), axis=-1),
-            jnp.mean(jnp.asarray(self.m_2), axis=-1),
-            jnp.mean(jnp.asarray(self.q_1), axis=-1),
-            jnp.mean(jnp.asarray(self.q_2), axis=-1),
-            jnp.mean(jnp.asarray(self.f_1), axis=-1),
-            jnp.mean(jnp.asarray(self.f_2), axis=-1),
-            self.sr_1[..., -1] if self.sr_1 is not None else None,
-            self.sr_2[..., -1] if self.sr_2 is not None else None,
+            r_1=jnp.mean(jnp.asarray(self.r_1)[..., -1, :], axis=(-1,)),
+            r_2=jnp.mean(jnp.asarray(self.r_2)[..., -1, :], axis=(-1,)),
+            s_1=jnp.asarray(self.s_1[-1]),
+            s_2=jnp.asarray(self.s_2[-1]),
+            m_1=jnp.mean(jnp.asarray(self.m_1), axis=-1),
+            m_2=jnp.mean(jnp.asarray(self.m_2), axis=-1),
+            q_1=jnp.mean(jnp.asarray(self.q_1), axis=-1),
+            q_2=jnp.mean(jnp.asarray(self.q_2), axis=-1),
+            f_1=jnp.mean(jnp.asarray(self.f_1), axis=-1),
+            f_2=jnp.mean(jnp.asarray(self.f_2), axis=-1),
+            sr_1=self.sr_1[..., -1] if self.sr_1 is not None else None,
+            sr_2=self.sr_2[..., -1] if self.sr_2 is not None else None,
         )
 
 

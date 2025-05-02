@@ -1,23 +1,22 @@
+import concurrent.futures
 import logging
+from functools import wraps
+from time import time
+from typing import Optional
 
 import faiss
+import jax
 import msgpack
 import msgpack_numpy as mnp
-from jax.numpy import asarray as asjnp
 import numpy as np
 import rocksdbpy as rock
 
-from typing import Optional
 
 from simulation.data_classes import SystemMetrics
 from utils.config import db_metrics_key_value, db_parameter_keys, max_workers
-import concurrent.futures
-
-from functools import wraps
-from time import time
-import jax
 
 jax.config.update("jax_platform_name", "cpu")
+mnp.patch()
 
 
 def timing(f):
@@ -93,21 +92,17 @@ class Storage:
 
     @timing
     def __setup_memory_cache(self):
-        def extract_key_data(pair):
-            key, data_bytes = pair
-            if key.startswith(b"metrics_"):
-                return str(key.decode()).lstrip("metrics_"), data_bytes
-            return None
-
         def insert_metric(kv):
             if kv:
                 key, data_bytes = kv
+                key = str(key.decode()).lstrip("metrics_")
                 self.__memory_cache[key] = data_bytes
 
+        # Split keysinto chunks for each thread
         logger.info("Preloading memory cache from RocksDB...")
+        kv_pairs = [kv for kv in self.__db_metric.iterator() if kv[0].startswith(b"metrics_")]
         with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
-            kv_pairs = executor.map(extract_key_data, self.__db_metric.iterator())
-            executor.map(insert_metric, filter(None, kv_pairs))
+            executor.map(insert_metric, kv_pairs)
 
         logger.info(f"Successfully loaded {len(self.__memory_cache)} metrics into memory.")
 
@@ -128,7 +123,7 @@ class Storage:
         )
         distances, indices = self.__db_keys.search(query_key, k=k)
         logger.info(
-            f"Found vectors with distance {distances if query_key.size == 1 else np.sum(distances)}, index {indices if query_key.size == 1 else (int(indices.min()), int(indices.max()))}"
+            f"Found vectors with distance {distances[0][0] if query_key.size == self.key_dim else np.sum(distances)}, index {indices[0][0] if query_key.size == self.key_dim else (int(indices.min()), int(indices.max()))}"
         )
         return indices, distances
 
@@ -187,7 +182,6 @@ class Storage:
                 logger.info(f"Could not find SystemMetrics for {key} in RocksDB")
 
         unpacked = msgpack.unpackb(data_bytes, object_hook=mnp.decode)
-
         return SystemMetrics(
             r_1=unpacked["r_1"],
             r_2=unpacked["r_2"],
@@ -199,8 +193,8 @@ class Storage:
             q_2=unpacked["q_2"],
             f_1=unpacked["f_1"],
             f_2=unpacked["f_2"],
-            # sr_1=unpacked["sr_1"],
-            # sr_2=unpacked["sr_2"],
+            sr_1=unpacked["sr_1"],
+            sr_2=unpacked["sr_2"],
         )
 
     def add_result(
@@ -209,20 +203,20 @@ class Storage:
         metrics: SystemMetrics,
         overwrite: bool = False,
     ) -> bool:
-        metrics = metrics.as_single()
+        single_metrics = metrics.copy().as_single()
         np_params = np.array([params], dtype=np.float32)
         index, distance = self.find_faiss(np_params)
         if distance != 0.0:
             logger.info(f"Adding new Results for {pprint_key(params)}, starting Pipeline")
             np_params = np.array([params], dtype=np.float32)
             self.add_faiss(np_params)
-            self.add_metric(metrics, None, str(self.current_idx))
+            self.add_metric(single_metrics, None, str(self.current_idx))
             self.current_idx += 1
             return True
         if overwrite:
             logger.info(f"Adding new Results for {pprint_key(params)}, starting Pipeline")
             np_params = np.array([params], dtype=np.float32)
-            self.add_metric(metrics, None, index=str(int(index[0][0])))
+            self.add_metric(single_metrics, None, index=str(int(index[0][0])))
             return True
 
         logger.info("Will not overwrite")
@@ -246,7 +240,6 @@ class Storage:
     def read_multiple_results(
         self,
         params: np.ndarray,
-        threshold=0.0,
     ) -> Optional[SystemMetrics]:
         logger.info(f"Getting Metrics for multiple queries with shape {params.shape}")
 
@@ -255,56 +248,64 @@ class Storage:
 
         indices, distances = self.find_faiss(np_params)
         indices = indices.reshape(original_shape)
-
-        print(original_shape)
-        inds = [(r, c) for r in range(original_shape[0]) for c in range(original_shape[1])]
-
-        res = SystemMetrics(
-            r_1=np.empty(original_shape + (1,)),
-            r_2=np.empty(original_shape + (1,)),
-            m_1=np.empty(original_shape + (1,)),
-            m_2=np.empty(original_shape + (1,)),
-            s_1=np.empty(original_shape + (1,)),
-            s_2=np.empty(original_shape + (1,)),
-            q_1=np.empty(original_shape + (1,)),
-            q_2=np.empty(original_shape + (1,)),
-            f_1=np.empty(original_shape + (1,)),
-            f_2=np.empty(original_shape + (1,)),
-            sr_1=np.empty(original_shape + (1,)),
-            sr_2=np.empty(original_shape + (1,)),
-        )
         if distances.sum() != 0.0:
             logger.error("Could not match bulk query")
             return None
 
-        # Batch read the data from cache or RocksDB
-        def fetch_and_unpack(ind: tuple[int, int]):
-            key = str(indices[ind])
-            if self.use_mem_cache:
-                raw = self.__memory_cache.get(key)
-            else:
-                raw = self.__db_metric.get(f"metrics_{key}".encode())
-            if not raw:
-                return False
-            unpacked = msgpack.unpackb(raw, object_hook=mnp.decode)
+        inds = [(r, c) for r in range(original_shape[0]) for c in range(original_shape[1])]
 
-            res.r_1[ind] = unpacked["r_1"]
-            res.r_2[ind] = unpacked["r_2"]
-            res.m_1[ind] = unpacked["m_1"]
-            res.m_2[ind] = unpacked["m_2"]
-            res.s_1[ind] = unpacked["s_1"]
-            res.s_2[ind] = unpacked["s_2"]
-            res.q_1[ind] = unpacked["q_1"]
-            res.q_2[ind] = unpacked["q_2"]
-            res.f_1[ind] = unpacked["f_1"]
-            res.f_2[ind] = unpacked["f_2"]
-            if res.sr_1 is not None and res.sr_2 is not None:
-                res.sr_1[ind] = unpacked["sr_1"]
-                res.sr_2[ind] = unpacked["sr_2"]
+        res = SystemMetrics(
+            r_1=np.empty(original_shape + (1,), dtype=np.float32),
+            r_2=np.empty(original_shape + (1,), dtype=np.float32),
+            m_1=np.empty(original_shape + (1,), dtype=np.float32),
+            m_2=np.empty(original_shape + (1,), dtype=np.float32),
+            s_1=np.empty(original_shape + (1,), dtype=np.float32),
+            s_2=np.empty(original_shape + (1,), dtype=np.float32),
+            q_1=np.empty(original_shape + (1,), dtype=np.float32),
+            q_2=np.empty(original_shape + (1,), dtype=np.float32),
+            f_1=np.empty(original_shape + (1,), dtype=np.float32),
+            f_2=np.empty(original_shape + (1,), dtype=np.float32),
+            sr_1=np.empty(original_shape + (1,), dtype=np.float32),
+            sr_2=np.empty(original_shape + (1,), dtype=np.float32),
+        )
+
+        # Batch read the data from RocksDB or Cache
+        def fetch_and_unpack_bulk(ind_chunk: list[tuple[int, int]]) -> bool:
+            if self.use_mem_cache:
+                raw_list = [self.__memory_cache[str(indices[ind])] for ind in ind_chunk]
+
+            else:
+                # RocksDB multi_get returns a list of raw bytes
+                keys = [f"metrics_{str(indices[ind])}".encode() for ind in ind_chunk]
+                raw_list = self.__db_metric.multi_get(keys)
+            for ind, raw in zip(ind_chunk, raw_list):
+                if not raw:
+                    return False
+
+                unpacked = msgpack.unpackb(raw, object_hook=mnp.decode)
+
+                res.r_1[ind] = unpacked["r_1"]
+                res.r_2[ind] = unpacked["r_2"]
+                res.m_1[ind] = unpacked["m_1"]
+                res.m_2[ind] = unpacked["m_2"]
+                res.s_1[ind] = unpacked["s_1"]
+                res.s_2[ind] = unpacked["s_2"]
+                res.q_1[ind] = unpacked["q_1"]
+                res.q_2[ind] = unpacked["q_2"]
+                res.f_1[ind] = unpacked["f_1"]
+                res.f_2[ind] = unpacked["f_2"]
+                if res.sr_1 is not None and res.sr_2 is not None:
+                    res.sr_1[ind] = unpacked["sr_1"]
+                    res.sr_2[ind] = unpacked["sr_2"]
+
             return True
 
+        # Split indices into chunks for each thread
+        chunk_size = len(inds) // max_workers + 1
+        chunks = [inds[i : i + chunk_size] for i in range(0, len(inds), chunk_size)]
+
         with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
-            valid_results = executor.map(fetch_and_unpack, inds)
+            valid_results = executor.map(fetch_and_unpack_bulk, chunks)
 
         if not any(valid_results):
             logger.error("Retrieved invalid metrics")
