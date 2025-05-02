@@ -154,6 +154,8 @@ class SystemMetrics:
     # Splay State Ratio
     sr_1: Optional[Float[Array, "t 1"] | np.ndarray] = None
     sr_2: Optional[Float[Array, "t 1"] | np.ndarray] = None
+    # Measured max transient time
+    tt: Optional[Float[Array, "t 1"] | np.ndarray] = None
 
     @property
     def shape(self):
@@ -170,6 +172,7 @@ class SystemMetrics:
             self.f_2.shape,
             self.sr_1.shape if self.sr_1 is not None else None,
             self.sr_2.shape if self.sr_2 is not None else None,
+            self.tt.shape if self.tt is not None else None,
         )
 
     def tree_flatten(self):
@@ -204,12 +207,15 @@ class SystemMetrics:
             f_2=jnp.asarray(self.f_2).copy(),
             sr_1=jnp.asarray(self.sr_1).copy() if self.sr_1 is not None else None,
             sr_2=jnp.asarray(self.sr_2).copy() if self.sr_1 is not None else None,
+            tt=jnp.asarray(self.tt).copy() if self.tt is not None else None,
         )
 
     def add_follow_ups(self) -> "SystemMetrics":
         if not self.sr_1 and self.r_1.size > 1:
             self.sr_1 = jnp.sum(self.r_1 < 0.2, axis=-1) / self.r_1.shape[-1]
             self.sr_2 = jnp.sum(self.r_2 < 0.2, axis=-1) / self.r_2.shape[-1]
+            last_x = self.r_1[-int(0.3 * self.r_1.shape[0]) :]
+            self.tt = np.where(np.max(np.abs(self.r_1 - last_x.mean(axis=0)), axis=-1) > 0.05)[0]
         return self
 
     def as_single(self) -> "SystemMetrics":
@@ -229,6 +235,7 @@ class SystemMetrics:
             f_2=jnp.mean(jnp.asarray(self.f_2), axis=-1),
             sr_1=self.sr_1[..., -1] if self.sr_1 is not None else None,
             sr_2=self.sr_2[..., -1] if self.sr_2 is not None else None,
+            tt=self.tt if self.tt is not None else None,
         )
 
 

@@ -151,6 +151,7 @@ class Storage:
                     "f_2": np.asarray(metrics.f_2),
                     "sr_1": np.asarray(metrics.sr_1),
                     "sr_2": np.asarray(metrics.sr_2),
+                    "tt": np.asarray(metrics.tt),
                 },
                 default=mnp.encode,
             )
@@ -195,6 +196,7 @@ class Storage:
             f_2=unpacked["f_2"],
             sr_1=unpacked["sr_1"],
             sr_2=unpacked["sr_2"],
+            tt=unpacked["tt"],
         )
 
     def add_result(
@@ -267,6 +269,7 @@ class Storage:
             f_2=np.empty(original_shape + (1,), dtype=np.float32),
             sr_1=np.empty(original_shape + (1,), dtype=np.float32),
             sr_2=np.empty(original_shape + (1,), dtype=np.float32),
+            tt=np.empty(original_shape + (1,), dtype=np.float32),
         )
 
         # Batch read the data from RocksDB or Cache
@@ -294,9 +297,10 @@ class Storage:
                 res.q_2[ind] = unpacked["q_2"]
                 res.f_1[ind] = unpacked["f_1"]
                 res.f_2[ind] = unpacked["f_2"]
-                if res.sr_1 is not None and res.sr_2 is not None:
+                if res.sr_1 is not None and res.sr_2 is not None and res.tt is not None:
                     res.sr_1[ind] = unpacked["sr_1"]
                     res.sr_2[ind] = unpacked["sr_2"]
+                    res.tt[ind] = unpacked["tt"]
 
             return True
 
@@ -345,6 +349,7 @@ class Storage:
             logger.error("Cannot merge Storages with same database files")
             return None
         logger.info("Sarting to merge")
+
         other_keys = other.__db_keys.reconstruct_n(0, other.__db_keys.ntotal)
         added = 0
         for key in other_keys:
