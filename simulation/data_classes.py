@@ -215,20 +215,21 @@ class SystemMetrics:
             self.sr_1 = jnp.sum(self.r_1 < 0.2, axis=-1) / self.r_1.shape[-1]
             self.sr_2 = jnp.sum(self.r_2 < 0.2, axis=-1) / self.r_2.shape[-1]
             last_x = self.r_1[-int(0.3 * self.r_1.shape[0]) :]
-            self.tt = np.where(np.max(np.abs(self.r_1 - last_x.mean(axis=0)), axis=-1) > 0.05)[0]
+            self.tt = np.where(np.max(np.abs(self.r_1 - last_x.mean(axis=0)), axis=-1) > 0.05)[0].max()
         return self
 
     def as_single(self) -> "SystemMetrics":
         if self.r_1.size <= 1:  # already single
             return self
 
+        self.add_follow_ups()
         return SystemMetrics(
             r_1=jnp.mean(jnp.asarray(self.r_1)[..., -1, :], axis=(-1,)),
             r_2=jnp.mean(jnp.asarray(self.r_2)[..., -1, :], axis=(-1,)),
-            s_1=jnp.asarray(self.s_1[-1]),
-            s_2=jnp.asarray(self.s_2[-1]),
-            m_1=jnp.mean(jnp.asarray(self.m_1), axis=-1),
-            m_2=jnp.mean(jnp.asarray(self.m_2), axis=-1),
+            s_1=jnp.mean(jnp.asarray(self.s_1)),
+            s_2=jnp.mean(jnp.asarray(self.s_2)),
+            m_1=jnp.mean(jnp.asarray(self.m_1)[-1, :], axis=-1),
+            m_2=jnp.mean(jnp.asarray(self.m_2)[-1, :], axis=-1),
             q_1=jnp.mean(jnp.asarray(self.q_1), axis=-1),
             q_2=jnp.mean(jnp.asarray(self.q_2), axis=-1),
             f_1=jnp.mean(jnp.asarray(self.f_1), axis=-1),
