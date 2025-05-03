@@ -78,11 +78,11 @@ if __name__ == "__main__":
 
     xs_step = 0.00303030303030305
     xs = np.arange(0.0, 1.5, xs_step)
-    xs = np.arange(0.52, 0.7, xs_step)
+    xs = np.arange(0.0, 1.5, xs_step)
     ys_step = 0.01515151515151515
     ys = np.arange(0.0, 2.0, ys_step)
     ys = np.arange(0.0, 1.5, ys_step)
-    db_str = ""
+    db_str = "Colab"
     storage = Storage(
         key_dim=9,
         metrics_kv_name=f"storage/{db_str}SepsisMetrics.db/",
