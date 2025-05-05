@@ -216,7 +216,7 @@ class SystemMetrics:
             self.sr_2 = jnp.sum(self.r_2 < 0.2, axis=-1) / self.r_2.shape[-1]
             last_x = self.r_1[-int(0.5 * self.r_1.shape[0]) :]
             last_eps = last_x.max(axis=0) - last_x.min(axis=0)
-            self.tt = np.where(np.abs(self.r_1 - last_x.mean(axis=0)) > last_eps * 1.2)[0]
+            self.tt = np.where(np.abs(self.r_1 - last_x.mean(axis=0)) > last_eps * 1.05)[0]
         return self
 
     def as_single(self) -> "SystemMetrics":
