@@ -15,17 +15,18 @@ xs_step = 0.00303030303030305
 ys_step = 0.01515151515151515
 xs = np.arange(0.0, 1.5, xs_step)
 ys = np.arange(0.0, 2.0, ys_step)
+ys = np.arange(0.0, 1.5, ys_step)
 
 orig_xs = [np.argmin(np.abs(xs - x)) for x in [0.4, 0.7]]
 orig_ys = [len(ys) - np.argmin(np.abs(ys - y)) - 1 for y in [0.0, 1.5]]
 
 size = (len(ys), len(xs))
-db_str = ""  # other/Tiny"
+db_str = "Colab"  # other/Tiny"
 storage = Storage(
     key_dim=9,
     metrics_kv_name=f"storage/{db_str}SepsisMetrics.db/",
     parameter_k_name=f"storage/{db_str}SepsisParameters_index.bin",
-    use_mem_cache=True,
+    use_mem_cache=False,
 )
 params = np.ndarray((*size, 9))
 
@@ -51,7 +52,32 @@ metrix = storage.read_multiple_results(params)
 storage.close()
 if not metrix:
     exit(0)
-num_ticks = 10
+num_ticks = 20
+
+
+def plot_tt(tt, title, filename, figure_dir, fs=(8, 6), show=False):
+    fig, ax = plt.subplots(figsize=fs)
+    im = ax.imshow(tt, aspect="auto", cmap="viridis")
+    ax.set_title(f"{title}\nParenchymal Layer", fontsize=14)
+    ax.set_ylabel(r"$\sigma$", fontsize=12)
+    ax.set_xlabel(r"$\beta / \pi$", fontsize=12)
+    xtick_positions = np.linspace(0, len(xs) - 1, num_ticks, dtype=int)
+    ytick_positions = np.linspace(0, len(ys) - 1, num_ticks, dtype=int)
+    ax.set_xticks(xtick_positions)
+    ax.set_xticklabels([f"{val:.2f}" for val in xs[xtick_positions]], rotation=45)
+    ax.set_yticks(ytick_positions)
+    ax.set_yticklabels([f"{val:.2f}" for val in ys[ytick_positions]][::-1])
+    ax.plot(orig_xs, [orig_ys[0], orig_ys[0]], color="white", linewidth=0.5)
+    ax.plot(orig_xs, [orig_ys[1], orig_ys[1]], color="white", linewidth=0.5)
+    ax.plot([orig_xs[0], orig_xs[0]], orig_ys, color="white", linewidth=0.5)
+    ax.plot([orig_xs[1], orig_xs[1]], orig_ys, color="white", linewidth=0.5)
+    fig.colorbar(im, ax=ax, location="right", shrink=0.8)
+    plt.tight_layout()  # Adjust layout
+    plt.savefig(f"{figure_dir}/{filename}.svg", format="svg")
+    if show:
+        plt.show()
+    else:
+        plt.close(fig)
 
 
 def pretty_plot(metric_parenchymal, metric_immune, title, filename, figure_dir, fs=(8, 6), show=False):
@@ -93,7 +119,7 @@ def pretty_plot(metric_parenchymal, metric_immune, title, filename, figure_dir, 
         plt.close(fig)
 
 
-print(metrix.sr_1.shape)
+print(metrix.shape)
 print(metrix.sr_2.sum() / metrix.sr_2.size)
 log = False
 show = False
@@ -105,3 +131,5 @@ pretty_plot(metrix.s_1, metrix.s_2, "Mean Phase Velocity Std", "std_beta_sigma",
 pretty_plot(metrix.m_1, metrix.m_2, "Mean Phase Velocity", "mean_beta_sigma", figure_dir, fs, show)
 pretty_plot(metrix.q_1, metrix.q_2, "Entropy", "entropy_beta_sigma", figure_dir, fs, show)
 pretty_plot(metrix.f_1, metrix.f_2, "Cluster Fraction", "cluster_beta_sigma", figure_dir, fs, show)
+pretty_plot(metrix.f_1, metrix.f_2, "Cluster Fraction", "cluster_beta_sigma", figure_dir, fs, show)
+plot_tt(metrix.tt, "Measured Max Transient Time", "transient_time_beta_sigma", figure_dir, (8, 4), show)
