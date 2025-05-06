@@ -1,8 +1,12 @@
 .mypy_cache/
 /venv/
+*venv*
 __pycache__
 pyrightconfig.json
 *.npz
 *.log
+*.png
+/baselines/MaximilianoMolluraEtAl/*
 /storage/*SepsisMetrics.db/*
 /storage/other/*SepsisMetrics.db/*
+data
