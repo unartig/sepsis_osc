@@ -181,7 +181,7 @@ def gif_phase_plt(phis_1: np.ndarray, phis_2: np.ndarray, ts: np.ndarray, deriv:
 if __name__ == "__main__":
     import jax.numpy as jnp
     import jax.random as jr
-    from diffrax import Bosh3, Dopri5, Dopri8, ODETerm, PIDController
+    from diffrax import Tsit5, Dopri5, Dopri8, ODETerm, PIDController
     from jax import vmap
 
     from utils.run_simulation import solve
@@ -192,13 +192,13 @@ if __name__ == "__main__":
     )
     from utils.config import jax_random_seed
 
-    rand_key = jr.key(jax_random_seed + 12345)
+    rand_key = jr.key(jax_random_seed + 0)
     num_parallel_runs = 1
     rand_keys = jr.split(rand_key, num_parallel_runs)
     full_save = make_full_compressed_save(system_deriv, jnp.float32)
     term = ODETerm(system_deriv)
-    solver = Bosh3()
-    stepsize_controller = PIDController(rtol=1e-4, atol=1e-7, dtmax=0.1)
+    solver = Tsit5()
+    stepsize_controller = PIDController(rtol=1e-8, atol=1e-11)
 
     #### Parameters
     N = 200
@@ -211,11 +211,11 @@ if __name__ == "__main__":
         epsilon_1=0.03,  # adaption rate
         epsilon_2=0.3,  # adaption rate
         alpha=-0.28,  # phase lage
-        beta=0.4,  # age parameter
+        beta=0.5,  # age parameter
         sigma=1,
     )  # b 0.83, s 0.25, rseed + 0
-    T_init, T_trans, T_max = 0, 0, 100
-    T_step = 0.05
+    T_init, T_trans, T_max = 0, 0, 1000
+    T_step = 1
     generate_init_conditions = generate_init_conditions_fixed(run_conf.N, run_conf.beta, run_conf.C)
 
     init_conditions = vmap(generate_init_conditions)(rand_keys)
@@ -260,7 +260,7 @@ if __name__ == "__main__":
     # plot_kuramoto(ys.phi_1, 0)
     # plot_kuramoto(ys.phi_1)
 
-    gif_phase_plt(ys.phi_1, ys.phi_2, ts, False)
-    gif_phase_plt(dys.phi_1, dys.phi_2, ts, True, filename="figures/dphis.gif")
-    gif_kuramoto_plt(ys.phi_1, ys.phi_2, ts)
+    # gif_phase_plt(ys.phi_1, ys.phi_2, ts, False)
+    # gif_phase_plt(dys.phi_1, dys.phi_2, ts, True, filename="figures/dphis.gif")
+    # gif_kuramoto_plt(ys.phi_1, ys.phi_2, ts)
     plt.show()

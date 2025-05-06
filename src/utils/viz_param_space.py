@@ -24,8 +24,8 @@ size = (len(ys), len(xs))
 db_str = "Colab"  # other/Tiny"
 storage = Storage(
     key_dim=9,
-    metrics_kv_name=f"storage/{db_str}SepsisMetrics.db/",
-    parameter_k_name=f"storage/{db_str}SepsisParameters_index.bin",
+    metrics_kv_name=f"data/{db_str}SepsisMetrics.db/",
+    parameter_k_name=f"data/{db_str}SepsisParameters_index.bin",
     use_mem_cache=False,
 )
 params = np.ndarray((*size, 9))

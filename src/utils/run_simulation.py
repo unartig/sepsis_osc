@@ -1,12 +1,12 @@
 import logging
 
+import jax
 import jax.numpy as jnp
 import jax.random as jr
 import numpy as np
 from equinox import filter_jit
 from jax import vmap
 from diffrax import (
-    _step_size_controller,
     diffeqsolve,
     ODETerm,
     ConstantStepSize,
@@ -85,19 +85,19 @@ if __name__ == "__main__":
     db_str = "Colab"
     storage = Storage(
         key_dim=9,
-        metrics_kv_name=f"storage/{db_str}SepsisMetrics.db/",
-        parameter_k_name=f"storage/{db_str}SepsisParameters_index.bin",
-        use_mem_cache=False,
+        metrics_kv_name=f"data/{db_str}SepsisMetrics.db/",
+        parameter_k_name=f"data/{db_str}SepsisParameters_index.bin",
+        use_mem_cache=True,
     )
-    overwrite = True
+    overwrite = False
     for c_frac in [0.2]:
         for x, beta in enumerate(xs):
             for y, sigma in enumerate(ys):
-                N = 30
+                N = 200
                 C = int(N * c_frac)
                 run_conf = SystemConfig(
                     N=N,
-                    C=int(c_frac * N),  # local infection
+                    C=C,  # local infection
                     omega_1=0.0,
                     omega_2=0.0,
                     a_1=1.0,
