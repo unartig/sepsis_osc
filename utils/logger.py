@@ -2,10 +2,10 @@ import logging
 
 import colorlog
 
-from utils.config import log_file, log_level
+from utils.config import log_file, cfg_log_level
 
 
-def setup_logging():
+def setup_logging(log_level: str = cfg_log_level):
     if log_level == "debug":
         level = logging.DEBUG
     elif log_level == "info":
