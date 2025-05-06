@@ -14,7 +14,7 @@ def setup_jax():
     # cpu/gpu flags
     os.environ["XLA_FLAGS"] = (
         "--xla_gpu_enable_latency_hiding_scheduler=true "
-        "--xla_gpu_enable_triton_gemm=false "
+        "--xla_gpu_enable_triton_gemm=true "
         "--xla_gpu_enable_cublaslt=true "
         "--xla_gpu_autotune_level=4 "  # https://docs.nvidia.com/deeplearning/frameworks/tensorflow-user-guide/index.html#xla-autotune
         "--xla_gpu_exhaustive_tiling_search=true "
