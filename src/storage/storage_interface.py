@@ -17,6 +17,7 @@ from utils.config import db_metrics_key_value, db_parameter_keys, max_workers
 
 jax.config.update("jax_platform_name", "cpu")
 mnp.patch()
+logger = logging.getLogger(__name__)
 
 
 def timing(f):
@@ -25,13 +26,10 @@ def timing(f):
         ts = time()
         result = f(*args, **kw)
         te = time()
-        print("func:%r took: %2.6f sec" % (f.__name__, te - ts))
+        logger.info("func:%r took: %2.6f sec" % (f.__name__, te - ts))
         return result
 
     return wrap
-
-
-logger = logging.getLogger(__name__)
 
 
 def pprint_key(key: list[float] | tuple[float, ...] | np.ndarray) -> tuple[float, ...]:
