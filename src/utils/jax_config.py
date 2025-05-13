@@ -19,5 +19,3 @@ def setup_jax():
         "--xla_gpu_autotune_level=4 "  # https://docs.nvidia.com/deeplearning/frameworks/tensorflow-user-guide/index.html#xla-autotune
         "--xla_gpu_exhaustive_tiling_search=true "
     )
-    devices = jax.devices()
-    print("jax.devices()", devices)
