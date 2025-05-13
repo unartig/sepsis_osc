@@ -217,6 +217,8 @@ class SystemMetrics:
             last_x = self.r_1[-int(0.5 * self.r_1.shape[0]) :]
             last_eps = last_x.max(axis=0) - last_x.min(axis=0)
             self.tt = np.where(np.abs(self.r_1 - last_x.mean(axis=0)) > last_eps * 1.05)[0]
+            if self.tt.size == 0:
+                self.tt = jnp.array([self.r_1.shape[0]])
         return self
 
     def as_single(self) -> "SystemMetrics":
