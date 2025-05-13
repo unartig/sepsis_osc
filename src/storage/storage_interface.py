@@ -5,7 +5,6 @@ from time import time
 from typing import Optional
 
 import faiss
-import jax
 import msgpack
 import msgpack_numpy as mnp
 import numpy as np
@@ -15,7 +14,6 @@ import rocksdbpy as rock
 from simulation.data_classes import SystemMetrics
 from utils.config import db_metrics_key_value, db_parameter_keys, max_workers
 
-jax.config.update("jax_platform_name", "cpu")
 mnp.patch()
 logger = logging.getLogger(__name__)
 
@@ -248,39 +246,43 @@ class Storage:
 
         indices, distances = self.find_faiss(np_params)
         indices = indices.reshape(original_shape)
-        if distances.sum() != 0.0:
+
+        if np.any(distances != 0.0):
             logger.error("Could not match bulk query")
             return None
 
-        inds = [(r, c) for r in range(original_shape[0]) for c in range(original_shape[1])]
+        inds = np.unravel_index(np.arange(np.prod(original_shape)), original_shape)
+        inds = list(zip(*inds))
 
+        metrics_shape = original_shape + (1,)
         res = SystemMetrics(
-            r_1=np.empty(original_shape + (1,), dtype=np.float32),
-            r_2=np.empty(original_shape + (1,), dtype=np.float32),
-            m_1=np.empty(original_shape + (1,), dtype=np.float32),
-            m_2=np.empty(original_shape + (1,), dtype=np.float32),
-            s_1=np.empty(original_shape + (1,), dtype=np.float32),
-            s_2=np.empty(original_shape + (1,), dtype=np.float32),
-            q_1=np.empty(original_shape + (1,), dtype=np.float32),
-            q_2=np.empty(original_shape + (1,), dtype=np.float32),
-            f_1=np.empty(original_shape + (1,), dtype=np.float32),
-            f_2=np.empty(original_shape + (1,), dtype=np.float32),
-            sr_1=np.empty(original_shape + (1,), dtype=np.float32),
-            sr_2=np.empty(original_shape + (1,), dtype=np.float32),
-            tt=np.empty(original_shape + (1,), dtype=np.float32),
+            r_1=np.empty(metrics_shape, dtype=np.float32),
+            r_2=np.empty(metrics_shape, dtype=np.float32),
+            m_1=np.empty(metrics_shape, dtype=np.float32),
+            m_2=np.empty(metrics_shape, dtype=np.float32),
+            s_1=np.empty(metrics_shape, dtype=np.float32),
+            s_2=np.empty(metrics_shape, dtype=np.float32),
+            q_1=np.empty(metrics_shape, dtype=np.float32),
+            q_2=np.empty(metrics_shape, dtype=np.float32),
+            f_1=np.empty(metrics_shape, dtype=np.float32),
+            f_2=np.empty(metrics_shape, dtype=np.float32),
+            sr_1=np.empty(metrics_shape, dtype=np.float32),
+            sr_2=np.empty(metrics_shape, dtype=np.float32),
+            tt=np.empty(metrics_shape, dtype=np.float32),
         )
 
-        # Batch read the data from RocksDB or Cache
-        def fetch_and_unpack_bulk(ind_chunk: list[tuple[int, int]]) -> bool:
+        # batch read the data from RocksDB or Cache
+        def fetch_and_unpack_bulk(ind_chunk: list[tuple[int, ...]]) -> bool:
             if self.use_mem_cache:
-                raw_list = [self.__memory_cache[str(indices[ind])] for ind in ind_chunk]
-
+                raw_list = [self.__memory_cache[str(ind)] for ind in ind_chunk]
             else:
                 # RocksDB multi_get returns a list of raw bytes
                 keys = [f"metrics_{str(indices[ind])}".encode() for ind in ind_chunk]
                 raw_list = self.__db_metric.multi_get(keys)
+
             for ind, raw in zip(ind_chunk, raw_list):
                 if not raw:
+                    logger.error(f"Failed to fetch data for index {ind}")
                     return False
 
                 unpacked = msgpack.unpackb(raw, object_hook=mnp.decode)
@@ -299,7 +301,6 @@ class Storage:
                     res.sr_1[ind] = unpacked["sr_1"]
                     res.sr_2[ind] = unpacked["sr_2"]
                     res.tt[ind] = unpacked["tt"]
-
             return True
 
         # Split indices into chunks for each thread
@@ -307,7 +308,7 @@ class Storage:
         chunks = [inds[i : i + chunk_size] for i in range(0, len(inds), chunk_size)]
 
         with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
-            valid_results = executor.map(fetch_and_unpack_bulk, chunks)
+            valid_results = list(executor.map(fetch_and_unpack_bulk, chunks))
 
         if not any(valid_results):
             logger.error("Retrieved invalid metrics")
