@@ -4,54 +4,13 @@ import matplotlib.pyplot as plt
 from matplotlib.colors import LogNorm
 import numpy as np
 
-from simulation.data_classes import SystemConfig, SystemMetrics
-from storage.storage_interface import Storage
-from utils.logger import setup_logging
+from sepsis_osc.simulation.data_classes import SystemConfig, SystemMetrics
+from sepsis_osc.storage.storage_interface import Storage
+from sepsis_osc.utils.logger import setup_logging
 
 setup_logging()
 logger = logging.getLogger(__name__)
 
-xs_step = 0.00303030303030305
-ys_step = 0.01515151515151515
-xs = np.arange(0.0, 1.5, xs_step)
-ys = np.arange(0.0, 2.0, ys_step)
-ys = np.arange(0.0, 1.5, ys_step)
-
-orig_xs = [np.argmin(np.abs(xs - x)) for x in [0.4, 0.7]]
-orig_ys = [len(ys) - np.argmin(np.abs(ys - y)) - 1 for y in [0.0, 1.5]]
-
-size = (len(ys), len(xs))
-db_str = "Colab"  # other/Tiny"
-storage = Storage(
-    key_dim=9,
-    metrics_kv_name=f"data/{db_str}SepsisMetrics.db/",
-    parameter_k_name=f"data/{db_str}SepsisParameters_index.bin",
-    use_mem_cache=False,
-)
-params = np.ndarray((*size, 9))
-
-
-for x, beta in enumerate(xs):
-    for y, sigma in enumerate(ys):
-        N = 100
-        run_conf = SystemConfig(
-            N=100,
-            C=int(0.2 * N),
-            omega_1=0.0,
-            omega_2=0.0,
-            a_1=1.0,
-            epsilon_1=0.03,
-            epsilon_2=0.3,
-            alpha=-0.28,
-            beta=float(beta),
-            sigma=float(sigma),
-        )
-        params[-y, x] = np.array(run_conf.as_index)
-
-metrix = storage.read_multiple_results(params)
-storage.close()
-if not metrix:
-    exit(0)
 num_ticks = 20
 
 
@@ -117,6 +76,53 @@ def pretty_plot(metric_parenchymal, metric_immune, title, filename, figure_dir, 
         plt.show()
     else:
         plt.close(fig)
+
+
+# xs_step = 0.00303030303030305
+# ys_step = 0.01515151515151515
+xs_step = 0.02
+ys_step = 0.04
+# xs = np.arange(0.0, 1.5, xs_step)
+# ys = np.arange(0.0, 1.5, ys_step)
+xs = np.arange(0.2, 1.5, xs_step)
+ys = np.arange(0.0, 1.5, ys_step)
+alphas = np.arange(0.0, 1.0, 0.04)
+print(alphas)
+
+orig_xs = [np.argmin(np.abs(xs - x)) for x in [0.4, 0.7]]
+orig_ys = [len(ys) - np.argmin(np.abs(ys - y)) - 1 for y in [0.0, 1.5]]
+
+size = (len(ys), len(xs))
+db_str = "Daisy"  # other/Tiny"
+storage = Storage(
+    key_dim=9,
+    metrics_kv_name=f"data/{db_str}SepsisMetrics.db/",
+    parameter_k_name=f"data/{db_str}SepsisParameters_index.bin",
+    use_mem_cache=False,
+)
+params = np.ndarray((*size, 9))
+
+for x, beta in enumerate(xs):
+    for y, sigma in enumerate(ys):
+        N = 100
+        run_conf = SystemConfig(
+            N=100,
+            C=int(0.2 * N),
+            omega_1=0.0,
+            omega_2=0.0,
+            a_1=1.0,
+            epsilon_1=0.03,
+            epsilon_2=0.3,
+            alpha=0.72,
+            beta=float(beta),
+            sigma=float(sigma),
+        )
+        params[-y, x] = np.array(run_conf.as_index)
+
+metrix = storage.read_multiple_results(params)
+storage.close()
+if not metrix:
+    exit(0)
 
 
 print(metrix.shape)

@@ -2,7 +2,7 @@ import numpy as np
 from matplotlib.animation import FuncAnimation, PillowWriter
 import matplotlib.pyplot as plt
 
-from simulation.data_classes import SystemConfig, SystemState
+from sepsis_osc.simulation.data_classes import SystemConfig, SystemState
 
 # import fastplotlib as fpl
 # from PIL import Image
@@ -184,13 +184,13 @@ if __name__ == "__main__":
     from diffrax import Tsit5, Dopri5, Dopri8, ODETerm, PIDController
     from jax import vmap
 
-    from utils.run_simulation import solve
-    from simulation.simulation import (
+    from sepsis_osc.utils.run_simulation import solve
+    from sepsis_osc.simulation.simulation import (
         generate_init_conditions_fixed,
         make_full_compressed_save,
         system_deriv,
     )
-    from utils.config import jax_random_seed
+    from sepsis_osc.utils.config import jax_random_seed
 
     rand_key = jr.key(jax_random_seed + 0)
     num_parallel_runs = 1
@@ -198,10 +198,10 @@ if __name__ == "__main__":
     full_save = make_full_compressed_save(system_deriv, jnp.float32)
     term = ODETerm(system_deriv)
     solver = Tsit5()
-    stepsize_controller = PIDController(rtol=1e-8, atol=1e-11)
+    stepsize_controller = PIDController(rtol=1e-3, atol=1e-6)
 
     #### Parameters
-    N = 200
+    N = 120
     run_conf = SystemConfig(
         N=N,
         C=int(0.2 * N),  # local infection
@@ -210,14 +210,14 @@ if __name__ == "__main__":
         a_1=1.0,
         epsilon_1=0.03,  # adaption rate
         epsilon_2=0.3,  # adaption rate
-        alpha=-0.28,  # phase lage
-        beta=0.5,  # age parameter
-        sigma=1,
+        alpha=0.0,  # -0.28,  # phase lage
+        beta=0.2,  # 0.5,  # age parameter
+        sigma=0.0,
     )  # b 0.83, s 0.25, rseed + 0
-    T_init, T_trans, T_max = 0, 0, 1000
-    T_step = 1
+    T_init, T_trans, T_max = 0, 0, 1500
+    T_step = 10
     generate_init_conditions = generate_init_conditions_fixed(run_conf.N, run_conf.beta, run_conf.C)
-
+    print(run_conf.as_index)
     init_conditions = vmap(generate_init_conditions)(rand_keys)
     sol = solve(
         T_init,

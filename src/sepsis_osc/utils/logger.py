@@ -2,7 +2,7 @@ import logging
 
 import colorlog
 
-from utils.config import log_file, cfg_log_level
+from sepsis_osc.utils.config import log_file, cfg_log_level
 
 
 def setup_logging(log_level: str = cfg_log_level, console_log=True):

@@ -5,9 +5,9 @@ import plotly.graph_objects as go
 import numpy as np
 import polars as pl
 
-from simulation.data_classes import SystemConfig, SystemMetrics
-from storage.storage_interface import Storage
-from utils.logger import setup_logging
+from sepsis_osc.simulation.data_classes import SystemConfig, SystemMetrics
+from sepsis_osc.storage.storage_interface import Storage
+from sepsis_osc.utils.logger import setup_logging
 
 setup_logging()
 logger = logging.getLogger(__name__)

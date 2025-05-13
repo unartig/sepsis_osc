@@ -2,7 +2,7 @@ import numpy as np
 from matplotlib.animation import FuncAnimation, PillowWriter
 import matplotlib.pyplot as plt
 
-from simulation.data_classes import SystemConfig, SystemMetrics
+from sepsis_osc.simulation.data_classes import SystemConfig, SystemMetrics
 
 
 def plot_metric_t(var_1: np.ndarray, var_2: np.ndarray, ax=None):
@@ -21,21 +21,21 @@ if __name__ == "__main__":
     from diffrax import Bosh3, Dopri5, Tsit5, Dopri8, ODETerm, PIDController
     from jax import vmap
 
-    from utils.run_simulation import solve
-    from simulation.simulation import (
+    from sepsis_osc.utils.run_simulation import solve
+    from sepsis_osc.simulation.simulation import (
         generate_init_conditions_fixed,
         make_metric_save,
         system_deriv,
     )
-    from utils.config import jax_random_seed
+    from sepsis_osc.utils.config import jax_random_seed
 
     rand_key = jr.key(jax_random_seed + 123)
-    num_parallel_runs = 50
+    num_parallel_runs = 10
     rand_keys = jr.split(rand_key, num_parallel_runs)
     metric_save = make_metric_save(system_deriv)
     term = ODETerm(system_deriv)
-    solver = Dopri5()
-    stepsize_controller = PIDController(rtol=1e-4, atol=1e-7)
+    solver = Tsit5()
+    stepsize_controller = PIDController(dcoeff=0, rtol=1e-3, atol=1e-6)
 
     #### Parameters
     N = 100
@@ -47,9 +47,9 @@ if __name__ == "__main__":
         a_1=1.0,
         epsilon_1=0.03,  # adaption rate
         epsilon_2=0.3,  # adaption rate
-        alpha=-0.28,  # phase lage
-        beta=1,  # age parameter
-        sigma=0.15,
+        alpha=0.52,  # phase lage
+        beta=0.63,  # age parameter
+        sigma=0.20,
         T_init=0,
         T_trans=0,
         T_max=1000,
@@ -94,13 +94,25 @@ if __name__ == "__main__":
     ax[0].set_title("Kuramoto Order Parameter\nParenchymal Layer")
     ax[1].set_title("Immune Layer")
 
-    ax = plot_metric_t(metrics.s_1, metrics.s_2)
-    ax[0].vlines(tt, 0, 1, color="tab:red", ls=":")
-    ax[1].vlines(tt, 0, 1, color="tab:red", ls=":")
-    ax[0].set_ylim([0, 1])
-    ax[1].set_ylim([0, 1])
-    ax[0].set_title("Mean Phase Velocity Std\nParenchymal Layer")
-    ax[1].set_title("Immune Layer")
+    # ax = plot_metric_t(metrics.s_1, metrics.s_2)
+    # ax[0].vlines(tt, 0, 1, color="tab:red", ls=":")
+    # ax[1].vlines(tt, 0, 1, color="tab:red", ls=":")
+    # ax[0].set_ylim([0, 1])
+    # ax[1].set_ylim([0, 1])
+    # ax[0].set_title("Mean Phase Velocity Std\nParenchymal Layer")
+    # ax[1].set_title("Immune Layer")
 
     plt.tight_layout()
     plt.show()
+
+    # print(self.f_1.mean(axis=-1))
+    # if self.f_1.mean(axis=-1) < 0.3:
+    #     std_ = self.r_1.std(axis=1)
+    #     threshold = std_.mean() + 2 * std_[50:].std()
+    #     self.tt = jnp.argmax(std_ > threshold) + 1
+    # else:
+    #     window = 5
+    #     diff = jnp.abs(jnp.diff(self.r_1.mean(axis=1)))
+    #     smoothed = jnp.convolve(diff, np.ones(window) / window, mode="valid")
+    #     threshold = 0.01
+    #     self.tt = jnp.argmax(smoothed < threshold) + 1

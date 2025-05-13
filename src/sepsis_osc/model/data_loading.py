@@ -4,9 +4,9 @@ from pathlib import Path
 from icu_benchmarks.data.split_process_data import preprocess_data
 from icu_benchmarks.constants import RunMode
 
-from utils.logger import setup_logging
-from utils.config import yaib_data_dir
-from model.gin_configs import file_names, vars, modality_mapping
+from sepsis_osc.utils.logger import setup_logging
+from sepsis_osc.utils.config import yaib_data_dir
+from sepsis_osc.model.gin_configs import file_names, vars, modality_mapping
 import os
 
 setup_logging()

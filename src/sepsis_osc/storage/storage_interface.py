@@ -11,8 +11,8 @@ import numpy as np
 import rocksdbpy as rock
 
 
-from simulation.data_classes import SystemMetrics
-from utils.config import db_metrics_key_value, db_parameter_keys, max_workers
+from sepsis_osc.simulation.data_classes import SystemMetrics
+from sepsis_osc.utils.config import db_metrics_key_value, db_parameter_keys, max_workers
 
 mnp.patch()
 logger = logging.getLogger(__name__)
