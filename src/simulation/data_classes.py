@@ -5,6 +5,7 @@ import jax.numpy as jnp
 import jax.tree_util as jtu
 import numpy as np
 from jaxtyping import Array, Float
+from scipy.ndimage import uniform_filter1d
 
 
 @dataclass
@@ -211,13 +212,16 @@ class SystemMetrics:
         )
 
     def add_follow_ups(self) -> "SystemMetrics":
-        if not self.sr_1 and self.r_1.size > 1:
+        if self.sr_1 is None and self.r_1.size > 1:
             self.sr_1 = jnp.sum(self.r_1 < 0.2, axis=-1) / self.r_1.shape[-1]
             self.sr_2 = jnp.sum(self.r_2 < 0.2, axis=-1) / self.r_2.shape[-1]
-            last_x = self.r_1[-int(0.5 * self.r_1.shape[0]) :]
-            last_eps = last_x.max(axis=0) - last_x.min(axis=0)
-            self.tt = np.where(np.abs(self.r_1 - last_x.mean(axis=0)) > last_eps * 1.05)[0]
-            if self.tt.size == 0:
+            std_over_time = jnp.std(self.r_1, axis=1)
+            smoothed_std = uniform_filter1d(std_over_time, size=10)
+            threshold = jnp.percentile(smoothed_std, jnp.clip((self.r_1[-1].std() * 100) ** 2, 1, 10))
+            transient_end_candidates = np.where(smoothed_std < threshold)[0]
+            if len(transient_end_candidates) > 0:
+                self.tt = transient_end_candidates.max()
+            else:
                 self.tt = jnp.array([self.r_1.shape[0]])
         return self
 
