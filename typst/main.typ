@@ -1,6 +1,6 @@
 #import "@preview/acrostiche:0.4.0": *
 #import "tuhh_template.typ": thesis
-#import "@preview/drafting:0.2.2": margin-note, note-outline
+#import "@preview/drafting:0.2.2": margin-note, note-outline, inline-note, set-margin-note-defaults
 
 
 #show: thesis.with(
@@ -26,7 +26,9 @@
 #note-outline()
 
 #let todo = margin-note
-
+#let caution-rect = rect.with(inset: 1em, radius: 0.5em)
+#set-margin-note-defaults(rect: caution-rect, side: right, fill: orange.lighten(80%))
+#let TODO = inline-note
 
 = Notes
 == Base ODE-System
@@ -107,8 +109,50 @@ To make things more complicated, $R$ does not directly act on $z$, but rather th
 The metrics are detailed in @sec:metrics.
 
 In the setting of structured latent variational learning we want to approximate an encoder $q(z|x)$ to infer the latent variables from observed data $X$ and the class.
-Further we want to learn the latent mappings $R(z)$, while being provided the ground truth of $Q(x)$.
+// Further we want to learn the latent mappings $R(z)$, while being provided the ground truth of $Q(x)$.
 
+#TODO[#text(weight: "bold")[How to structure the latent space?]
+
+Binary classification (sepsis, no sepsis) may not provide enough information to accurately structure the latent space.
+The options:
+#list(
+[Add more classes like resilient/vulnerable... maybe even the full spectrum?#list([need to be modeled by $R$])],
+[Introduce the time/action component as additional information (like the RL environment?)])
+]
+
+
+== Sepsis Definition and the SOFA score
+We should care about the increase in #acr("SOFA") score @SOFAscore, as the used as one corner stones of the Sepsis-3 definition @Sepsis3, where an increase in SOFA score $>=3$ indicates a septic condition.
+It is regularly used to evaluate the severity of an illness, to guide treatment decisions and predict mortality.
+The SOFA score is calculated at least every 24 hours and assess six different organ systems and assigns a score from 0 (normal function) to 4 (high degree of dysfunction) each, as stated in @tab:sofa.
+In Sepsis-3 an increase in SOFA score >= 2... #todo[hier weiter]
+Compared to the Sepsis-3 the plain increase is less restrictive as shown in @SepsisDefinitionComparison... #todo[und hier]
+#figure(
+  table(
+    columns: (1fr,  auto, auto, auto, auto, auto),
+    inset: 10pt,
+    align: horizon,
+    table.header(
+      [Category], [Indicator], [1], [2], [3], [4]
+    ),
+    [Respiration], [$"PaO"_2$/$"FiO"_2$ [mmHg]], [< 400], [< 300], [< 200], [< 100],
+    [], [Mechanical Ventilation], [], [], [yes], [yes],
+
+    [Coagulation], [Platelets [$times 10^3/"mm"^3$]], [< 150], [< 100], [< 50], [< 20],
+    [Liver], [Bilirubin [$"mg"/"dl"$]], [1.2-1.9], [2.0-5.9], [6.0-11.9], [> 12.0],
+    [Cardiovascular #footnote("Adrenergica agents administered for at least 1h (doses given are in [μg/kg · min]")], [MAP [mmHg]], [< 70], [], [], [],
+    [], [or dopamine], [], [$<=$ 5], [> 5], [> 15],
+    [], [or dobutamine], [], [any dose], [], [],
+    [], [or epinephrine], [], [], [$<=$ 0.1], [> 0.1],
+    [], [or noepinephrine], [], [], [$<=$ 0.1], [> 0.1],
+    [Central Nervous System], [Glascow Coma Score], [13-14], [10-12], [6-9], [< 6],
+    [Renal], [Creatinine [$"mg"/"dl"$]], [1.2-1.9], [2.0-3.4], [3.5-4.9], [> 5.0],
+    [], [or urine output [$"ml"/"day"$]], [], [], [< 500], [< 200],
+  )
+) <tab:sofa>
+For the cohort extraction and SOFA calculation I use @ricu and @yaib.
+The nice thing is we could interpret larger SOFA scores (> 3) as the vulnerable state introduced by @osc2.
+Increases in SOFA score $>=$ could then be used as definition for sepsis.
 
 = Introduction
 
