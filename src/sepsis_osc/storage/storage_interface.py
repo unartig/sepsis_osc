@@ -235,19 +235,15 @@ class Storage:
         return None
 
     @timing
-    def read_multiple_results(
-        self,
-        params: np.ndarray,
-    ) -> Optional[SystemMetrics]:
+    def read_multiple_results(self, params: np.ndarray, threshold: float = 0.0) -> Optional[SystemMetrics]:
         logger.info(f"Getting Metrics for multiple queries with shape {params.shape}")
 
         original_shape = params.shape[:-1]
         np_params = np.asarray(params, dtype=np.float32).reshape(-1, params.shape[-1])
-
         indices, distances = self.find_faiss(np_params)
         indices = indices.reshape(original_shape)
 
-        if np.any(distances != 0.0):
+        if np.any(distances.max() > threshold):
             logger.error("Could not match bulk query")
             return None
 
@@ -271,13 +267,19 @@ class Storage:
             tt=np.empty(metrics_shape, dtype=np.float32),
         )
 
+        def _get_value_or_key(ind: tuple[int, ...]):
+            index = int(indices[ind] if len(ind) else indices[ind[0]])
+            if self.use_mem_cache:
+                return self.__memory_cache[str(index)]
+            else:
+                return f"metrics_{index}".encode()
+
         # batch read the data from RocksDB or Cache
         def fetch_and_unpack_bulk(ind_chunk: list[tuple[int, ...]]) -> bool:
             if self.use_mem_cache:
-                raw_list = [self.__memory_cache[str(ind)] for ind in ind_chunk]
+                raw_list = [_get_value_or_key(ind) for ind in ind_chunk]
             else:
-                # RocksDB multi_get returns a list of raw bytes
-                keys = [f"metrics_{str(indices[ind])}".encode() for ind in ind_chunk]
+                keys = [_get_value_or_key(ind) for ind in ind_chunk]
                 raw_list = self.__db_metric.multi_get(keys)
 
             for ind, raw in zip(ind_chunk, raw_list):
