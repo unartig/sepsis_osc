@@ -15,7 +15,11 @@ def setup_logging(log_level: str = cfg_log_level, console_log=True):
     else:
         level = logging.WARNING
 
-    logger = logging.getLogger()
+    logger = logging.getLogger("SepOsc_logger")
+    if logger.handlers:
+        logger.warning("Logging is already configured for 'my_app'. Skipping setup.")
+        return
+
     if console_log:
         console_formatter = colorlog.ColoredFormatter(
             "%(asctime)s - %(name)-30s - %(log_color)s%(levelname)-8s%(reset)s - %(message)s",
