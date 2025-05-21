@@ -1,4 +1,6 @@
 import logging
+from functools import wraps
+from time import time
 
 import distrax
 import equinox as eqx
@@ -14,10 +16,24 @@ from sepsis_osc.storage.storage_interface import Storage
 from sepsis_osc.utils.jax_config import setup_jax
 from sepsis_osc.utils.logger import setup_logging
 
-setup_logging("warning")
+setup_logging("info")
 logger = logging.getLogger(__name__)
+# logging.getLogger("sepsis_osc.storage.storage_interface").setLevel(logging.ERROR)
+logging.getLogger("sepsis_osc.model.vae").setLevel(logging.INFO)
 
 setup_jax(simulation=False)
+
+
+def timing(f):
+    @wraps(f)
+    def wrap(*args, **kw):
+        ts = time()
+        result = f(*args, **kw)
+        te = time()
+        logger.info("func:%r took: %2.6f sec" % (f.__name__, te - ts))
+        return result
+
+    return wrap
 
 
 # TODO
@@ -27,9 +43,9 @@ setup_jax(simulation=False)
 # === Model Definitions ===
 LATENT_DIM = 3
 INPUT_DIM = 52
-NUM_CATEGORIES = 2
-BATCH_SIZE = 512
-EPOCHS = 10
+# NUM_CATEGORIES = 2
+BATCH_SIZE = 1024
+EPOCHS = 100
 
 
 class Encoder(eqx.Module):
@@ -42,11 +58,11 @@ class Encoder(eqx.Module):
     def __init__(self, key):
         key1, key2, key3, key4, key_alpha, key_beta, key_sigma, key = jax.random.split(key, 8)
         self.layers = [
-            eqx.nn.Linear(INPUT_DIM, 512, key=key1),
+            eqx.nn.Linear(INPUT_DIM, 2048, key=key1),
             jax.nn.relu,
-            eqx.nn.Linear(512, 512, key=key2),
+            eqx.nn.Linear(2048, 2048, key=key2),
             jax.nn.relu,
-            eqx.nn.Linear(512, 512, key=key3),
+            eqx.nn.Linear(2048, 512, key=key3),
             jax.nn.relu,
             eqx.nn.Linear(512, LATENT_DIM, key=key4),
         ]
@@ -93,12 +109,17 @@ class Decoder(eqx.Module):
         return z
 
 
+# def get_pred_cats(z):
+#     return jnp.zeros((z.shape[0], 2))
+
+
 @jax.custom_jvp
 def get_pred_cats(z):
     result_shape = jax.ShapeDtypeStruct((z.shape[0], 2), z.dtype)
     return eqx.filter_pure_callback(get_pred_cats_host, z, result_shape_dtypes=result_shape)
 
 
+@timing
 def get_pred_cats_host(z):
     z_confs = np.array([
         SystemConfig(
@@ -115,15 +136,14 @@ def get_pred_cats_host(z):
         ).as_index
         for zi in z
     ])
-    # TODO ranges
     sim_results = sim_storage.read_multiple_results(z_confs, 100)
 
-    pred_c = jnp.zeros((z.shape[0], 2))  # we return sofa + susp_inf
+    pred_c = jnp.zeros((z.shape[0], 2), device=jax.devices("gpu")[0])  # we return sofa + susp_inf
     if not sim_results:
         return pred_c
 
     pred_c.at[:, 0].set(sim_results.f_1.T.squeeze() * 24)
-    pred_c.at[:, 1].set(jnp.clip(sim_results.sr_2.T.squeeze() + sim_results.f_2.T.squeeze(), 0, 1))
+    pred_c.at[:, 1].set(np.clip(sim_results.sr_2.T.squeeze() + sim_results.f_2.T.squeeze(), 0, 1))
     return pred_c
 
 
@@ -138,6 +158,7 @@ def get_pred_cats_jvp(primals, tangents):
 
 
 # === Loss Function ===
+@eqx.filter_jit
 def total_loss_fn(encoder, decoder, x, true_c, key, lambda1=1.0, lambda2=1e-4):
     enc_out = jax.vmap(encoder)(x)
     # Split the encoder output into loc and log_scale.
@@ -161,6 +182,7 @@ def total_loss_fn(encoder, decoder, x, true_c, key, lambda1=1.0, lambda2=1e-4):
 
 
 # === Training Step ===
+@eqx.filter_jit
 def training_step(
     params_enc, static_enc, params_dec, static_dec, opt_state_enc, opt_state_dec, x, true_c, key, opt_enc, opt_dec
 ):
@@ -187,6 +209,7 @@ def training_step(
 
 
 # === Validation ===
+@eqx.filter_jit
 def validation(
     params_enc,
     static_enc,
@@ -195,18 +218,60 @@ def validation(
     x,
     true_c,
     key,
+    batch_size,
 ):
     encoder = eqx.combine(params_enc, static_enc)
     decoder = eqx.combine(params_dec, static_dec)
-
-    # Note: We pass the models as a tuple to compute the loss.
-    def loss_fn(models, x, true_c, key):
-        encoder, decoder = models
-        return total_loss_fn(encoder, decoder, x, true_c, key)
-
     models = (encoder, decoder)
-    loss, grads = eqx.filter_value_and_grad(loss_fn)(models, x, true_c, key)
-    return loss
+
+    num_samples = x.shape[0]
+    num_batches = (num_samples + batch_size - 1) // batch_size  # Ceiling division
+    padding_needed = num_batches * batch_size - num_samples
+    if padding_needed > 0:
+        x_pad_shape = list(x.shape)
+        x_pad_shape[0] = padding_needed
+        x_padded = jnp.concatenate([x, jnp.zeros(x_pad_shape, dtype=x.dtype)], axis=0)
+
+        true_c_pad_shape = list(true_c.shape)
+        true_c_pad_shape[0] = padding_needed
+        true_c_padded = jnp.concatenate([true_c, jnp.zeros(true_c_pad_shape, dtype=true_c.dtype)], axis=0)
+    else:
+        x_padded = x
+        true_c_padded = true_c
+
+    x_batched = x_padded.reshape(num_batches, batch_size, *x.shape[1:])
+    true_c_batched = true_c_padded.reshape(num_batches, batch_size, *true_c.shape[1:])
+
+    def loss_fn(models, x_batch, true_c_batch, key_batch):
+        encoder, decoder = models
+        return total_loss_fn(encoder, decoder, x_batch, true_c_batch, key_batch)
+
+    @eqx.filter_jit
+    def single_batch_loss(models, x_batch, true_c_batch, key_batch):
+        loss, _ = eqx.filter_value_and_grad(loss_fn)(models, x_batch, true_c_batch, key_batch)
+        return loss
+
+    def body_fn(i, carry):
+        key_carry, losses_array = carry
+        key_carry, subkey = jax.random.split(key_carry)
+
+        x_batch = x_batched[i]
+        true_c_batch = true_c_batched[i]
+        loss = single_batch_loss(models, x_batch, true_c_batch, subkey)
+
+        losses_array = losses_array.at[i].set(loss)
+
+        return (key_carry, losses_array)
+
+    init_losses = jnp.zeros(num_batches)
+
+    final_key, batch_losses_sums = jax.lax.fori_loop(0, num_batches, body_fn, (key, init_losses))
+
+    total_sum_of_losses = jnp.sum(batch_losses_sums)
+    mean_loss = total_sum_of_losses / num_samples
+    std_loss = jnp.std(batch_losses_sums)
+
+    return mean_loss, std_loss
 
 
 # === Initialization ===
@@ -228,7 +293,11 @@ opt_state_dec = opt_dec.init(params_dec)
 # === Data ===
 train_y, train_x, val_y, val_x, test_y, test_x = [
     jnp.array(
-        v.drop([col for col in v.columns if col.startswith("Missing") or col in {"stay_id", "time", "sep3_alt"}]),
+        v.drop([
+            col
+            for col in v.columns
+            if col.startswith("Missing") or col in {"stay_id", "time", "sep3_alt", "__index_level_0__", "los_icu"}
+        ]),
         dtype=jnp.float32,
     )
     for inner in data.values()
@@ -245,7 +314,7 @@ sim_storage = Storage(
     key_dim=9,
     metrics_kv_name=f"data/{db_str}SepsisMetrics.db/",
     parameter_k_name=f"data/{db_str}SepsisParameters_index.bin",
-    use_mem_cache=False,
+    use_mem_cache=True,
 )
 
 # === Training Loop ===
@@ -272,9 +341,18 @@ for epoch in range(EPOCHS):
             opt_dec=opt_dec,
         )
         if i % 10 == 0 and loss is not None:
-            logger.warning(f"Epoch {epoch} | Step {i}: loss = {loss:.4f}")
+            logger.info(f"Epoch {epoch} | Step {i}: loss = {loss:.4f}")
 
     key, _ = jax.random.split(key)
-    logger.warning(
-        f"Epoch {epoch}: loss = {validation(params_enc, static_enc, params_dec, static_dec, val_x, val_y, key):.4f}"
+    # Call validation with the BATCH_SIZE
+    val_mean_loss, val_std_loss = validation(
+        params_enc, static_enc, params_dec, static_dec, val_x, val_y, key, BATCH_SIZE
     )
+    logger.warning(f"Epoch {epoch}: Validation Loss = {val_mean_loss:.4f} (Std Dev: {val_std_loss:.4f})")
+
+
+# TODO
+# better validation
+# profiling (especially storage)
+# different latent prior
+# logger
