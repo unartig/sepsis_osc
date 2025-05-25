@@ -1,11 +1,13 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, fields
 from typing import Optional
 
+import jax.tree as jt
 import jax.numpy as jnp
 import jax.tree_util as jtu
 import numpy as np
 from jaxtyping import Array, Float
 from scipy.ndimage import uniform_filter1d
+from numpy.typing import DTypeLike
 
 
 @dataclass
@@ -67,6 +69,47 @@ class SystemConfig:
             float(self.sigma / 2),
             float(self.C / self.N),
         )
+
+    @staticmethod
+    def batch_as_index(
+        z: np.ndarray,
+        C: float,
+    ) -> np.ndarray:
+        # variable
+        alphas = z[:, 0].astype(float) / np.pi
+        betas = z[:, 1].astype(float) / np.pi
+        sigmas = z[:, 2].astype(float) / 2
+
+        # constant
+        batch_size = z.shape[0]
+        omega_1_batch = np.full(batch_size, 0.0)
+        omega_2_batch = np.full(batch_size, 0.0)
+        a_1_batch = np.full(batch_size, 1.0)
+        epsilon_1_batch = np.full(batch_size, 0.03)
+        epsilon_2_batch = np.full(batch_size, 0.3)
+        _C = np.full(batch_size, C)
+
+        batch_indices = np.stack(
+            [
+                omega_1_batch,
+                omega_2_batch,
+                a_1_batch,
+                epsilon_1_batch,
+                epsilon_2_batch,
+                alphas,
+                betas,
+                sigmas,
+                _C,
+            ],
+            axis=-1,
+            dtype=np.float32,
+        )
+
+        return batch_indices
+
+    @staticmethod
+    def str_as_index(s: str) -> tuple[float, ...]:
+        return (0, 0)
 
 
 @dataclass
@@ -188,6 +231,9 @@ class SystemMetrics:
             self.q_2,
             self.f_1,
             self.f_2,
+            self.sr_1 if self.sr_1 is not None else None,
+            self.sr_2 if self.sr_2 is not None else None,
+            self.tt if self.tt is not None else None,
         ), None
 
     @classmethod
@@ -246,5 +292,66 @@ class SystemMetrics:
             tt=self.tt.max() if self.tt is not None else None,
         )
 
+    @staticmethod
+    def np_empty(shape: tuple[int, ...], dtype: DTypeLike = np.float32) -> "SystemMetrics":
+        return SystemMetrics(
+            r_1=np.zeros(shape, dtype=dtype),
+            r_2=np.zeros(shape, dtype=dtype),
+            m_1=np.zeros(shape, dtype=dtype),
+            m_2=np.zeros(shape, dtype=dtype),
+            s_1=np.zeros(shape, dtype=dtype),
+            s_2=np.zeros(shape, dtype=dtype),
+            q_1=np.zeros(shape, dtype=dtype),
+            q_2=np.zeros(shape, dtype=dtype),
+            f_1=np.zeros(shape, dtype=dtype),
+            f_2=np.zeros(shape, dtype=dtype),
+            sr_1=np.zeros(shape, dtype=dtype),
+            sr_2=np.zeros(shape, dtype=dtype),
+            tt=np.zeros(shape, dtype=dtype),
+        )
+
+    def to_jax(self) -> "SystemMetrics":
+        converted = {}
+        for f in fields(self):
+            val = getattr(self, f.name)
+            if val is not None:
+                converted[f.name] = jnp.asarray(val)
+            else:
+                converted[f.name] = None
+        return SystemMetrics(**converted)
+
 
 jtu.register_pytree_node(SystemMetrics, SystemMetrics.tree_flatten, SystemMetrics.tree_unflatten)
+
+
+@dataclass
+class JAXLookup:
+    metrics: SystemMetrics
+    indices: Float[Array, "db_size 9"]
+
+    def tree_flatten(self):
+        return (self.metrics, self.indices), None
+
+    @classmethod
+    def tree_unflatten(cls, aux_data, children):
+        return cls(*children)
+
+    def get(
+        self,
+        query_vectors: Float[Array, "batch_size latent_dim"],
+        threshold: float = jnp.inf,
+    ) -> SystemMetrics:
+        diff = query_vectors[:, None, :] - self.indices[:, [5, 6, 7]][None, :, :]
+        squared_distances = jnp.sum(diff**2, axis=-1)  # (batch_size, num_faiss_vectors)
+
+        # nearest neighbour lookup
+        min_indices = jnp.argmin(squared_distances, axis=-1)  # (batch_size,)
+        # min_distances = jnp.min(squared_distances, axis=-1)  # (batch_size,)
+
+        # valid_mask = min_distances <= threshold  # (batch_size,)
+
+        retrieved_metrics = jt.map(lambda x: jnp.take(x, min_indices, axis=0), self.metrics)
+        return retrieved_metrics
+
+
+jtu.register_pytree_node(JAXLookup, JAXLookup.tree_flatten, JAXLookup.tree_unflatten)

@@ -12,7 +12,7 @@ import optax
 from jaxtyping import Array, Float, PyTree  # https://github.com/google/jaxtyping
 
 from sepsis_osc.model.data_loading import data
-from sepsis_osc.simulation.data_classes import SystemConfig, SystemMetrics
+from sepsis_osc.simulation.data_classes import JAXLookup, SystemMetrics
 from sepsis_osc.storage.storage_interface import Storage
 from sepsis_osc.utils.jax_config import setup_jax
 from sepsis_osc.utils.logger import setup_logging
@@ -40,9 +40,8 @@ def timing(f):
 # === Model Definitions ===
 LATENT_DIM = 3
 INPUT_DIM = 52
-# NUM_CATEGORIES = 2
 BATCH_SIZE = 512
-EPOCHS = 100
+EPOCHS = 1000
 ENC_HIDDEN = 512
 DEC_HIDDEN = 512
 
@@ -99,7 +98,7 @@ class Decoder(eqx.Module):
             eqx.nn.Linear(in_features=LATENT_DIM, out_features=DEC_HIDDEN, key=key1),
             jax.nn.relu,
             eqx.nn.Linear(in_features=DEC_HIDDEN, out_features=INPUT_DIM, key=key2),
-            jax.nn.sigmoid,
+            jax.nn.softplus,
         ]
 
     def __call__(self, z: Float[Array, "batch latent_dim"]) -> Float[Array, "batch input_dim"]:
@@ -108,51 +107,27 @@ class Decoder(eqx.Module):
         return z
 
 
-# def get_pred_cats(z):
-#     return jnp.zeros((z.shape[0], 2))
-
-
-@jax.custom_jvp
-def get_pred_cats(z) -> Float[Array, "batch_size 2"]:
-    result_shape = jax.ShapeDtypeStruct(shape=(z.shape[0], 2), dtype=z.dtype)
-    return eqx.filter_pure_callback(get_pred_cats_host, z, result_shape_dtypes=result_shape)
-
-
-# @timing
-def get_pred_cats_host(z) -> Float[Array, "batch_size 2"]:
+@eqx.filter_jit
+def get_pred_cats(z: Float[Array, "batch_size latent_dim"], lookup_table: JAXLookup) -> Float[Array, "batch_size 2"]:
     z_alpha_mapped = (z[:, 0] * 2) - 1.0  # Maps (0,1) to (-1,1)
     z_beta_mapped = z[:, 1] * 2.0  # Maps (0,1) to (0,2)
     z_sigma_mapped = z[:, 2]  # (0,1) remains (0,1)
 
-    z_confs: np.ndarray = SystemConfig.batch_as_index(
-        z=jnp.concatenate([z_alpha_mapped[:, None], z_beta_mapped[:, None], z_sigma_mapped[:, None]], axis=-1),
-        C=0.2,
-    )
-    sim_results: Optional[SystemMetrics] = sim_storage.read_multiple_results(params=z_confs, threshold=150)
+    query_vectors = jnp.concatenate([z_alpha_mapped[:, None], z_beta_mapped[:, None], z_sigma_mapped[:, None]], axis=-1)
 
-    pred_c: Float[Array, "batch_size 2"] = np.zeros((z.shape[0], 2), dtype=z.dtype)  # we return sofa + susp_inf
-    if not sim_results:
-        return pred_c
+    sim_results: SystemMetrics = lookup_table.get(query_vectors, threshold=150.0)
 
-    assert sim_results.sr_2 is not None
-    pred_c[:, 0] = sim_results.f_1.T.squeeze()
-    pred_c[:, 1] = np.clip(sim_results.sr_2.T.squeeze() + sim_results.f_2.T.squeeze(), 0, 1)
-    return jnp.asarray(pred_c)
+    # Extract f_1 and sr_2 + f_2 from the JAXSystemMetrics
+    # TODO
+    # check correct shape conversion
+    pred_c = jnp.array([sim_results.f_1, jnp.clip(sim_results.sr_2 + sim_results.f_2, 0, 1)]).reshape(-1, 2)
 
-
-@get_pred_cats.defjvp
-def get_pred_cats_jvp(primals, tangents) -> tuple[Float[Array, "batch_size 2"], Float[Array, "batch_size 2"]]:
-    # primals: (z,) - the original input to get_pred_cats
-    # tangents: (dz,) - the tangent vector corresponding to z
-
-    # The JVP of a pure callback is zero because the
-    # computation happens outside the JAX tracer.
-    return get_pred_cats(*primals), jax.numpy.zeros_like(get_pred_cats(*primals))
+    return pred_c
 
 
 # === Loss Function ===
 @eqx.filter_jit
-def per_sample_loss(encoder, decoder, x, true_c, key, lambda1=1.0, lambda2=1e-4) -> dict[str, Array]:
+def per_sample_loss(encoder, decoder, x, true_c, key, lookup_table, lambda1=1.0, lambda2=1e-4) -> dict[str, Array]:
     alpha_conc1, alpha_conc0, beta_conc1, beta_conc0, sigma_conc1, sigma_conc0 = jax.vmap(encoder)(x)
 
     posterior_alpha = distrax.Beta(alpha=alpha_conc1, beta=alpha_conc0)
@@ -171,19 +146,17 @@ def per_sample_loss(encoder, decoder, x, true_c, key, lambda1=1.0, lambda2=1e-4)
     x_recon = jax.vmap(decoder)(z)
     recon_loss = jnp.mean((x - x_recon) ** 2, axis=-1)
 
-    pred_c = get_pred_cats(z)
+    pred_c = get_pred_cats(z, lookup_table)
     true_c.at[:, 0].set(true_c[:, 0] / 24)
     concept_loss = jnp.mean((true_c - pred_c) ** 2, axis=-1)
 
     # Define prior Beta distributions for each latent variable (e.g., Beta(1,1) for uniform prior)
-    prior_alpha = distrax.Beta(alpha=jnp.ones_like(alpha_conc1), beta=jnp.ones_like(alpha_conc0))
-    prior_beta = distrax.Beta(alpha=jnp.ones_like(beta_conc1), beta=jnp.ones_like(beta_conc0))
-    prior_sigma = distrax.Beta(alpha=jnp.ones_like(sigma_conc1), beta=jnp.ones_like(sigma_conc0))
+    prior = distrax.Beta(alpha=jnp.ones_like(alpha_conc1), beta=jnp.ones_like(alpha_conc0))
 
     # Calculate KL divergence for each latent variable and sum them
-    kl_loss_alpha = posterior_alpha.kl_divergence(prior_alpha)
-    kl_loss_beta = posterior_beta.kl_divergence(prior_beta)
-    kl_loss_sigma = posterior_sigma.kl_divergence(prior_sigma)
+    kl_loss_alpha = posterior_alpha.kl_divergence(prior)
+    kl_loss_beta = posterior_beta.kl_divergence(prior)
+    kl_loss_sigma = posterior_sigma.kl_divergence(prior)
 
     kl_loss = jnp.sum(kl_loss_alpha, axis=-1) + jnp.sum(kl_loss_beta, axis=-1) + jnp.sum(kl_loss_sigma, axis=-1)
 
@@ -197,8 +170,8 @@ def per_sample_loss(encoder, decoder, x, true_c, key, lambda1=1.0, lambda2=1e-4)
 
 
 @eqx.filter_jit
-def total_loss_fn(encoder, decoder, x, true_c, key, lambda1=1.0, lambda2=1e-4):
-    per_sample_losses = per_sample_loss(encoder, decoder, x, true_c, key, lambda1, lambda2)
+def total_loss_fn(encoder, decoder, x, true_c, key, lookup_table, lambda1=1.0, lambda2=1e-4):
+    per_sample_losses = per_sample_loss(encoder, decoder, x, true_c, key, lookup_table, lambda1, lambda2)
     mean_losses = jax.tree.map(jnp.mean, per_sample_losses)
     return mean_losses["total_loss"], mean_losses
 
@@ -206,14 +179,25 @@ def total_loss_fn(encoder, decoder, x, true_c, key, lambda1=1.0, lambda2=1e-4):
 # === Training Step ===
 @eqx.filter_jit
 def training_step(
-    params_enc, static_enc, params_dec, static_dec, opt_state_enc, opt_state_dec, x, true_c, key, opt_enc, opt_dec
+    params_enc,
+    static_enc,
+    params_dec,
+    static_dec,
+    opt_state_enc,
+    opt_state_dec,
+    x,
+    true_c,
+    key,
+    opt_enc,
+    opt_dec,
+    lookup_table: JAXLookup,
 ):
     encoder = eqx.combine(params_enc, static_enc)
     decoder = eqx.combine(params_dec, static_dec)
 
     def loss_fn(models, x, true_c, key):
         encoder, decoder = models
-        return total_loss_fn(encoder, decoder, x, true_c, key)
+        return total_loss_fn(encoder, decoder, x, true_c, key, lookup_table)
 
     models = (encoder, decoder)
     # loss and gradients. `aux_losses` contains  total_loss_fn.
@@ -232,16 +216,7 @@ def training_step(
 
 # === Validation ===
 @eqx.filter_jit
-def validation(
-    params_enc,
-    static_enc,
-    params_dec,
-    static_dec,
-    x,
-    true_c,
-    key,
-    batch_size,
-):
+def validation(params_enc, static_enc, params_dec, static_dec, x, true_c, key, batch_size, lookup_table):
     encoder = eqx.combine(params_enc, static_enc)
     decoder = eqx.combine(params_dec, static_dec)
 
@@ -261,7 +236,9 @@ def validation(
 
     dummy_key = jax.random.PRNGKey(0)
 
-    initial_per_sample_losses = per_sample_loss(encoder, decoder, x_batched[0], true_c_batched[0], dummy_key)
+    initial_per_sample_losses = per_sample_loss(
+        encoder, decoder, x_batched[0], true_c_batched[0], dummy_key, lookup_table
+    )
     accumulated_sums = jax.tree.map(lambda _: jnp.array(0.0, dtype=jnp.float32), initial_per_sample_losses)
     accumulated_sum_of_squares = jax.tree.map(lambda _: jnp.array(0.0, dtype=jnp.float32), initial_per_sample_losses)
 
@@ -272,7 +249,7 @@ def validation(
         x_batch = x_batched[i]
         true_c_batch = true_c_batched[i]
 
-        batch_per_sample_losses = per_sample_loss(encoder, decoder, x_batch, true_c_batch, subkey)
+        batch_per_sample_losses = per_sample_loss(encoder, decoder, x_batch, true_c_batch, subkey, lookup_table)
 
         updated_sums = jax.tree.map(lambda s, l: s + jnp.sum(l), current_sums, batch_per_sample_losses)
         updated_sum_of_squares = jax.tree.map(
@@ -311,6 +288,7 @@ params_dec, static_dec = eqx.partition(decoder, eqx.is_array)
 opt_enc = optax.adam(1e-3)
 opt_dec = optax.adam(1e-3)
 
+
 opt_state_enc = opt_enc.init(params_enc)
 opt_state_dec = opt_dec.init(params_dec)
 
@@ -340,7 +318,8 @@ sim_storage = Storage(
     parameter_k_name=f"data/{db_str}SepsisParameters_index.bin",
     use_mem_cache=True,
 )
-
+indices, np_metrics = sim_storage.get_np_lookup()
+lookup_table = JAXLookup(metrics=np_metrics.to_jax(), indices=jnp.asarray(indices))
 # === Training Loop ===
 current_losses = {"total_loss": jnp.inf, "recon_loss": jnp.inf, "concept_loss": jnp.inf, "kl_loss": jnp.inf}
 for epoch in range(EPOCHS):
@@ -363,19 +342,21 @@ for epoch in range(EPOCHS):
             key=subkey,
             opt_enc=opt_enc,
             opt_dec=opt_dec,
+            lookup_table=lookup_table,
         )
-        if i % 100 == 0 and current_losses["total_loss"] is not None:
+        if i % 1000 == 0 and current_losses["total_loss"] is not None:
             logger.info(
-                f"Epoch {epoch} | Step {i}: "
+                f"Epoch {epoch} | Step {i:10d}: "
                 f"Total Loss = {current_losses['total_loss']:.4f}, "
                 f"Recon Loss = {current_losses['recon_loss']:.4f}, "
                 f"Concept Loss = {current_losses['concept_loss']:.4f}, "
                 f"KL Loss = {current_losses['kl_loss']:.4f}"
             )
 
+    # TODO less memory
     key, _ = jax.random.split(key)  # Update key for validation
     val_mean_losses, val_std_losses = validation(
-        params_enc, static_enc, params_dec, static_dec, val_x, val_y, key, BATCH_SIZE
+        params_enc, static_enc, params_dec, static_dec, val_x, val_y, key, BATCH_SIZE, lookup_table
     )
     # Log validation statistics
     logger.warning(
