@@ -1,5 +1,6 @@
-import concurrent.futures
 import logging
+
+import concurrent.futures
 from functools import wraps
 from time import time
 from typing import Optional
@@ -13,8 +14,10 @@ import rocksdbpy as rock
 
 from sepsis_osc.simulation.data_classes import SystemMetrics
 from sepsis_osc.utils.config import db_metrics_key_value, db_parameter_keys, max_workers
+from sepsis_osc.utils.logger import setup_logging
 
 mnp.patch()
+setup_logging("info", console_log=True)
 logger = logging.getLogger(__name__)
 
 
@@ -94,7 +97,6 @@ class Storage:
                 key = str(key.decode()).lstrip("metrics_")
                 self.__memory_cache[key] = data_bytes
 
-        # Split keysinto chunks for each thread
         logger.info("Preloading memory cache from RocksDB...")
         kv_pairs = [kv for kv in self.__db_metric.iterator() if kv[0].startswith(b"metrics_")]
         with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
@@ -251,21 +253,7 @@ class Storage:
         inds = list(zip(*inds))
 
         metrics_shape = original_shape + (1,)
-        res = SystemMetrics(
-            r_1=np.empty(metrics_shape, dtype=np.float32),
-            r_2=np.empty(metrics_shape, dtype=np.float32),
-            m_1=np.empty(metrics_shape, dtype=np.float32),
-            m_2=np.empty(metrics_shape, dtype=np.float32),
-            s_1=np.empty(metrics_shape, dtype=np.float32),
-            s_2=np.empty(metrics_shape, dtype=np.float32),
-            q_1=np.empty(metrics_shape, dtype=np.float32),
-            q_2=np.empty(metrics_shape, dtype=np.float32),
-            f_1=np.empty(metrics_shape, dtype=np.float32),
-            f_2=np.empty(metrics_shape, dtype=np.float32),
-            sr_1=np.empty(metrics_shape, dtype=np.float32),
-            sr_2=np.empty(metrics_shape, dtype=np.float32),
-            tt=np.empty(metrics_shape, dtype=np.float32),
-        )
+        res = SystemMetrics.np_empty(metrics_shape)
 
         def _get_value_or_key(ind: tuple[int, ...]):
             index = int(indices[ind] if len(ind) else indices[ind[0]])
@@ -274,43 +262,13 @@ class Storage:
             else:
                 return f"metrics_{index}".encode()
 
-        # batch read the data from RocksDB or Cache
-        def fetch_and_unpack_bulk(ind_chunk: list[tuple[int, ...]]) -> bool:
-            if self.use_mem_cache:
-                raw_list = [_get_value_or_key(ind) for ind in ind_chunk]
-            else:
-                keys = [_get_value_or_key(ind) for ind in ind_chunk]
-                raw_list = self.__db_metric.multi_get(keys)
-
-            for ind, raw in zip(ind_chunk, raw_list):
-                if not raw:
-                    logger.error(f"Failed to fetch data for index {ind}")
-                    return False
-
-                unpacked = msgpack.unpackb(raw, object_hook=mnp.decode)
-
-                res.r_1[ind] = unpacked["r_1"]
-                res.r_2[ind] = unpacked["r_2"]
-                res.m_1[ind] = unpacked["m_1"]
-                res.m_2[ind] = unpacked["m_2"]
-                res.s_1[ind] = unpacked["s_1"]
-                res.s_2[ind] = unpacked["s_2"]
-                res.q_1[ind] = unpacked["q_1"]
-                res.q_2[ind] = unpacked["q_2"]
-                res.f_1[ind] = unpacked["f_1"]
-                res.f_2[ind] = unpacked["f_2"]
-                if res.sr_1 is not None and res.sr_2 is not None and res.tt is not None:
-                    res.sr_1[ind] = unpacked["sr_1"]
-                    res.sr_2[ind] = unpacked["sr_2"]
-                    res.tt[ind] = unpacked["tt"]
-            return True
-
         # Split indices into chunks for each thread
         chunk_size = len(inds) // max_workers + 1
         chunks = [inds[i : i + chunk_size] for i in range(0, len(inds), chunk_size)]
 
         with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
-            valid_results = list(executor.map(fetch_and_unpack_bulk, chunks))
+            args = ((chunk, res, False) for chunk in chunks)
+            valid_results = list(executor.map(self.fetch_and_unpack_bulk, args))
 
         if not any(valid_results):
             logger.error("Retrieved invalid metrics")
@@ -361,3 +319,68 @@ class Storage:
                 added += 1 if success else 0
         logger.info(f"Added {added} keys by merging")
         return self
+
+    def get_np_lookup(self) -> tuple[np.ndarray, SystemMetrics]:
+        if self.use_mem_cache:
+            inds = list(self.__memory_cache.keys())
+
+        else:
+            inds = self.__db_keys.reconstruct_n(0, self.__db_keys.ntotal)
+        metrics = SystemMetrics.np_empty(shape=(len(inds),))
+
+        num_vectors = self.__db_keys.ntotal
+        np_keys = np.zeros((num_vectors, self.__db_keys.d), dtype="float32")
+        self.__db_keys.reconstruct_n(0, num_vectors, np_keys)
+
+        chunk_size = len(inds) // max_workers + 1
+        chunks = [inds[i : i + chunk_size] for i in range(0, len(inds), chunk_size)]
+
+        args = [(chunk, metrics, True) for chunk in chunks]
+        with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+            valid_results: list[bool] = list(executor.map(self.fetch_and_unpack_bulk, args))
+        if not any(valid_results):
+            logger.error("Retrieved invalid metrics")
+            raise ValueError("Could not read complete FAISS index from RocksDB")
+
+        logger.info("Successfuly fetched bulk metrics")
+        return np_keys, metrics
+
+    def fetch_and_unpack_bulk(self, args) -> bool:
+        ind_chunk: list[str]
+        metrics: SystemMetrics
+        str_index: bool
+        ind_chunk, metrics, str_index = args
+        if str_index:
+            if self.use_mem_cache:
+                raw_list = [self.__memory_cache[ind] for ind in ind_chunk]
+            else:
+                raw_list = [self.__db_metric.multi_get(ind) for ind in ind_chunk]
+        else:
+            if self.use_mem_cache:
+                raw_list = [_get_value_or_key(ind) for ind in ind_chunk]
+            else:
+                keys = [_get_value_or_key(ind) for ind in ind_chunk]
+                raw_list = self.__db_metric.multi_get(keys)
+
+        for i, raw in enumerate(raw_list):
+            if not raw:
+                logger.error(f"Failed to fetch data for index {i}")
+                return False
+            unpacked = msgpack.unpackb(raw, object_hook=mnp.decode)
+            metrics.r_1[i] = unpacked["r_1"]
+            metrics.r_2[i] = unpacked["r_2"]
+            metrics.m_1[i] = unpacked["m_1"]
+            metrics.m_2[i] = unpacked["m_2"]
+            metrics.s_1[i] = unpacked["s_1"]
+            metrics.s_2[i] = unpacked["s_2"]
+            metrics.q_1[i] = unpacked["q_1"]
+            metrics.q_2[i] = unpacked["q_2"]
+            metrics.f_1[i] = unpacked["f_1"]
+            metrics.f_2[i] = unpacked["f_2"]
+            if metrics.sr_1 is not None:
+                metrics.sr_1[i] = unpacked["sr_1"]
+            if metrics.sr_2 is not None:
+                metrics.sr_2[i] = unpacked["sr_2"]
+            if metrics.tt is not None:
+                metrics.tt[i] = unpacked["tt"]
+        return True
