@@ -12,3 +12,5 @@ pyrightconfig.json
 data/*
 matlab/
 figures/
+runs/
+typings/
