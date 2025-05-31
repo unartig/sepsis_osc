@@ -1,90 +1,107 @@
+import json
 import logging
-from functools import wraps
-from time import time
-from typing import Optional, Callable
+import os
 
-import distrax
 import equinox as eqx
 import jax
 import jax.numpy as jnp
-import numpy as np
-import optax
-from jaxtyping import Array, Float, PyTree  # https://github.com/google/jaxtyping
+from jaxtyping import Array, Float
 
-from sepsis_osc.model.data_loading import data
-from sepsis_osc.simulation.data_classes import JAXLookup, SystemMetrics
-from sepsis_osc.storage.storage_interface import Storage
 from sepsis_osc.utils.jax_config import setup_jax
 from sepsis_osc.utils.logger import setup_logging
 
+setup_jax(simulation=False)
 setup_logging("info")
 logger = logging.getLogger(__name__)
-logging.getLogger("sepsis_osc.storage.storage_interface").setLevel(logging.ERROR)
-logging.getLogger("sepsis_osc.model.vae").setLevel(logging.INFO)
-
-setup_jax(simulation=False)
-
-
-def timing(f):
-    @wraps(f)
-    def wrap(*args, **kw):
-        ts = time()
-        result = f(*args, **kw)
-        te = time()
-        logger.info("func:%r took: %2.6f sec" % (f.__name__, te - ts))
-        return result
-
-    return wrap
 
 
 # === Model Definitions ===
 LATENT_DIM = 3
 INPUT_DIM = 52
-BATCH_SIZE = 512
-EPOCHS = 1000
-ENC_HIDDEN = 512
-DEC_HIDDEN = 512
+ENC_HIDDEN = 256
+DEC_HIDDEN = 256
 
 
 class Encoder(eqx.Module):
-    layers: list
+    initial_layers: list
+    attention_layer: eqx.nn.Linear
+    dropout: eqx.nn.Dropout
+    final_layers: list
 
     alpha_layer: eqx.nn.Linear
     beta_layer: eqx.nn.Linear
     sigma_layer: eqx.nn.Linear
 
-    def __init__(self, key):
-        key1, key2, key3, key4, key_alpha, key_beta, key_sigma, key = jax.random.split(key, 8)
-        self.layers = [
-            eqx.nn.Linear(in_features=INPUT_DIM, out_features=ENC_HIDDEN, key=key1),
+    input_dim: int
+    latent_dim: int
+    enc_hidden: int
+    dropout_rate: float
+
+    def __init__(
+        self,
+        key,
+        input_dim: int = INPUT_DIM,
+        latent_dim: int = LATENT_DIM,
+        enc_hidden: int = ENC_HIDDEN,
+        dropout_rate: float = 0.2,
+    ):
+        key1, key2, key_attn_score, key3, key4, key_alpha, key_beta, key_sigma, _ = jax.random.split(key, 9)
+
+        self.input_dim = input_dim
+        self.latent_dim = latent_dim
+        self.enc_hidden = enc_hidden
+        self.dropout_rate = dropout_rate
+        self.initial_layers = [
+            eqx.nn.Linear(in_features=input_dim, out_features=enc_hidden, key=key1),
             jax.nn.relu,
-            eqx.nn.Linear(in_features=ENC_HIDDEN, out_features=ENC_HIDDEN, key=key2),
+            eqx.nn.Linear(in_features=enc_hidden, out_features=enc_hidden, key=key2),
             jax.nn.relu,
-            eqx.nn.Linear(in_features=ENC_HIDDEN, out_features=ENC_HIDDEN, key=key3),
-            jax.nn.relu,
-            eqx.nn.Linear(in_features=ENC_HIDDEN, out_features=LATENT_DIM, key=key4),
         ]
-        # 2 features for beta distribution
-        self.alpha_layer = eqx.nn.Linear(in_features=LATENT_DIM, out_features=2, key=key_alpha)
-        self.beta_layer = eqx.nn.Linear(in_features=LATENT_DIM, out_features=2, key=key_beta)
-        self.sigma_layer = eqx.nn.Linear(in_features=LATENT_DIM, out_features=2, key=key_sigma)
 
-    def __call__(self, x: Float[Array, "batch input_dim"]):
-        for layer in self.layers:
-            x = layer(x)
+        self.attention_layer = eqx.nn.Linear(in_features=enc_hidden, out_features=input_dim, key=key_attn_score)
+        self.dropout = eqx.nn.Dropout(self.dropout_rate)
 
-        alpha_raw = self.alpha_layer(x)
-        beta_raw = self.beta_layer(x)
-        sigma_raw = self.sigma_layer(x)
+        self.final_layers = [
+            eqx.nn.Linear(in_features=enc_hidden + input_dim, out_features=enc_hidden, key=key3),
+            jax.nn.relu,
+            eqx.nn.Linear(in_features=enc_hidden, out_features=latent_dim, key=key4),
+        ]
 
-        alpha_conc1 = jax.nn.softplus(alpha_raw[0:1]) + 1e-6
-        alpha_conc0 = jax.nn.softplus(alpha_raw[1:2]) + 1e-6
+        self.alpha_layer = eqx.nn.Linear(in_features=latent_dim, out_features=2, key=key_alpha)
+        self.beta_layer = eqx.nn.Linear(in_features=latent_dim, out_features=2, key=key_beta)
+        self.sigma_layer = eqx.nn.Linear(in_features=latent_dim, out_features=2, key=key_sigma)
 
-        beta_conc1 = jax.nn.softplus(beta_raw[0:1]) + 1e-6
-        beta_conc0 = jax.nn.softplus(beta_raw[1:2]) + 1e-6
+    def __call__(self, x: Float[Array, "input_dim"], key):
+        x_original = x
 
-        sigma_conc1 = jax.nn.softplus(sigma_raw[0:1]) + 1e-6
-        sigma_conc0 = jax.nn.softplus(sigma_raw[1:2]) + 1e-6
+        x_hidden = x
+        for layer in self.initial_layers:
+            x_hidden = layer(x_hidden)
+
+        attention_scores = self.attention_layer(x_hidden)
+        attention_weights = jax.nn.softmax(attention_scores, axis=-1)
+
+        x_attended = x_original * attention_weights
+
+        x_combined = jnp.concatenate([x_hidden, x_attended], axis=-1)
+
+        x_final_enc = self.dropout(x_combined, key=key)
+
+        for layer in self.final_layers:
+            x_final_enc = layer(x_final_enc)
+
+        alpha_raw = self.alpha_layer(x_final_enc)  # Shape (2,)
+        beta_raw = self.beta_layer(x_final_enc)  # Shape (2,)
+        sigma_raw = self.sigma_layer(x_final_enc)  # Shape (2,)
+
+        alpha_conc1 = jax.nn.softplus(alpha_raw[0:1])[:, None] + 1e-6
+        alpha_conc0 = jax.nn.softplus(alpha_raw[1:2])[:, None] + 1e-6
+
+        beta_conc1 = jax.nn.softplus(beta_raw[0:1])[:, None] + 1e-6
+        beta_conc0 = jax.nn.softplus(beta_raw[1:2])[:, None] + 1e-6
+
+        sigma_conc1 = jax.nn.softplus(sigma_raw[0:1])[:, None] + 1e-6
+        sigma_conc0 = jax.nn.softplus(sigma_raw[1:2])[:, None] + 1e-6
 
         return (alpha_conc1, alpha_conc0, beta_conc1, beta_conc0, sigma_conc1, sigma_conc0)
 
@@ -92,284 +109,176 @@ class Encoder(eqx.Module):
 class Decoder(eqx.Module):
     layers: list
 
-    def __init__(self, key):
+    input_dim: int
+    latent_dim: int
+    dec_hidden: int
+
+    def __init__(self, key, input_dim: int = INPUT_DIM, latent_dim: int = LATENT_DIM, dec_hidden: int = DEC_HIDDEN):
         key1, key2 = jax.random.split(key, 2)
+
+        self.input_dim = input_dim
+        self.latent_dim = latent_dim
+        self.dec_hidden = dec_hidden
         self.layers = [
-            eqx.nn.Linear(in_features=LATENT_DIM, out_features=DEC_HIDDEN, key=key1),
+            eqx.nn.Linear(in_features=latent_dim, out_features=dec_hidden, key=key1),
             jax.nn.relu,
-            eqx.nn.Linear(in_features=DEC_HIDDEN, out_features=INPUT_DIM, key=key2),
+            eqx.nn.Linear(in_features=dec_hidden, out_features=input_dim, key=key2),
             jax.nn.softplus,
         ]
 
-    def __call__(self, z: Float[Array, "batch latent_dim"]) -> Float[Array, "batch input_dim"]:
+    def __call__(self, z: Float[Array, "latent_dim"]) -> Float[Array, "input_dim"]:
+        z = z.reshape(
+            self.latent_dim,
+        )
         for layer in self.layers:
             z = layer(z)
         return z
 
 
-@eqx.filter_jit
-def get_pred_cats(z: Float[Array, "batch_size latent_dim"], lookup_table: JAXLookup) -> Float[Array, "batch_size 2"]:
-    z_alpha_mapped = (z[:, 0] * 2) - 1.0  # Maps (0,1) to (-1,1)
-    z_beta_mapped = z[:, 1] * 2.0  # Maps (0,1) to (0,2)
-    z_sigma_mapped = z[:, 2]  # (0,1) remains (0,1)
-
-    query_vectors = jnp.concatenate([z_alpha_mapped[:, None], z_beta_mapped[:, None], z_sigma_mapped[:, None]], axis=-1)
-
-    sim_results: SystemMetrics = lookup_table.get(query_vectors, threshold=150.0)
-
-    # Extract f_1 and sr_2 + f_2 from the JAXSystemMetrics
-    # TODO
-    # check correct shape conversion
-    pred_c = jnp.array([sim_results.f_1, jnp.clip(sim_results.sr_2 + sim_results.f_2, 0, 1)]).reshape(-1, 2)
-
-    return pred_c
+# He Uniform Initialization for ReLU activation
+def he_uniform_init(weight: jax.Array, key: jnp.ndarray) -> Array:
+    out, in_ = weight.shape
+    stddev = jnp.sqrt(2 / in_)  # He init scale
+    return jax.random.uniform(key, shape=(out, in_), minval=-stddev, maxval=stddev)
 
 
-# === Loss Function ===
-@eqx.filter_jit
-def per_sample_loss(encoder, decoder, x, true_c, key, lookup_table, lambda1=1.0, lambda2=1e-4) -> dict[str, Array]:
-    alpha_conc1, alpha_conc0, beta_conc1, beta_conc0, sigma_conc1, sigma_conc0 = jax.vmap(encoder)(x)
-
-    posterior_alpha = distrax.Beta(alpha=alpha_conc1, beta=alpha_conc0)
-    posterior_beta = distrax.Beta(alpha=beta_conc1, beta=beta_conc0)
-    posterior_sigma = distrax.Beta(alpha=sigma_conc1, beta=sigma_conc0)
-
-    # Sample from each posterior using the reparameterization trick
-    key_alpha, key_beta, key_sigma, _ = jax.random.split(key, 4)
-    z_alpha = posterior_alpha.sample(seed=key_alpha)
-    z_beta = posterior_beta.sample(seed=key_beta)
-    z_sigma = posterior_sigma.sample(seed=key_sigma)
-
-    # Concatenate samples to form the full latent vector z for the decoder and concept prediction
-    z = jnp.concatenate([z_alpha, z_beta, z_sigma], axis=-1)
-
-    x_recon = jax.vmap(decoder)(z)
-    recon_loss = jnp.mean((x - x_recon) ** 2, axis=-1)
-
-    pred_c = get_pred_cats(z, lookup_table)
-    true_c.at[:, 0].set(true_c[:, 0] / 24)
-    concept_loss = jnp.mean((true_c - pred_c) ** 2, axis=-1)
-
-    # Define prior Beta distributions for each latent variable (e.g., Beta(1,1) for uniform prior)
-    prior = distrax.Beta(alpha=jnp.ones_like(alpha_conc1), beta=jnp.ones_like(alpha_conc0))
-
-    # Calculate KL divergence for each latent variable and sum them
-    kl_loss_alpha = posterior_alpha.kl_divergence(prior)
-    kl_loss_beta = posterior_beta.kl_divergence(prior)
-    kl_loss_sigma = posterior_sigma.kl_divergence(prior)
-
-    kl_loss = jnp.sum(kl_loss_alpha, axis=-1) + jnp.sum(kl_loss_beta, axis=-1) + jnp.sum(kl_loss_sigma, axis=-1)
-
-    total_loss = recon_loss + lambda1 * concept_loss + lambda2 * kl_loss
-    return {
-        "recon_loss": recon_loss,
-        "concept_loss": concept_loss,
-        "kl_loss": kl_loss,
-        "total_loss": total_loss,
-    }
+# Bias initialization to target softplus output around 1
+def softplus_bias_init(bias: jax.Array, key: jnp.ndarray) -> Array:
+    return jnp.full(bias.shape, jnp.log(jnp.exp(1.0) - 1.0), dtype=bias.dtype)
 
 
-@eqx.filter_jit
-def total_loss_fn(encoder, decoder, x, true_c, key, lookup_table, lambda1=1.0, lambda2=1e-4):
-    per_sample_losses = per_sample_loss(encoder, decoder, x, true_c, key, lookup_table, lambda1, lambda2)
-    mean_losses = jax.tree.map(jnp.mean, per_sample_losses)
-    return mean_losses["total_loss"], mean_losses
+def zero_bias_init(bias: jax.Array, key: jnp.ndarray) -> jax.Array:
+    return jnp.zeros_like(bias)
 
 
-# === Training Step ===
-@eqx.filter_jit
-def training_step(
-    params_enc,
-    static_enc,
-    params_dec,
-    static_dec,
-    opt_state_enc,
-    opt_state_dec,
-    x,
-    true_c,
-    key,
-    opt_enc,
-    opt_dec,
-    lookup_table: JAXLookup,
+def apply_initialization(model, init_fn_weight, init_fn_bias, key):
+    def is_linear(x):
+        return isinstance(x, eqx.nn.Linear)
+
+    linear_weights = [x.weight for x in jax.tree_util.tree_leaves(model, is_leaf=is_linear) if is_linear(x)]
+    linear_biases = [
+        x.bias for x in jax.tree_util.tree_leaves(model, is_leaf=is_linear) if is_linear(x) and x.bias is not None
+    ]
+
+    num_weights = len(linear_weights)
+    num_biases = len(linear_biases)
+
+    key_weights, key_biases = jax.random.split(key, 2)
+
+    new_weights = [
+        init_fn_weight(w, subkey) for w, subkey in zip(linear_weights, jax.random.split(key_weights, num_weights))
+    ]
+    model = eqx.tree_at(
+        lambda m: [x.weight for x in jax.tree_util.tree_leaves(m, is_leaf=is_linear) if is_linear(x)],
+        model,
+        new_weights,
+    )
+
+    new_biases = [init_fn_bias(b, subkey) for b, subkey in zip(linear_biases, jax.random.split(key_biases, num_biases))]
+    model = eqx.tree_at(
+        lambda m: [
+            x.bias for x in jax.tree_util.tree_leaves(m, is_leaf=is_linear) if is_linear(x) and x.bias is not None
+        ],
+        model,
+        new_biases,
+    )
+    return model
+
+
+def init_encoder_weights(encoder: Encoder, key: jnp.ndarray):
+    encoder = apply_initialization(encoder, he_uniform_init, zero_bias_init, key)
+
+    key_alpha_b, key_beta_b, key_sigma_b, _ = jax.random.split(key, 4)
+    encoder = eqx.tree_at(
+        lambda e: e.alpha_layer.bias, encoder, softplus_bias_init(jnp.asarray(encoder.alpha_layer.bias), key_alpha_b)
+    )
+    encoder = eqx.tree_at(
+        lambda e: e.beta_layer.bias, encoder, softplus_bias_init(jnp.asarray(encoder.beta_layer.bias), key_beta_b)
+    )
+    encoder = eqx.tree_at(
+        lambda e: e.sigma_layer.bias, encoder, softplus_bias_init(jnp.asarray(encoder.sigma_layer.bias), key_sigma_b)
+    )
+
+    return encoder
+
+
+def init_decoder_weights(decoder: Decoder, key: jnp.ndarray):
+    decoder = apply_initialization(decoder, he_uniform_init, zero_bias_init, key)
+    return decoder
+
+
+def make_encoder(key, input_dim: int, latent_dim: int, enc_hidden: int, dropout_rate: float):
+    return Encoder(key, input_dim, latent_dim, enc_hidden)
+
+
+def make_decoder(key, input_dim: int, latent_dim: int, dec_hidden: int):
+    return Decoder(key, input_dim, latent_dim, dec_hidden)
+
+
+def save_checkpoint(
+    save_dir, epoch, params_enc, static_enc, params_dec, static_dec, opt_state_enc, opt_state_dec, hyper_enc, hyper_dec
 ):
-    encoder = eqx.combine(params_enc, static_enc)
-    decoder = eqx.combine(params_dec, static_dec)
+    if not os.path.exists(save_dir):
+        os.makedirs(save_dir)
 
-    def loss_fn(models, x, true_c, key):
-        encoder, decoder = models
-        return total_loss_fn(encoder, decoder, x, true_c, key, lookup_table)
+    filename = os.path.join(save_dir, f"checkpoint_epoch_{epoch:04d}.eqx")
 
-    models = (encoder, decoder)
-    # loss and gradients. `aux_losses` contains  total_loss_fn.
-    (total_loss, aux_losses), grads = eqx.filter_value_and_grad(loss_fn, has_aux=True)(models, x, true_c, key)
+    full_model_state = {
+        "encoder_params": params_enc,
+        "encoder_static": static_enc,
+        "decoder_params": params_dec,
+        "decoder_static": static_dec,
+        "opt_state_enc": opt_state_enc,
+        "opt_state_dec": opt_state_dec,
+    }
+    hyper = {"encoder": hyper_enc, "decoder": hyper_dec}
 
-    grads_enc, grads_dec = grads
-
-    updates_enc, opt_state_enc = opt_enc.update(grads_enc, opt_state_enc, params_enc)
-    params_enc = eqx.apply_updates(params_enc, updates_enc)
-
-    updates_dec, opt_state_dec = opt_dec.update(grads_dec, opt_state_dec, params_dec)
-    params_dec = eqx.apply_updates(params_dec, updates_dec)
-
-    return params_enc, params_dec, opt_state_enc, opt_state_dec, aux_losses
+    with open(filename, "wb") as f:
+        hyperparam_str = json.dumps(hyper)
+        f.write((hyperparam_str + "\n").encode())
+        eqx.tree_serialise_leaves(f, full_model_state)
+    logger.info(f"Model checkpoint saved for epoch {epoch} to {filename}")
 
 
-# === Validation ===
-@eqx.filter_jit
-def validation(params_enc, static_enc, params_dec, static_dec, x, true_c, key, batch_size, lookup_table):
-    encoder = eqx.combine(params_enc, static_enc)
-    decoder = eqx.combine(params_dec, static_dec)
+def load_checkpoint(load_dir, epoch, opt_enc_template, opt_dec_template):
+    filename = os.path.join(load_dir, f"checkpoint_epoch_{epoch:04d}.eqx")
 
-    num_samples = x.shape[0]
-    num_batches = (num_samples + batch_size - 1) // batch_size
+    if not os.path.exists(filename):
+        raise FileNotFoundError(f"Checkpoint for epoch {epoch} not found at {filename}")
 
-    padding_needed = num_batches * batch_size - num_samples
-    if padding_needed > 0:
-        x_padded = jnp.concatenate([x, jnp.zeros_like(x[:padding_needed])], axis=0)
-        true_c_padded = jnp.concatenate([true_c, jnp.zeros_like(true_c[:padding_needed])], axis=0)
-    else:
-        x_padded = x
-        true_c_padded = true_c
+    with open(filename, "rb") as f:
+        hyper = json.loads(f.readline().decode())
+        hyper_enc = hyper["encoder"]
+        hyper_dec = hyper["decoder"]
 
-    x_batched = x_padded.reshape(num_batches, batch_size, *x.shape[1:])
-    true_c_batched = true_c_padded.reshape(num_batches, batch_size, *true_c.shape[1:])
+        key_dummy = jax.random.PRNGKey(0)
+        skeleton_encoder = make_encoder(key_dummy, **hyper_enc)
+        skeleton_decoder = make_decoder(key_dummy, **hyper_dec)
 
-    dummy_key = jax.random.PRNGKey(0)
+        skeleton_params_enc, skeleton_static_enc = eqx.partition(skeleton_encoder, eqx.is_array)
+        skeleton_params_dec, skeleton_static_dec = eqx.partition(skeleton_decoder, eqx.is_array)
 
-    initial_per_sample_losses = per_sample_loss(
-        encoder, decoder, x_batched[0], true_c_batched[0], dummy_key, lookup_table
+        skeleton_opt_state_enc = opt_enc_template.init(skeleton_params_enc)
+        skeleton_opt_state_dec = opt_dec_template.init(skeleton_params_dec)
+
+        skeleton_full_model_state = {
+            "encoder_params": skeleton_params_enc,
+            "encoder_static": skeleton_static_enc,
+            "decoder_params": skeleton_params_dec,
+            "decoder_static": skeleton_static_dec,
+            "opt_state_enc": skeleton_opt_state_enc,
+            "opt_state_dec": skeleton_opt_state_dec,
+        }
+
+        full_model_state = eqx.tree_deserialise_leaves(f, skeleton_full_model_state)
+
+    logger.info(f"Model checkpoint loaded for epoch {epoch} from {filename}")
+
+    return (
+        full_model_state["encoder_params"],
+        full_model_state["encoder_static"],
+        full_model_state["decoder_params"],
+        full_model_state["decoder_static"],
+        full_model_state["opt_state_enc"],
+        full_model_state["opt_state_dec"],
     )
-    accumulated_sums = jax.tree.map(lambda _: jnp.array(0.0, dtype=jnp.float32), initial_per_sample_losses)
-    accumulated_sum_of_squares = jax.tree.map(lambda _: jnp.array(0.0, dtype=jnp.float32), initial_per_sample_losses)
-
-    def body_fn(i, carry):
-        key_carry, current_sums, current_sum_of_squares = carry
-        key_carry, subkey = jax.random.split(key_carry)
-
-        x_batch = x_batched[i]
-        true_c_batch = true_c_batched[i]
-
-        batch_per_sample_losses = per_sample_loss(encoder, decoder, x_batch, true_c_batch, subkey, lookup_table)
-
-        updated_sums = jax.tree.map(lambda s, l: s + jnp.sum(l), current_sums, batch_per_sample_losses)
-        updated_sum_of_squares = jax.tree.map(
-            lambda ss, l: ss + jnp.sum(l**2), current_sum_of_squares, batch_per_sample_losses
-        )
-
-        return (key_carry, updated_sums, updated_sum_of_squares)
-
-    final_key, total_sums, total_sum_of_squares = jax.lax.fori_loop(
-        0, num_batches, body_fn, (key, accumulated_sums, accumulated_sum_of_squares)
-    )
-
-    overall_mean_losses = jax.tree.map(lambda s: s / num_samples, total_sums)
-
-    # Calculate variance: E[X^2] - (E[X])^2
-    # E[X^2] = total_sum_of_squares / num_samples
-    # E[X] = overall_mean_losses
-    overall_variances = jax.tree.map(
-        lambda ss, m: (ss / num_samples) - (m**2), total_sum_of_squares, overall_mean_losses
-    )
-    overall_std_losses = jax.tree.map(lambda v: jnp.sqrt(jnp.maximum(0.0, v)), overall_variances)
-
-    return overall_mean_losses, overall_std_losses
-
-
-# === Initialization ===
-key = jax.random.PRNGKey(0)
-key_enc, key_dec = jax.random.split(key)
-
-encoder = Encoder(key_enc)
-decoder = Decoder(key_dec)
-
-params_enc, static_enc = eqx.partition(encoder, eqx.is_array)
-params_dec, static_dec = eqx.partition(decoder, eqx.is_array)
-
-opt_enc = optax.adam(1e-3)
-opt_dec = optax.adam(1e-3)
-
-
-opt_state_enc = opt_enc.init(params_enc)
-opt_state_dec = opt_dec.init(params_dec)
-
-# === Data ===
-train_y, train_x, val_y, val_x, test_y, test_x = [
-    jnp.array(
-        v.drop([
-            col
-            for col in v.columns
-            if col.startswith("Missing") or col in {"stay_id", "time", "sep3_alt", "__index_level_0__", "los_icu"}
-        ]),
-        dtype=jnp.float32,
-    )
-    for inner in data.values()
-    for v in inner.values()
-]
-
-num_samples = train_x.shape[0]
-print(train_y.shape, train_x.shape)
-print(val_y.shape, val_x.shape)
-print(test_y.shape, test_x.shape)
-
-db_str = "Daisy"
-sim_storage = Storage(
-    key_dim=9,
-    metrics_kv_name=f"data/{db_str}SepsisMetrics.db/",
-    parameter_k_name=f"data/{db_str}SepsisParameters_index.bin",
-    use_mem_cache=True,
-)
-indices, np_metrics = sim_storage.get_np_lookup()
-lookup_table = JAXLookup(metrics=np_metrics.to_jax(), indices=jnp.asarray(indices))
-# === Training Loop ===
-current_losses = {"total_loss": jnp.inf, "recon_loss": jnp.inf, "concept_loss": jnp.inf, "kl_loss": jnp.inf}
-for epoch in range(EPOCHS):
-    perm = jax.random.permutation(key, num_samples)
-    key, _ = jax.random.split(key)
-    x_shuffled = train_x[perm]
-    y_shuffled = train_y[perm]
-
-    for i in range(0, num_samples, BATCH_SIZE):
-        key, subkey = jax.random.split(key)
-        params_enc, params_dec, opt_state_enc, opt_state_dec, current_losses = training_step(
-            params_enc=params_enc,
-            static_enc=static_enc,
-            params_dec=params_dec,
-            static_dec=static_dec,
-            opt_state_enc=opt_state_enc,
-            opt_state_dec=opt_state_dec,
-            x=x_shuffled[i : i + BATCH_SIZE],
-            true_c=y_shuffled[i : i + BATCH_SIZE],
-            key=subkey,
-            opt_enc=opt_enc,
-            opt_dec=opt_dec,
-            lookup_table=lookup_table,
-        )
-        if i % 1000 == 0 and current_losses["total_loss"] is not None:
-            logger.info(
-                f"Epoch {epoch} | Step {i:10d}: "
-                f"Total Loss = {current_losses['total_loss']:.4f}, "
-                f"Recon Loss = {current_losses['recon_loss']:.4f}, "
-                f"Concept Loss = {current_losses['concept_loss']:.4f}, "
-                f"KL Loss = {current_losses['kl_loss']:.4f}"
-            )
-
-    # TODO less memory
-    key, _ = jax.random.split(key)  # Update key for validation
-    val_mean_losses, val_std_losses = validation(
-        params_enc, static_enc, params_dec, static_dec, val_x, val_y, key, BATCH_SIZE, lookup_table
-    )
-    # Log validation statistics
-    logger.warning(
-        f"Epoch {epoch}: Validation Metrics: "
-        f"Total Loss = {val_mean_losses['total_loss']:.4f} (Std Dev: {val_std_losses['total_loss']:.4f}), "
-        f"Recon Loss = {val_mean_losses['recon_loss']:.4f} (Std Dev: {val_std_losses['recon_loss']:.4f}), "
-        f"Concept Loss = {val_mean_losses['concept_loss']:.4f} (Std Dev: {val_std_losses['concept_loss']:.4f}), "
-        f"KL Loss = {val_mean_losses['kl_loss']:.4f} (Std Dev: {val_std_losses['kl_loss']:.4f})"
-    )
-
-
-# TODO
-# better validation
-# profiling (especially storage)
-# different latent prior
-# logger

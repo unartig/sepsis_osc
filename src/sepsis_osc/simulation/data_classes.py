@@ -1,7 +1,8 @@
 from dataclasses import dataclass, fields
 from typing import Optional
 
-import jax.tree as jt
+from equinox import filter_jit
+import jax
 import jax.numpy as jnp
 import jax.tree_util as jtu
 import numpy as np
@@ -320,11 +321,21 @@ class SystemMetrics:
                 converted[f.name] = None
         return SystemMetrics(**converted)
 
+    def astype(self, dtype: jnp.dtype = jnp.float32) -> "SystemMetrics":
+        converted = {}
+        for f in fields(self):
+            val = getattr(self, f.name)
+            if val is not None:
+                converted[f.name] = jnp.astype(val, dtype)
+            else:
+                converted[f.name] = None
+        return SystemMetrics(**converted)
+
 
 jtu.register_pytree_node(SystemMetrics, SystemMetrics.tree_flatten, SystemMetrics.tree_unflatten)
 
 
-@dataclass
+@dataclass(frozen=True)
 class JAXLookup:
     metrics: SystemMetrics
     indices: Float[Array, "db_size 9"]
@@ -336,22 +347,32 @@ class JAXLookup:
     def tree_unflatten(cls, aux_data, children):
         return cls(*children)
 
+    @filter_jit
     def get(
         self,
         query_vectors: Float[Array, "batch_size latent_dim"],
         threshold: float = jnp.inf,
+        dtype: jnp.dtype = jnp.float32,
     ) -> SystemMetrics:
-        diff = query_vectors[:, None, :] - self.indices[:, [5, 6, 7]][None, :, :]
+        # alpha beta sigma
+        indexed_indices = self.indices[:, [5, 6, 7]]
+        diff = query_vectors[:, None, :] - indexed_indices[None, :, :]  # (batch_size, db_size, latent_dim)
         squared_distances = jnp.sum(diff**2, axis=-1)  # (batch_size, num_faiss_vectors)
 
         # nearest neighbour lookup
-        min_indices = jnp.argmin(squared_distances, axis=-1)  # (batch_size,)
-        # min_distances = jnp.min(squared_distances, axis=-1)  # (batch_size,)
+        min_distances, min_indices = jax.lax.top_k(-squared_distances, k=1)  # top_k for min_indices and min_distances
+        min_indices = min_indices.squeeze(axis=-1)  # (batch_size,)
+        min_distances = -min_distances.squeeze(axis=-1)  # (batch_size,)
 
-        # valid_mask = min_distances <= threshold  # (batch_size,)
+        valid_mask = min_distances <= threshold  # (batch_size,)
 
-        retrieved_metrics = jt.map(lambda x: jnp.take(x, min_indices, axis=0), self.metrics)
-        return retrieved_metrics
+        retrieved_metrics = jax.tree_util.tree_map(lambda x: jnp.take(x, min_indices, axis=0), self.metrics)
+
+        masked_metrics = jax.tree_util.tree_map(
+            lambda x: jnp.where(valid_mask[:, None], x, jnp.array(0.0, dtype=x.dtype)), retrieved_metrics
+        )
+
+        return masked_metrics.astype(dtype)
 
 
 jtu.register_pytree_node(JAXLookup, JAXLookup.tree_flatten, JAXLookup.tree_unflatten)
