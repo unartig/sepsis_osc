@@ -14,15 +14,15 @@ from diffrax import (
     Tsit5,
 )
 
-from simulation.data_classes import SystemConfig
-from simulation.simulation import (
+from sepsis_osc.simulation.data_classes import SystemConfig
+from sepsis_osc.simulation.simulation import (
     generate_init_conditions_fixed,
     make_metric_save,
     system_deriv,
 )
-from storage.storage_interface import Storage
-from utils.config import jax_random_seed
-from utils.logger import setup_logging
+from sepsis_osc.storage.storage_interface import Storage
+from sepsis_osc.utils.config import jax_random_seed
+from sepsis_osc.utils.logger import setup_logging
 
 
 @filter_jit
@@ -73,7 +73,7 @@ if __name__ == "__main__":
     sigma_step = 0.04
     sigmas = np.arange(0.0, 1.5, sigma_step)
     alpha_step = 0.04
-    alphas = np.arange(0.0, 1.0, alpha_step)
+    alphas = np.arange(-1.0, 1.0, alpha_step)
     T_max_base = 1000
     T_step_base = 10
 
