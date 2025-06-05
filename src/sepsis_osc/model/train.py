@@ -1,7 +1,6 @@
 import logging
 from functools import wraps
 from time import time
-from typing import Any
 
 import distrax
 import equinox as eqx
@@ -20,13 +19,12 @@ from sepsis_osc.model.vae import (
     init_encoder_weights,
     load_checkpoint,
     save_checkpoint,
+    LATENT_DIM,
 )
 from sepsis_osc.simulation.data_classes import JAXLookup, SystemMetrics
 from sepsis_osc.storage.storage_interface import Storage
 from sepsis_osc.utils.jax_config import setup_jax
 from sepsis_osc.utils.logger import setup_logging
-
-from dataclasses import dataclass
 
 setup_jax(simulation=False)
 setup_logging("info")
@@ -48,7 +46,7 @@ def timing(f):
 
 
 BATCH_SIZE = 512
-EPOCHS = 1000
+EPOCHS = 500
 LOAD_FROM_CHECKPOINT = ""  # set load dir
 LOAD_EPOCH = 0
 SAVE_CHECKPOINTS = True
@@ -56,7 +54,7 @@ SAVE_EVERY_EPOCH = 10
 
 
 # cosine decay
-LEARNING_RATE_START = 1e-4
+LEARNING_RATE_START = 1e-5
 LEARNING_RATE_END = 1e-7
 
 
@@ -122,23 +120,31 @@ def get_pred_concepts(
 
 
 # === Loss Function ===
-@eqx.filter_jit
-def per_sample_loss(
-    encoder, decoder, x, true_concepts, key, lookup_table, lambda1=1.0, lambda2=1e-4
-) -> dict[str, Array]:
-    multi_keys = jax.random.split(key, BATCH_SIZE + 1)
-    key, drop_key = multi_keys[-1], multi_keys[:-1]
-    alpha_conc1, alpha_conc0, beta_conc1, beta_conc0, sigma_conc1, sigma_conc0 = jax.vmap(encoder)(x, drop_key)
+@eqx.filter_jit  # (donate="all")
+def loss(
+    models: tuple[Encoder, Decoder],
+    x: jnp.ndarray,
+    true_concepts: jnp.ndarray,
+    key: jnp.ndarray,
+    lookup_table: JAXLookup,
+    lambda1=1e2,
+    lambda2=1e-4,
+) -> tuple[Array, dict[str, Array]]:
+    encoder, decoder = models
+
+    key, *drop_keys = jax.random.split(key, BATCH_SIZE + 1)
+    drop_keys = jnp.array(drop_keys)
+    alpha_conc1, alpha_conc0, beta_conc1, beta_conc0, sigma_conc1, sigma_conc0 = jax.vmap(encoder)(x, drop_keys)
 
     posterior_alpha = distrax.Beta(alpha=alpha_conc1, beta=alpha_conc0)
     posterior_beta = distrax.Beta(alpha=beta_conc1, beta=beta_conc0)
     posterior_sigma = distrax.Beta(alpha=sigma_conc1, beta=sigma_conc0)
 
     # Sample from each posterior using the reparameterization trick
-    key_alpha, key_beta, key_sigma, _ = jax.random.split(key, 4)
-    z_alpha = posterior_alpha.sample(seed=key_alpha)
-    z_beta = posterior_beta.sample(seed=key_beta)
-    z_sigma = posterior_sigma.sample(seed=key_sigma)
+    alpha_key, beta_key, sigma_key = jax.random.split(key, LATENT_DIM)
+    z_alpha = posterior_alpha.sample(seed=alpha_key)
+    z_beta = posterior_beta.sample(seed=beta_key)
+    z_sigma = posterior_sigma.sample(seed=sigma_key)
 
     z = jnp.concatenate([z_alpha * 2 - 1, z_beta * 1.3 + 0.2, z_sigma * 1.5], axis=-1)
 
@@ -159,39 +165,45 @@ def per_sample_loss(
     kl_loss = jnp.sum(kl_loss_alpha, axis=-1) + jnp.sum(kl_loss_beta, axis=-1) + jnp.sum(kl_loss_sigma, axis=-1)
 
     total_loss = recon_loss + lambda1 * concept_loss + lambda2 * kl_loss
-    return {
-        "recon_loss": recon_loss,
-        "concept_loss": concept_loss,
-        "kl_loss": kl_loss,
-        "total_loss": total_loss,
-    }
+
+    aux_losses = {}
+
+    aux_losses["recon_loss"] = jnp.mean(recon_loss)
+    aux_losses["concept_loss"] = jnp.mean(concept_loss)
+    aux_losses["kl_loss"] = jnp.mean(kl_loss)
+    aux_losses["total_loss"] = jnp.mean(total_loss)
+    return aux_losses["total_loss"], aux_losses
 
 
 @eqx.filter_jit
-def total_loss_fn(encoder, decoder, x, true_c, key, lookup_table, lambda1=1.0, lambda2=1e-4):
-    per_sample_losses = per_sample_loss(encoder, decoder, x, true_c, key, lookup_table, lambda1, lambda2)
-    mean_losses = jax.tree.map(jnp.mean, per_sample_losses)
-    return mean_losses["total_loss"], mean_losses
+def step_model(
+    x_batch: jnp.ndarray,
+    true_c_batch: jnp.ndarray,
+    models,  # : tuple[Encoder, Decoder],
+    opt_state_enc: optax.OptState,
+    opt_state_dec: optax.OptState,
+    update_enc,
+    update_dec,
+    key,
+    lookup_table_static: JAXLookup,
+):
+    encoder, decoder = models
+    (total_loss, aux_losses), (grads_enc, grads_dec) = eqx.filter_value_and_grad(loss, has_aux=True)(
+        models, x_batch, true_c_batch, key, lookup_table_static
+    )
 
+    encoder_params, encoder_static = eqx.partition(encoder, eqx.is_inexact_array)
+    decoder_params, decoder_static = eqx.partition(decoder, eqx.is_inexact_array)
 
-@eqx.filter_jit
-def loss_fn_for_grad(models, x, true_c, current_key):
-    encoder_inner, decoder_inner = models
-    return total_loss_fn(encoder_inner, decoder_inner, x, true_c, current_key, lookup_table, 1e2, 1e-4)
+    updates_enc, opt_state_enc = update_enc(grads_enc, opt_state_enc, encoder_params)
+    encoder_params = eqx.apply_updates(encoder_params, updates_enc)
+    encoder = eqx.combine(encoder_params, encoder_static)
 
+    updates_dec, opt_state_dec = update_dec(grads_dec, opt_state_dec, decoder_params)
+    decoder_params = eqx.apply_updates(decoder_params, updates_dec)
+    decoder = eqx.combine(decoder_params, decoder_static)
 
-def pad_and_batch_data(
-    data: Float[Array, "num_samples dim"], batch_size: int
-) -> tuple[Float[Array, "num_batches batch_size dim"], int, int]:
-    num_original_samples = data.shape[0]
-    remainder = num_original_samples % batch_size
-    padding_needed = 0 if remainder == 0 else batch_size - remainder
-
-    padded_data = jnp.pad(data, ((0, padding_needed), (0, 0)), mode="edge")
-
-    num_batches = padded_data.shape[0] // batch_size
-    batched_data = padded_data.reshape(num_batches, batch_size, data.shape[1])
-    return batched_data, num_original_samples, num_batches
+    return (encoder, decoder), (opt_state_enc, opt_state_dec), (total_loss, aux_losses)
 
 
 def update_mean(m, M2, batch_size, total_count, values):
@@ -226,134 +238,193 @@ def update_tree_stats(mean_tree, M2_tree, values_tree, count):
 
 
 @timing
-def process_epoch(
-    params_enc,
-    static_enc,
-    params_dec,
-    static_dec,
+@eqx.filter_jit
+def process_train_epoch(
+    encoder,
+    decoder,
     opt_state_enc,
     opt_state_dec,
     x_data: Float[Array, "num_samples input_dim"],
     y_data: Float[Array, "num_samples 2"],
     key,
-    opt_enc,
-    opt_dec,
+    update_enc,
+    update_dec,
     lookup_table: JAXLookup,
-    with_grad: bool = True,
+    *,
+    lookup_table_static: JAXLookup,
 ):
-    # --- pre-batch the data ---
-    x_batched, num_original_samples, num_batches = pad_and_batch_data(x_data, BATCH_SIZE)
-    y_batched, _, _ = pad_and_batch_data(y_data, BATCH_SIZE)
+    encoder_params, encoder_static = eqx.partition(encoder, eqx.is_inexact_array)
+    decoder_params, decoder_static = eqx.partition(decoder, eqx.is_inexact_array)
 
-    # --- initialize accumulators ---
-    sub_key, _ = jax.random.split(key)
-    encoder_init = eqx.combine(params_enc, static_enc)
-    decoder_init = eqx.combine(params_dec, static_dec)
-    _, initial_aux_losses = total_loss_fn(encoder_init, decoder_init, x_batched[0], y_batched[0], sub_key, lookup_table)
+    key, init_key = jax.random.split(key)
+    _, initial_aux_losses = loss((encoder, decoder), x_data[0], y_data[0], init_key, lookup_table_static)
 
     running_means = jax.tree_util.tree_map(lambda x: jnp.zeros_like(x), initial_aux_losses)
     running_M2s = jax.tree_util.tree_map(lambda x: jnp.zeros_like(x), initial_aux_losses)
-    running_count = 0
+    running_count = jnp.array(0)
 
-    initial_carry = (
-        params_enc,
-        params_dec,
-        opt_state_enc,
-        opt_state_dec,
-        key,
+    def scan_step(carry, batch):
+        (encoder_f, decoder_f), (opt_state_enc, opt_state_dec), running_means, running_M2s, running_count, key = carry
+        batch_x, batch_true_c = batch
+
+        key, batch_key = jax.random.split(key)
+
+        encoder_full = eqx.combine(encoder_f, encoder_static)
+        decoder_full = eqx.combine(decoder_f, decoder_static)
+
+        (encoder_new, decoder_new), (opt_state_enc, opt_state_dec), losses = step_model(
+            batch_x,
+            batch_true_c,
+            (encoder_full, decoder_full),
+            opt_state_enc,
+            opt_state_dec,
+            update_enc,
+            update_dec,
+            batch_key,
+            lookup_table_static,
+        )
+
+        running_means, running_M2s, running_count = update_tree_stats(
+            running_means, running_M2s, losses[1], running_count
+        )
+        encoder_f = eqx.filter(encoder_new, eqx.is_inexact_array)
+        decoder_f = eqx.filter(decoder_new, eqx.is_inexact_array)
+
+        return (
+            (encoder_f, decoder_f),
+            (opt_state_enc, opt_state_dec),
+            running_means,
+            running_M2s,
+            running_count,
+            key,
+        ), None
+
+    carry = (
+        (encoder_params, decoder_params),
+        (opt_state_enc, opt_state_dec),
         running_means,
         running_M2s,
         running_count,
+        key,
+    )
+    batches = (x_data, y_data)
+    carry, _ = jax.lax.scan(scan_step, carry, batches)
+
+    (encoder_params, decoder_params), (opt_state_enc, opt_state_dec), running_means, running_M2s, running_count, key = (
+        carry
+    )
+    overall_mean_losses = jax.tree.map(lambda stat_mean: stat_mean, running_means)
+    overall_std_losses = jax.tree.map(lambda stat_M2: jnp.sqrt(jnp.maximum(stat_M2 / running_count, 0.0)), running_M2s)
+
+    return (
+        encoder_params,
+        decoder_params,
+        opt_state_enc,
+        opt_state_dec,
+        key,
+        overall_mean_losses,
+        overall_std_losses,
     )
 
-    def fori_loop_body(batch_idx: int, carry_tup: tuple[Any, ...]):
-        params_enc, params_dec, opt_state_enc, opt_state_dec, key_carry, running_means, running_M2s, running_count = (
-            carry_tup
-        )
 
-        x_batch = x_batched[batch_idx]
-        true_c_batch = y_batched[batch_idx]
+@timing
+@eqx.filter_jit
+def process_val_epoch(
+    encoder,
+    decoder,
+    x_data: Float[Array, "num_samples input_dim"],
+    y_data: Float[Array, "num_samples 2"],
+    key,
+    lookup_table: JAXLookup,
+    *,
+    lookup_table_static: JAXLookup,
+):
+    encoder_params, encoder_static = eqx.partition(encoder, eqx.is_inexact_array)
+    decoder_params, decoder_static = eqx.partition(decoder, eqx.is_inexact_array)
 
-        key_carry, subkey = jax.random.split(key_carry)
+    key, init_key = jax.random.split(key)
+    _, initial_aux_losses = loss((encoder, decoder), x_data[0], y_data[0], init_key, lookup_table_static)
 
-        encoder_batch = eqx.combine(params_enc, static_enc)
-        decoder_batch = eqx.combine(params_dec, static_dec)
-        models = (encoder_batch, decoder_batch)
+    running_means = jax.tree_util.tree_map(lambda x: jnp.zeros_like(x), initial_aux_losses)
+    running_M2s = jax.tree_util.tree_map(lambda x: jnp.zeros_like(x), initial_aux_losses)
+    running_count = jnp.array(0)
 
-        if with_grad:
-            (total_loss, aux_losses), grads = eqx.filter_value_and_grad(loss_fn_for_grad, has_aux=True)(
-                models, x_batch, true_c_batch, subkey
-            )
-            grads_enc, grads_dec = grads
+    def scan_step(carry, batch):
+        (encoder_f, decoder_f), running_means, running_M2s, running_count, key = carry
+        batch_x, batch_true_c = batch
 
-            updates_enc, opt_state_enc = opt_enc.update(grads_enc, opt_state_enc, params_enc, value=total_loss)
-            params_enc = eqx.apply_updates(params_enc, updates_enc)
+        key, batch_key = jax.random.split(key)
 
-            updates_dec, opt_state_dec = opt_dec.update(grads_dec, opt_state_dec, params_dec)
-            params_dec = eqx.apply_updates(params_dec, updates_dec)
-        else:
-            _, aux_losses = loss_fn_for_grad(models, x_batch, true_c_batch, subkey)
+        encoder_full = eqx.combine(encoder_f, encoder_static)
+        decoder_full = eqx.combine(decoder_f, decoder_static)
+
+        _, aux_losses = loss((encoder_full, decoder_full), batch_x, batch_true_c, batch_key, lookup_table_static)
 
         running_means, running_M2s, running_count = update_tree_stats(
             running_means, running_M2s, aux_losses, running_count
         )
 
-        return (
-            params_enc,
-            params_dec,
-            opt_state_enc,
-            opt_state_dec,
-            key_carry,
-            running_means,
-            running_M2s,
-            running_count,
-        )
+        return ((encoder_f, decoder_f), running_means, running_M2s, running_count, key), None
 
-    final_carry = jax.lax.fori_loop(0, num_batches, fori_loop_body, initial_carry)
+    carry = ((encoder_params, decoder_params), running_means, running_M2s, running_count, key)
+    batches = (x_data, y_data)
+    carry, _ = jax.lax.scan(scan_step, carry, batches)
 
-    (
-        final_params_enc,
-        final_params_dec,
-        final_opt_state_enc,
-        final_opt_state_dec,
-        final_key,
-        running_means,
-        running_M2s,
-        running_count,
-    ) = final_carry
-
+    (encoder_params, decoder_params), running_means, running_M2s, running_count, key = carry
     overall_mean_losses = jax.tree.map(lambda stat_mean: stat_mean, running_means)
     overall_std_losses = jax.tree.map(lambda stat_M2: jnp.sqrt(jnp.maximum(stat_M2 / running_count, 0.0)), running_M2s)
 
     return (
-        final_params_enc,
-        final_params_dec,
-        final_opt_state_enc,
-        final_opt_state_dec,
-        final_key,
+        key,
         overall_mean_losses,
         overall_std_losses,
     )
 
 
 # === Data ===
+def prepare_batches(
+    x_data: Float[Array, "num_samples dim"],
+    y_data: Float[Array, "num_samples dim"],
+    batch_size: int,
+    key,
+) -> tuple[Float[Array, "num_batches batch_size dim"], Float[Array, "num_batches batch_size dim"], int]:
+    num_samples, num_features = x_data.shape
+    perm = jax.random.permutation(key, num_samples)
+    x_shuffled = x_data[perm]
+    y_shuffled = y_data[perm]
+    del x_data, y_data
+    remainder = num_samples % batch_size
+    padding_needed = 0 if remainder == 0 else batch_size - remainder
+
+    x_padded = jnp.pad(x_shuffled, ((0, padding_needed), (0, 0)), mode="edge")
+    y_padded = jnp.pad(y_shuffled, ((0, padding_needed), (0, 0)), mode="edge")
+
+    del x_shuffled, y_shuffled
+    num_batches = x_padded.shape[0] // batch_size
+    x_batched = x_padded.reshape(num_batches, batch_size, num_features)
+    y_batched = y_padded.reshape(num_batches, batch_size, 2)
+    return x_batched, y_batched, num_batches
+
+
 train_y, train_x, val_y, val_x, test_y, test_x = [
-    np.array(
+    jnp.array(
         v.drop([
             col
             for col in v.columns
             if col.startswith("Missing") or col in {"stay_id", "time", "sep3_alt", "__index_level_0__", "los_icu"}
         ]),
-        dtype=np.float32,
+        dtype=jnp.float32,
     )
     for inner in data.values()
     for v in inner.values()
 ]
 
-num_samples = train_x.shape[0]
 logger.info(f"Train shape      - X {train_y.shape}, Y {train_x.shape}")
 logger.info(f"Validation shape - X {val_y.shape},  Y {val_x.shape}")
 logger.info(f"Test shape       - X {test_y.shape},  Y {test_x.shape}")
+
+train_x = train_x  # [: 1000 * BATCH_SIZE]
+train_y = train_y  # [: 1000 * BATCH_SIZE]
 
 db_str = "Daisy"
 sim_storage = Storage(
@@ -388,15 +459,16 @@ hyper_dec = {
     "dec_hidden": decoder.dec_hidden,
 }
 
-params_enc, static_enc = eqx.partition(encoder, eqx.is_array)
-params_dec, static_dec = eqx.partition(decoder, eqx.is_array)
+params_enc, static_enc = eqx.partition(encoder, eqx.is_inexact_array)
+params_dec, static_dec = eqx.partition(decoder, eqx.is_inexact_array)
 
 schedule = optax.cosine_decay_schedule(
-    init_value=LEARNING_RATE_START, decay_steps=int(EPOCHS * 0.7 * train_x.shape[0]), alpha=LEARNING_RATE_END
+    init_value=LEARNING_RATE_START,
+    decay_steps=int(EPOCHS * 0.7 * train_x.shape[0] / BATCH_SIZE),
+    alpha=LEARNING_RATE_END,
 )
-opt_enc = optax.adam(schedule)
-opt_dec = optax.adam(schedule)
-
+opt_enc = optax.flatten(optax.adam(schedule))
+opt_dec = optax.flatten(optax.adam(LEARNING_RATE_START))
 
 opt_state_enc = opt_enc.init(params_enc)
 opt_state_dec = opt_dec.init(params_dec)
@@ -414,29 +486,40 @@ if LOAD_FROM_CHECKPOINT:
 
 
 # === Training Loop ===
+shuffle_train, shuffle_val, key = jax.random.split(key, 3)
+train_x, train_y, ntrain_batches = prepare_batches(train_x, train_y, BATCH_SIZE, shuffle_train)
+val_x, val_y, nval_batches = prepare_batches(val_x, val_y, BATCH_SIZE, shuffle_val)
+
 writer = SummaryWriter()
-current_losses = {"total_loss": jnp.inf, "recon_loss": jnp.inf, "concept_loss": jnp.inf, "kl_loss": jnp.inf}
+current_losses = {
+    "total_loss": jnp.asarray(jnp.inf),
+    "recon_loss": jnp.asarray(jnp.inf),
+    "concept_loss": jnp.asarray(jnp.inf),
+    "kl_loss": jnp.asarray(jnp.inf),
+}
 for epoch in range(EPOCHS):
-    perm = jax.random.permutation(key, num_samples)
+    perm = jax.random.permutation(key, ntrain_batches)
     key, _ = jax.random.split(key)
     x_shuffled = train_x[perm]
     y_shuffled = train_y[perm]
 
-    params_enc, params_dec, opt_state_enc, opt_state_dec, key, epoch_mean_losses, epoch_std_losses = process_epoch(
-        params_enc=params_enc,
-        static_enc=static_enc,
-        params_dec=params_dec,
-        static_dec=static_dec,
-        opt_state_enc=opt_state_enc,
-        opt_state_dec=opt_state_dec,
-        x_data=jnp.asarray(x_shuffled),
-        y_data=jnp.asarray(y_shuffled),
-        key=key,
-        opt_enc=opt_enc,
-        opt_dec=opt_dec,
-        lookup_table=lookup_table,
-        with_grad=True,
+    encoder_params, decoder_params, opt_state_enc, opt_state_dec, key, epoch_mean_losses, epoch_std_losses = (
+        process_train_epoch(
+            encoder,
+            decoder,
+            opt_state_enc=opt_state_enc,
+            opt_state_dec=opt_state_dec,
+            x_data=x_shuffled,
+            y_data=y_shuffled,
+            key=key,
+            update_enc=opt_enc.update,
+            update_dec=opt_dec.update,
+            lookup_table=lookup_table,
+            lookup_table_static=lookup_table,
+        )
     )
+    encoder = eqx.combine(encoder_params, static_enc)
+    decoder = eqx.combine(decoder_params, static_dec)
 
     logger.info(
         f"Epoch {epoch}: Training Metrics: "
@@ -449,20 +532,14 @@ for epoch in range(EPOCHS):
         writer.add_scalar(f"train/{loss_name}_mean", np.asarray(loss_value), epoch)
 
     key, _ = jax.random.split(key)
-    _, _, _, _, key, val_mean_losses, val_std_losses = process_epoch(
-        params_enc=params_enc,
-        static_enc=static_enc,
-        params_dec=params_dec,
-        static_dec=static_dec,
-        opt_state_enc=opt_state_enc,  # unused
-        opt_state_dec=opt_state_dec,  # unused
-        x_data=jnp.asarray(val_x),
-        y_data=jnp.asarray(val_y),
+    key, val_mean_losses, val_std_losses = process_val_epoch(
+        encoder,
+        decoder,
+        x_data=val_x,
+        y_data=val_y,
         key=key,
-        opt_enc=opt_enc,  # unused
-        opt_dec=opt_dec,  # unused
         lookup_table=lookup_table,
-        with_grad=False,
+        lookup_table_static=lookup_table,
     )
     logger.warning(
         f"Epoch {epoch}: Validation Metrics: "
@@ -493,7 +570,6 @@ for epoch in range(EPOCHS):
             hyper_enc,
             hyper_dec,
         )
-
 writer.close()
 
 # TODO
