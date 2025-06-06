@@ -73,7 +73,7 @@ def three_dee(
 
 betas = np.arange(0.2, 1.5, 0.02)
 sigmas = np.arange(0.0, 1.5, 0.04)
-alphas = np.arange(0.0, 1.0, 0.04)
+alphas = np.arange(-1.0, 1.0, 0.04)
 
 
 size = (len(betas), len(sigmas), len(alphas))
@@ -82,7 +82,7 @@ storage = Storage(
     key_dim=9,
     metrics_kv_name=f"data/{db_str}SepsisMetrics.db/",
     parameter_k_name=f"data/{db_str}SepsisParameters_index.bin",
-    use_mem_cache=False,
+    use_mem_cache=True,
 )
 params = np.ndarray((*size, 9))
 
