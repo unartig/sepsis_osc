@@ -73,9 +73,9 @@ class SystemConfig:
 
     @staticmethod
     def batch_as_index(
-        z: np.ndarray,
+        z: jnp.ndarray,
         C: float,
-    ) -> np.ndarray:
+    ) -> jnp.ndarray:
         # variable
         alphas = z[:, 0].astype(float) / np.pi
         betas = z[:, 1].astype(float) / np.pi

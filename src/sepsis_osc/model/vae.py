@@ -9,6 +9,7 @@ from jaxtyping import Array, Float
 
 from sepsis_osc.utils.jax_config import setup_jax
 from sepsis_osc.utils.logger import setup_logging
+from sepsis_osc.simulation.data_classes import JAXLookup, SystemMetrics
 
 setup_jax(simulation=False)
 setup_logging("info")
@@ -18,7 +19,7 @@ logger = logging.getLogger(__name__)
 # === Model Definitions ===
 LATENT_DIM = 3
 INPUT_DIM = 52
-ENC_HIDDEN = 256
+ENC_HIDDEN = 1024
 DEC_HIDDEN = 256
 
 
@@ -43,7 +44,7 @@ class Encoder(eqx.Module):
         input_dim: int = INPUT_DIM,
         latent_dim: int = LATENT_DIM,
         enc_hidden: int = ENC_HIDDEN,
-        dropout_rate: float = 0.2,
+        dropout_rate: float = 0.7,
     ):
         key1, key2, key_attn_score, key3, key4, key_alpha, key_beta, key_sigma, _ = jax.random.split(key, 9)
 
@@ -67,9 +68,9 @@ class Encoder(eqx.Module):
             eqx.nn.Linear(in_features=enc_hidden, out_features=latent_dim, key=key4),
         ]
 
-        self.alpha_layer = eqx.nn.Linear(in_features=latent_dim, out_features=2, key=key_alpha)
-        self.beta_layer = eqx.nn.Linear(in_features=latent_dim, out_features=2, key=key_beta)
-        self.sigma_layer = eqx.nn.Linear(in_features=latent_dim, out_features=2, key=key_sigma)
+        self.alpha_layer = eqx.nn.Linear(in_features=latent_dim, out_features=1, key=key_alpha)
+        self.beta_layer = eqx.nn.Linear(in_features=latent_dim, out_features=1, key=key_beta)
+        self.sigma_layer = eqx.nn.Linear(in_features=latent_dim, out_features=1, key=key_sigma)
 
     def __call__(self, x: Float[Array, "input_dim"], key):
         x_original = x
@@ -94,16 +95,21 @@ class Encoder(eqx.Module):
         beta_raw = self.beta_layer(x_final_enc)  # Shape (2,)
         sigma_raw = self.sigma_layer(x_final_enc)  # Shape (2,)
 
-        alpha_conc1 = jax.nn.softplus(alpha_raw[0:1])[:, None] + 1e-6
-        alpha_conc0 = jax.nn.softplus(alpha_raw[1:2])[:, None] + 1e-6
+        return alpha_raw, beta_raw, sigma_raw
 
-        beta_conc1 = jax.nn.softplus(beta_raw[0:1])[:, None] + 1e-6
-        beta_conc0 = jax.nn.softplus(beta_raw[1:2])[:, None] + 1e-6
+@eqx.filter_jit
+def get_pred_concepts(
+    z: Float[Array, "batch_size latent_dim"], lookup_table: JAXLookup
+) -> Float[Array, "batch_size 2"]:
+    z = jax.lax.stop_gradient(z)
+    z = z * jnp.array([1 / jnp.pi, 1 / jnp.pi, 1 / 2])[None, :]
+    sim_results: SystemMetrics = lookup_table.get(z, threshold=150.0)
 
-        sigma_conc1 = jax.nn.softplus(sigma_raw[0:1])[:, None] + 1e-6
-        sigma_conc0 = jax.nn.softplus(sigma_raw[1:2])[:, None] + 1e-6
+    # Extract f_1 and sr_2 + f_2 from the JAXSystemMetrics
+    # SOFA and infection prob
+    pred_c = jnp.array([sim_results.f_1, jnp.clip(sim_results.sr_2 + sim_results.f_2, 0, 1)])
 
-        return (alpha_conc1, alpha_conc0, beta_conc1, beta_conc0, sigma_conc1, sigma_conc0)
+    return pred_c.squeeze().T
 
 
 class Decoder(eqx.Module):
@@ -240,7 +246,7 @@ def save_checkpoint(
     logger.info(f"Model checkpoint saved for epoch {epoch} to {filename}")
 
 
-def load_checkpoint(load_dir, epoch, opt_enc_template, opt_dec_template):
+def load_checkpoint(load_dir, epoch, opt_enc_template=None, opt_dec_template=None):
     filename = os.path.join(load_dir, f"checkpoint_epoch_{epoch:04d}.eqx")
 
     if not os.path.exists(filename):
@@ -258,8 +264,8 @@ def load_checkpoint(load_dir, epoch, opt_enc_template, opt_dec_template):
         skeleton_params_enc, skeleton_static_enc = eqx.partition(skeleton_encoder, eqx.is_array)
         skeleton_params_dec, skeleton_static_dec = eqx.partition(skeleton_decoder, eqx.is_array)
 
-        skeleton_opt_state_enc = opt_enc_template.init(skeleton_params_enc)
-        skeleton_opt_state_dec = opt_dec_template.init(skeleton_params_dec)
+        skeleton_opt_state_enc = opt_enc_template.init(skeleton_params_enc) if opt_enc_template else None
+        skeleton_opt_state_dec = opt_dec_template.init(skeleton_params_dec) if opt_dec_template else None
 
         skeleton_full_model_state = {
             "encoder_params": skeleton_params_enc,

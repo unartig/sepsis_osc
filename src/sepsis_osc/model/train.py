@@ -15,13 +15,14 @@ from sepsis_osc.model.data_loading import data
 from sepsis_osc.model.vae import (
     Decoder,
     Encoder,
+    get_pred_concepts,
     init_decoder_weights,
     init_encoder_weights,
     load_checkpoint,
     save_checkpoint,
     LATENT_DIM,
 )
-from sepsis_osc.simulation.data_classes import JAXLookup, SystemMetrics
+from sepsis_osc.simulation.data_classes import JAXLookup
 from sepsis_osc.storage.storage_interface import Storage
 from sepsis_osc.utils.jax_config import setup_jax
 from sepsis_osc.utils.logger import setup_logging
@@ -57,30 +58,38 @@ SAVE_EVERY_EPOCH = 10
 LEARNING_RATE_START = 1e-5
 LEARNING_RATE_END = 1e-7
 
+ALPHA_SPACE, BETA_SPACE, SIGMA_SPACE = (-1.0, 1.0), (0.2, 1.5), (0.0, 1.5)
+
 
 def ordinal_logits(floats: Float[Array, "batch"], n_classes: int = 24) -> Float[Array, "batch n_classes_minus_1"]:
     thresholds = jnp.linspace(-2.5, 2.5, n_classes - 1)
+    # [0, 1] -> [-2.5, 2.5]
     floats = 5.0 * (floats - 0.5)
     logits = floats.squeeze()[:, None] - thresholds[None, :]
     return logits
 
 
-def binary_logits(probs: Float[Array, "batch"], eps: float = 1e-6) -> Float[Array, "batch"]:
-    probs = jnp.clip(probs, eps, 1 - eps)
-    return jnp.log(probs) - jnp.log1p(-probs)
-
-
+# TODO
+# try
+# regression losses
+# https://towardsdatascience.com/how-to-perform-ordinal-regression-classification-in-pytorch-361a2a095a99/
 def ordinal_loss(
     predicted_sofa: Float[Array, "batch"], true_sofa: Float[Array, "batch"], n_classes: int = 24
 ) -> Float[Array, ""]:
     # https://arxiv.org/abs/1901.07884
     # CORN (Cumulative Ordinal Regression)
     logits = ordinal_logits(predicted_sofa, n_classes)  # [B, 23]
+
     targets = jnp.arange(n_classes - 1)  # [0, 1, ..., 22]
     true_sofa = true_sofa.squeeze()
     true_ord_targets = (true_sofa[:, None] > targets[None, :]).astype(jnp.float32)  # [B, 23]
     loss = optax.sigmoid_binary_cross_entropy(logits, true_ord_targets)
     return jnp.mean(loss)
+
+
+def binary_logits(probs: Float[Array, "batch"], eps: float = 1e-6) -> Float[Array, "batch"]:
+    probs = jnp.clip(probs, eps, 1 - eps)
+    return jnp.log(probs) - jnp.log1p(-probs)
 
 
 def binary_loss(predicted_infection: Float[Array, "batch"], true_infection: Float[Array, "batch"]) -> Float[Array, ""]:
@@ -104,19 +113,14 @@ def calc_concept_loss(
     return alpha * loss_sofa + beta * loss_infection
 
 
-@eqx.filter_jit
-def get_pred_concepts(
-    z: Float[Array, "batch_size latent_dim"], lookup_table: JAXLookup
-) -> Float[Array, "batch_size 2"]:
-    z = jax.lax.stop_gradient(z)
-    z = z * jnp.array([1 / jnp.pi, 1 / jnp.pi, 1 / 2])[None, :]
-    sim_results: SystemMetrics = lookup_table.get(z, threshold=150.0)
+def calc_locality_loss(input: Float[Array, "batch 54"], latent: Float[Array, "batch 3"], sigma=1.0):
+    # x: (B, D_in), z: (B, D_latent)
+    x_dists = jnp.sum((input[:, None, :] - input[None, :, :]) ** 2, axis=-1)  # (B, B)
+    z_dists = jnp.sum((latent[:, None, :] - latent[None, :, :]) ** 2, axis=-1)
 
-    # Extract f_1 and sr_2 + f_2 from the JAXSystemMetrics
-    # SOFA and infection prob
-    pred_c = jnp.array([sim_results.f_1, jnp.clip(sim_results.sr_2 + sim_results.f_2, 0, 1)])
-
-    return pred_c.squeeze().T
+    sim_weights = jnp.exp(-x_dists / (2 * sigma ** 2))
+    loss = jnp.mean(sim_weights * z_dists)  # weighted MSE in latent space
+    return loss
 
 
 # === Loss Function ===
@@ -134,19 +138,16 @@ def loss(
 
     key, *drop_keys = jax.random.split(key, BATCH_SIZE + 1)
     drop_keys = jnp.array(drop_keys)
-    alpha_conc1, alpha_conc0, beta_conc1, beta_conc0, sigma_conc1, sigma_conc0 = jax.vmap(encoder)(x, drop_keys)
+    alpha, beta, sigma = jax.vmap(encoder)(x, drop_keys)
 
-    posterior_alpha = distrax.Beta(alpha=alpha_conc1, beta=alpha_conc0)
-    posterior_beta = distrax.Beta(alpha=beta_conc1, beta=beta_conc0)
-    posterior_sigma = distrax.Beta(alpha=sigma_conc1, beta=sigma_conc0)
-
-    # Sample from each posterior using the reparameterization trick
-    alpha_key, beta_key, sigma_key = jax.random.split(key, LATENT_DIM)
-    z_alpha = posterior_alpha.sample(seed=alpha_key)
-    z_beta = posterior_beta.sample(seed=beta_key)
-    z_sigma = posterior_sigma.sample(seed=sigma_key)
-
-    z = jnp.concatenate([z_alpha * 2 - 1, z_beta * 1.3 + 0.2, z_sigma * 1.5], axis=-1)
+    z = jnp.concatenate(
+        [
+            alpha * (ALPHA_SPACE[1] - ALPHA_SPACE[0]) + ALPHA_SPACE[0],
+            beta * (BETA_SPACE[1] - BETA_SPACE[0]) + BETA_SPACE[0],
+            sigma * (SIGMA_SPACE[1] - SIGMA_SPACE[0]) + SIGMA_SPACE[0],
+        ],
+        axis=-1,
+    )
 
     x_recon = jax.vmap(decoder)(z)
     recon_loss = jnp.mean((x - x_recon) ** 2, axis=-1)
@@ -154,23 +155,16 @@ def loss(
     pred_concepts = get_pred_concepts(z, lookup_table)
     concept_loss = calc_concept_loss(pred_concepts, true_concepts[:, 0], true_concepts[:, 1])
 
-    # Beta(1,1) for uniform prior
-    prior = distrax.Beta(alpha=jnp.ones_like(alpha_conc1), beta=jnp.ones_like(alpha_conc0))
+    locality_loss = calc_locality_loss(x, z)
 
-    # KL divergence for each latent variable
-    kl_loss_alpha = posterior_alpha.kl_divergence(prior)
-    kl_loss_beta = posterior_beta.kl_divergence(prior)
-    kl_loss_sigma = posterior_sigma.kl_divergence(prior)
 
-    kl_loss = jnp.sum(kl_loss_alpha, axis=-1) + jnp.sum(kl_loss_beta, axis=-1) + jnp.sum(kl_loss_sigma, axis=-1)
-
-    total_loss = recon_loss + lambda1 * concept_loss + lambda2 * kl_loss
+    total_loss = recon_loss + lambda1 * concept_loss + lambda2 + locality_loss
 
     aux_losses = {}
 
     aux_losses["recon_loss"] = jnp.mean(recon_loss)
     aux_losses["concept_loss"] = jnp.mean(concept_loss)
-    aux_losses["kl_loss"] = jnp.mean(kl_loss)
+    aux_losses["locality_loss"] = jnp.mean(locality_loss)
     aux_losses["total_loss"] = jnp.mean(total_loss)
     return aux_losses["total_loss"], aux_losses
 
@@ -495,7 +489,7 @@ current_losses = {
     "total_loss": jnp.asarray(jnp.inf),
     "recon_loss": jnp.asarray(jnp.inf),
     "concept_loss": jnp.asarray(jnp.inf),
-    "kl_loss": jnp.asarray(jnp.inf),
+    "locality_loss": jnp.asarray(jnp.inf),
 }
 for epoch in range(EPOCHS):
     perm = jax.random.permutation(key, ntrain_batches)
@@ -526,7 +520,7 @@ for epoch in range(EPOCHS):
         f"Total Loss = {epoch_mean_losses['total_loss']:.4f}, "
         f"Recon Loss = {epoch_mean_losses['recon_loss']:.4f}, "
         f"Concept Loss = {epoch_mean_losses['concept_loss']:.4f}, "
-        f"KL Loss = {epoch_mean_losses['kl_loss']:.4f}"
+        f"Locality Loss = {epoch_mean_losses['locality_loss']:.4f}"
     )
     for loss_name, loss_value in epoch_mean_losses.items():
         writer.add_scalar(f"train/{loss_name}_mean", np.asarray(loss_value), epoch)
@@ -546,7 +540,7 @@ for epoch in range(EPOCHS):
         f"Total Loss = {val_mean_losses['total_loss']:.4f} ({val_std_losses['total_loss']:.4f}), "
         f"Recon Loss = {val_mean_losses['recon_loss']:.4f} ({val_std_losses['recon_loss']:.4f}), "
         f"Concept Loss = {val_mean_losses['concept_loss']:.4f} ({val_std_losses['concept_loss']:.4f}), "
-        f"KL Loss = {val_mean_losses['kl_loss']:.4f} ({val_std_losses['kl_loss']:.4f})"
+        f"Locality Loss = {val_mean_losses['locality_loss']:.4f} ({val_std_losses['locality_loss']:.4f})"
     )
 
     for loss_name, loss_value in val_mean_losses.items():
