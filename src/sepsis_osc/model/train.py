@@ -118,7 +118,7 @@ def calc_locality_loss(input: Float[Array, "batch 54"], latent: Float[Array, "ba
     x_dists = jnp.sum((input[:, None, :] - input[None, :, :]) ** 2, axis=-1)  # (B, B)
     z_dists = jnp.sum((latent[:, None, :] - latent[None, :, :]) ** 2, axis=-1)
 
-    sim_weights = jnp.exp(-x_dists / (2 * sigma ** 2))
+    sim_weights = jnp.exp(-x_dists / (2 * sigma**2))
     loss = jnp.mean(sim_weights * z_dists)  # weighted MSE in latent space
     return loss
 
@@ -129,16 +129,18 @@ def loss(
     models: tuple[Encoder, Decoder],
     x: jnp.ndarray,
     true_concepts: jnp.ndarray,
+    *,
     key: jnp.ndarray,
     lookup_table: JAXLookup,
     lambda1=1e2,
-    lambda2=1e-4,
+    lambda2=1e4,
 ) -> tuple[Array, dict[str, Array]]:
+    aux_losses = {}
     encoder, decoder = models
 
     key, *drop_keys = jax.random.split(key, BATCH_SIZE + 1)
     drop_keys = jnp.array(drop_keys)
-    alpha, beta, sigma = jax.vmap(encoder)(x, drop_keys)
+    alpha, beta, sigma = jax.vmap(encoder)(x, key=drop_keys)
 
     z = jnp.concatenate(
         [
@@ -150,22 +152,16 @@ def loss(
     )
 
     x_recon = jax.vmap(decoder)(z)
-    recon_loss = jnp.mean((x - x_recon) ** 2, axis=-1)
+    aux_losses["recon_loss"] = jnp.mean((x - x_recon) ** 2, axis=-1)
 
     pred_concepts = get_pred_concepts(z, lookup_table)
-    concept_loss = calc_concept_loss(pred_concepts, true_concepts[:, 0], true_concepts[:, 1])
+    aux_losses["concept_loss"] = calc_concept_loss(pred_concepts, true_concepts[:, 0], true_concepts[:, 1])
 
-    locality_loss = calc_locality_loss(x, z)
+    aux_losses["locality_loss"]= calc_locality_loss(x, z)
 
+    aux_losses["total_loss"]= aux_losses["recon_loss"]+ lambda1 * aux_losses["concept_loss"]+ lambda2 + aux_losses["locality_loss"]
 
-    total_loss = recon_loss + lambda1 * concept_loss + lambda2 + locality_loss
-
-    aux_losses = {}
-
-    aux_losses["recon_loss"] = jnp.mean(recon_loss)
-    aux_losses["concept_loss"] = jnp.mean(concept_loss)
-    aux_losses["locality_loss"] = jnp.mean(locality_loss)
-    aux_losses["total_loss"] = jnp.mean(total_loss)
+    aux_losses = jax.tree_util.tree_map(jnp.mean, aux_losses)
     return aux_losses["total_loss"], aux_losses
 
 
@@ -178,12 +174,13 @@ def step_model(
     opt_state_dec: optax.OptState,
     update_enc,
     update_dec,
+    *,
     key,
-    lookup_table_static: JAXLookup,
+    lookup_table: JAXLookup,
 ):
     encoder, decoder = models
     (total_loss, aux_losses), (grads_enc, grads_dec) = eqx.filter_value_and_grad(loss, has_aux=True)(
-        models, x_batch, true_c_batch, key, lookup_table_static
+        models, x_batch, true_c_batch, key=key, lookup_table=lookup_table
     )
 
     encoder_params, encoder_static = eqx.partition(encoder, eqx.is_inexact_array)
@@ -240,18 +237,17 @@ def process_train_epoch(
     opt_state_dec,
     x_data: Float[Array, "num_samples input_dim"],
     y_data: Float[Array, "num_samples 2"],
-    key,
     update_enc,
     update_dec,
-    lookup_table: JAXLookup,
     *,
-    lookup_table_static: JAXLookup,
+    key,
+    lookup_table: JAXLookup,
 ):
     encoder_params, encoder_static = eqx.partition(encoder, eqx.is_inexact_array)
     decoder_params, decoder_static = eqx.partition(decoder, eqx.is_inexact_array)
 
     key, init_key = jax.random.split(key)
-    _, initial_aux_losses = loss((encoder, decoder), x_data[0], y_data[0], init_key, lookup_table_static)
+    _, initial_aux_losses = loss((encoder, decoder), x_data[0], y_data[0], key=init_key, lookup_table=lookup_table)
 
     running_means = jax.tree_util.tree_map(lambda x: jnp.zeros_like(x), initial_aux_losses)
     running_M2s = jax.tree_util.tree_map(lambda x: jnp.zeros_like(x), initial_aux_losses)
@@ -274,8 +270,8 @@ def process_train_epoch(
             opt_state_dec,
             update_enc,
             update_dec,
-            batch_key,
-            lookup_table_static,
+            key=batch_key,
+            lookup_table=lookup_table,
         )
 
         running_means, running_M2s, running_count = update_tree_stats(
@@ -328,16 +324,15 @@ def process_val_epoch(
     decoder,
     x_data: Float[Array, "num_samples input_dim"],
     y_data: Float[Array, "num_samples 2"],
+    *,
     key,
     lookup_table: JAXLookup,
-    *,
-    lookup_table_static: JAXLookup,
 ):
     encoder_params, encoder_static = eqx.partition(encoder, eqx.is_inexact_array)
     decoder_params, decoder_static = eqx.partition(decoder, eqx.is_inexact_array)
 
     key, init_key = jax.random.split(key)
-    _, initial_aux_losses = loss((encoder, decoder), x_data[0], y_data[0], init_key, lookup_table_static)
+    _, initial_aux_losses = loss((encoder, decoder), x_data[0], y_data[0], key=init_key, lookup_table=lookup_table)
 
     running_means = jax.tree_util.tree_map(lambda x: jnp.zeros_like(x), initial_aux_losses)
     running_M2s = jax.tree_util.tree_map(lambda x: jnp.zeros_like(x), initial_aux_losses)
@@ -352,7 +347,7 @@ def process_val_epoch(
         encoder_full = eqx.combine(encoder_f, encoder_static)
         decoder_full = eqx.combine(decoder_f, decoder_static)
 
-        _, aux_losses = loss((encoder_full, decoder_full), batch_x, batch_true_c, batch_key, lookup_table_static)
+        _, aux_losses = loss((encoder_full, decoder_full), batch_x, batch_true_c, key=batch_key, lookup_table=lookup_table)
 
         running_means, running_M2s, running_count = update_tree_stats(
             running_means, running_M2s, aux_losses, running_count
@@ -505,11 +500,10 @@ for epoch in range(EPOCHS):
             opt_state_dec=opt_state_dec,
             x_data=x_shuffled,
             y_data=y_shuffled,
-            key=key,
             update_enc=opt_enc.update,
             update_dec=opt_dec.update,
+            key=key,
             lookup_table=lookup_table,
-            lookup_table_static=lookup_table,
         )
     )
     encoder = eqx.combine(encoder_params, static_enc)
@@ -533,7 +527,6 @@ for epoch in range(EPOCHS):
         y_data=val_y,
         key=key,
         lookup_table=lookup_table,
-        lookup_table_static=lookup_table,
     )
     logger.warning(
         f"Epoch {epoch}: Validation Metrics: "
