@@ -72,7 +72,7 @@ class Encoder(eqx.Module):
         self.beta_layer = eqx.nn.Linear(in_features=latent_dim, out_features=1, key=key_beta)
         self.sigma_layer = eqx.nn.Linear(in_features=latent_dim, out_features=1, key=key_sigma)
 
-    def __call__(self, x: Float[Array, "input_dim"], key):
+    def __call__(self, x: Float[Array, "input_dim"], *, key):
         x_original = x
 
         x_hidden = x
