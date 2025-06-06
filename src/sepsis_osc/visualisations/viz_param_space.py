@@ -113,7 +113,7 @@ for x, beta in enumerate(xs):
             a_1=1.0,
             epsilon_1=0.03,
             epsilon_2=0.3,
-            alpha=0.72,
+            alpha=-0.28,
             beta=float(beta),
             sigma=float(sigma),
         )
