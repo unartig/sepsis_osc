@@ -30,8 +30,8 @@ from sepsis_osc.utils.logger import setup_logging
 setup_jax(simulation=False)
 setup_logging("info")
 logger = logging.getLogger(__name__)
-logging.getLogger("sepsis_osc.storage.storage_interface").setLevel(logging.ERROR)
-logging.getLogger("sepsis_osc.model.vae").setLevel(logging.INFO)
+# logging.getLogger("sepsis_osc.storage.storage_interface").setLevel(logging.ERROR)
+# logging.getLogger("sepsis_osc.model.vae").setLevel(logging.INFO)
 
 
 def timing(f):
@@ -46,17 +46,17 @@ def timing(f):
     return wrap
 
 
-BATCH_SIZE = 512
-EPOCHS = 500
-LOAD_FROM_CHECKPOINT = ""  # set load dir
-LOAD_EPOCH = 0
+BATCH_SIZE = 256
+EPOCHS = 5000
+LOAD_FROM_CHECKPOINT = "" # set load dir, e.g. "runs/..."
+LOAD_EPOCH = 1
 SAVE_CHECKPOINTS = True
-SAVE_EVERY_EPOCH = 10
+SAVE_EVERY_EPOCH = 100
 
 
 # cosine decay
-LEARNING_RATE_START = 1e-5
-LEARNING_RATE_END = 1e-7
+LR_INIT = 1e-5
+LR_END = 5e-6
 
 ALPHA_SPACE, BETA_SPACE, SIGMA_SPACE = (-1.0, 1.0), (0.2, 1.5), (0.0, 1.5)
 
@@ -133,7 +133,7 @@ def loss(
     key: jnp.ndarray,
     lookup_table: JAXLookup,
     lambda1=1e2,
-    lambda2=1e4,
+    lambda2=1e3,
 ) -> tuple[Array, dict[str, Array]]:
     aux_losses = {}
     encoder, decoder = models
@@ -381,7 +381,6 @@ def prepare_batches(
     perm = jax.random.permutation(key, num_samples)
     x_shuffled = x_data[perm]
     y_shuffled = y_data[perm]
-    del x_data, y_data
     remainder = num_samples % batch_size
     padding_needed = 0 if remainder == 0 else batch_size - remainder
 
@@ -448,20 +447,15 @@ hyper_dec = {
     "dec_hidden": decoder.dec_hidden,
 }
 
-params_enc, static_enc = eqx.partition(encoder, eqx.is_inexact_array)
-params_dec, static_dec = eqx.partition(decoder, eqx.is_inexact_array)
 
 schedule = optax.cosine_decay_schedule(
-    init_value=LEARNING_RATE_START,
+    init_value=LR_INIT,
     decay_steps=int(EPOCHS * 0.7 * train_x.shape[0] / BATCH_SIZE),
-    alpha=LEARNING_RATE_END,
+    alpha=LR_END/LR_INIT,
 )
 opt_enc = optax.flatten(optax.adam(schedule))
-opt_dec = optax.flatten(optax.adam(LEARNING_RATE_START))
-
-opt_state_enc = opt_enc.init(params_enc)
-opt_state_dec = opt_dec.init(params_dec)
-
+opt_dec = optax.flatten(optax.adam(LR_INIT))
+params_enc, static_enc, params_dec, static_dec, opt_state_enc, opt_state_dec = None, None, None, None, None, None
 if LOAD_FROM_CHECKPOINT:
     try:
         params_enc, static_enc, params_dec, static_dec, opt_state_enc, opt_state_dec = load_checkpoint(
@@ -472,7 +466,11 @@ if LOAD_FROM_CHECKPOINT:
     except FileNotFoundError as e:
         logger.error(f"Error loading checkpoint: {e}. Starting training from scratch.")
         LOAD_FROM_CHECKPOINT = ""
-
+if not all((params_enc, static_enc, params_dec, params_dec, opt_state_enc, opt_state_dec)):
+    params_enc, static_enc = eqx.partition(encoder, eqx.is_inexact_array)
+    params_dec, static_dec = eqx.partition(decoder, eqx.is_inexact_array)
+    opt_state_enc = opt_enc.init(params_enc)
+    opt_state_dec = opt_dec.init(params_dec)
 
 # === Training Loop ===
 shuffle_train, shuffle_val, key = jax.random.split(key, 3)
@@ -492,7 +490,7 @@ for epoch in range(EPOCHS):
     x_shuffled = train_x[perm]
     y_shuffled = train_y[perm]
 
-    encoder_params, decoder_params, opt_state_enc, opt_state_dec, key, epoch_mean_losses, epoch_std_losses = (
+    params_enc, params_dec, opt_state_enc, opt_state_dec, key, epoch_mean_losses, epoch_std_losses = (
         process_train_epoch(
             encoder,
             decoder,
@@ -506,8 +504,8 @@ for epoch in range(EPOCHS):
             lookup_table=lookup_table,
         )
     )
-    encoder = eqx.combine(encoder_params, static_enc)
-    decoder = eqx.combine(decoder_params, static_dec)
+    encoder = eqx.combine(params_enc, static_enc)
+    decoder = eqx.combine(params_dec, static_dec)
 
     logger.info(
         f"Epoch {epoch}: Training Metrics: "
@@ -518,6 +516,7 @@ for epoch in range(EPOCHS):
     )
     for loss_name, loss_value in epoch_mean_losses.items():
         writer.add_scalar(f"train/{loss_name}_mean", np.asarray(loss_value), epoch)
+    del x_shuffled, y_shuffled
 
     key, _ = jax.random.split(key)
     key, val_mean_losses, val_std_losses = process_val_epoch(
