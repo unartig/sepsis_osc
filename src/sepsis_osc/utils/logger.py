@@ -15,14 +15,9 @@ def setup_logging(log_level: str = cfg_log_level, console_log=True):
     else:
         level = logging.WARNING
 
-    # logger = logging.getLogger("sepsis_osc")
-    # if logger.handlers:
-    #     logger.warning("Logging is already configured. Skipping setup.")
-    #     return
-
     logger = logging.getLogger()
-    if console_log:
-        if not any(isinstance(handler, logging.StreamHandler) for handler in logger.handlers):
+    if not any(isinstance(handler, logging.StreamHandler) for handler in logger.handlers):
+        if console_log:
             console_formatter = colorlog.ColoredFormatter(
                 "%(asctime)s - %(name)-30s - %(log_color)s%(levelname)-8s%(reset)s - %(message)s",
                 datefmt="%Y-%m-%d %H:%M:%S",
@@ -41,11 +36,11 @@ def setup_logging(log_level: str = cfg_log_level, console_log=True):
             logger.addHandler(console_handler)
             logger.propagate = False
 
-    if log_file:
-        file_formatter = logging.Formatter(
-            "%(asctime)s - %(name)-20s - %(levelname)-8s - %(message)s",
-            datefmt="%Y-%m-%d %H:%M:%S",
-        )
-        file_handler = logging.FileHandler(log_file)
-        file_handler.setFormatter(file_formatter)
-        logger.addHandler(file_handler)
+        if log_file:
+            file_formatter = logging.Formatter(
+                "%(asctime)s - %(name)-20s - %(levelname)-8s - %(message)s",
+                datefmt="%Y-%m-%d %H:%M:%S",
+            )
+            file_handler = logging.FileHandler(log_file)
+            file_handler.setFormatter(file_formatter)
+            logger.addHandler(file_handler)
