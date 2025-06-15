@@ -2,7 +2,6 @@ import logging
 from functools import wraps
 from time import time
 
-import distrax
 import equinox as eqx
 import jax
 import jax.numpy as jnp
@@ -22,7 +21,7 @@ from sepsis_osc.model.vae import (
     save_checkpoint,
     LATENT_DIM,
 )
-from sepsis_osc.simulation.data_classes import JAXLookup
+from sepsis_osc.simulation.data_classes import JAXLookup, SystemConfig
 from sepsis_osc.storage.storage_interface import Storage
 from sepsis_osc.utils.jax_config import setup_jax
 from sepsis_osc.utils.logger import setup_logging
@@ -45,16 +44,18 @@ def timing(f):
 
 
 BATCH_SIZE = 256
-EPOCHS = 5000
-LOAD_FROM_CHECKPOINT = "" # set load dir, e.g. "runs/..."
-LOAD_EPOCH = 1
+EPOCHS = 2000
+LOAD_FROM_CHECKPOINT = ""  # set load dir, e.g. "runs/..."
+LOAD_EPOCH = 0
 SAVE_CHECKPOINTS = True
-SAVE_EVERY_EPOCH = 100
+SAVE_EVERY_EPOCH = 10
 
 
 # cosine decay
-LR_INIT = 1e-5
-LR_END = 5e-6
+LR_INIT = 5e-3
+LR_END = 1e-8
+LR_EPOCH_END = 50
+ENC_WD = 1e-3
 
 ALPHA_SPACE, BETA_SPACE, SIGMA_SPACE = (-1.0, 1.0), (0.2, 1.5), (0.0, 1.5)
 
@@ -69,7 +70,6 @@ def ordinal_logits(floats: Float[Array, "batch"], n_classes: int = 24) -> Float[
 
 # TODO
 # try
-# regression losses
 # https://towardsdatascience.com/how-to-perform-ordinal-regression-classification-in-pytorch-361a2a095a99/
 def ordinal_loss(
     predicted_sofa: Float[Array, "batch"], true_sofa: Float[Array, "batch"], n_classes: int = 24
@@ -80,9 +80,8 @@ def ordinal_loss(
 
     targets = jnp.arange(n_classes - 1)  # [0, 1, ..., 22]
     true_sofa = true_sofa.squeeze()
-    true_ord_targets = (true_sofa[:, None] > targets[None, :]).astype(jnp.float32)  # [B, 23]
-    loss = optax.sigmoid_binary_cross_entropy(logits, true_ord_targets)
-    return jnp.mean(loss)
+    true_ord_targets = (true_sofa[:, None] > targets[None, :]).astype(jnp.bool)  # [B, 23]
+    return jnp.mean(optax.sigmoid_binary_cross_entropy(logits, true_ord_targets))
 
 
 def binary_logits(probs: Float[Array, "batch"], eps: float = 1e-6) -> Float[Array, "batch"]:
@@ -111,7 +110,7 @@ def calc_concept_loss(
     return alpha * loss_sofa + beta * loss_infection
 
 
-def calc_locality_loss(input: Float[Array, "batch 54"], latent: Float[Array, "batch 3"], sigma=1.0):
+def calc_locality_loss(input: Float[Array, "batch 52"], latent: Float[Array, "batch 3"], sigma=1.0):
     # x: (B, D_in), z: (B, D_latent)
     x_dists = jnp.sum((input[:, None, :] - input[None, :, :]) ** 2, axis=-1)  # (B, B)
     z_dists = jnp.sum((latent[:, None, :] - latent[None, :, :]) ** 2, axis=-1)
@@ -131,33 +130,36 @@ def loss(
     key: jnp.ndarray,
     lookup_table: JAXLookup,
     lambda1=1e2,
-    lambda2=1e3,
+    lambda2=1e1,
 ) -> tuple[Array, dict[str, Array]]:
     aux_losses = {}
     encoder, decoder = models
 
     key, *drop_keys = jax.random.split(key, BATCH_SIZE + 1)
     drop_keys = jnp.array(drop_keys)
-    alpha, beta, sigma = jax.vmap(encoder)(x, key=drop_keys)
 
-    z = jnp.concatenate(
-        [
-            alpha * (ALPHA_SPACE[1] - ALPHA_SPACE[0]) + ALPHA_SPACE[0],
-            beta * (BETA_SPACE[1] - BETA_SPACE[0]) + BETA_SPACE[0],
-            sigma * (SIGMA_SPACE[1] - SIGMA_SPACE[0]) + SIGMA_SPACE[0],
-        ],
-        axis=-1,
-    )
+    alpha, beta, sigma = jax.vmap(encoder)(x, key=drop_keys)
+    alpha = alpha * (ALPHA_SPACE[1] - ALPHA_SPACE[0]) + ALPHA_SPACE[0]
+    beta = beta * (BETA_SPACE[1] - BETA_SPACE[0]) + BETA_SPACE[0]
+    sigma = sigma * (SIGMA_SPACE[1] - SIGMA_SPACE[0]) + SIGMA_SPACE[0]
+
+    z = jnp.concatenate([alpha, beta, sigma], axis=-1)
+
+    aux_losses["locality_loss"] = calc_locality_loss(x, z)
 
     x_recon = jax.vmap(decoder)(z)
     aux_losses["recon_loss"] = jnp.mean((x - x_recon) ** 2, axis=-1)
 
-    pred_concepts = get_pred_concepts(z, lookup_table)
-    aux_losses["concept_loss"] = calc_concept_loss(pred_concepts, true_concepts[:, 0], true_concepts[:, 1])
+    nearest_metrics = SystemConfig.batch_as_index(alpha=alpha, beta=beta, sigma=sigma, C=0.2)
+    pred_concepts = get_pred_concepts(nearest_metrics, lookup_table)
+    # TODO change, we actually want to predict both :^)
+    aux_losses["concept_loss"] = calc_concept_loss(
+        pred_concepts, true_concepts[:, 0], true_concepts[:, 1], alpha=1.0, beta=0.0
+    )
 
-    aux_losses["locality_loss"]= calc_locality_loss(x, z)
-
-    aux_losses["total_loss"]= aux_losses["recon_loss"]+ lambda1 * aux_losses["concept_loss"]+ lambda2 + aux_losses["locality_loss"]
+    aux_losses["total_loss"] = (
+        aux_losses["recon_loss"] + lambda1 * aux_losses["concept_loss"] + lambda2 + aux_losses["locality_loss"]
+    )
 
     aux_losses = jax.tree_util.tree_map(jnp.mean, aux_losses)
     return aux_losses["total_loss"], aux_losses
@@ -167,7 +169,7 @@ def loss(
 def step_model(
     x_batch: jnp.ndarray,
     true_c_batch: jnp.ndarray,
-    models,  # : tuple[Encoder, Decoder],
+    models: tuple[Encoder, Decoder],
     opt_state_enc: optax.OptState,
     opt_state_dec: optax.OptState,
     update_enc,
@@ -345,7 +347,9 @@ def process_val_epoch(
         encoder_full = eqx.combine(encoder_f, encoder_static)
         decoder_full = eqx.combine(decoder_f, decoder_static)
 
-        _, aux_losses = loss((encoder_full, decoder_full), batch_x, batch_true_c, key=batch_key, lookup_table=lookup_table)
+        _, aux_losses = loss(
+            (encoder_full, decoder_full), batch_x, batch_true_c, key=batch_key, lookup_table=lookup_table
+        )
 
         running_means, running_M2s, running_count = update_tree_stats(
             running_means, running_M2s, aux_losses, running_count
@@ -375,21 +379,24 @@ def prepare_batches(
     batch_size: int,
     key,
 ) -> tuple[Float[Array, "num_batches batch_size dim"], Float[Array, "num_batches batch_size dim"], int]:
-    num_samples, num_features = x_data.shape
+    num_samples = x_data.shape[0]
+    num_features = x_data.shape[1]
+
+    # Shuffle data
     perm = jax.random.permutation(key, num_samples)
     x_shuffled = x_data[perm]
     y_shuffled = y_data[perm]
-    remainder = num_samples % batch_size
-    padding_needed = 0 if remainder == 0 else batch_size - remainder
 
-    x_padded = jnp.pad(x_shuffled, ((0, padding_needed), (0, 0)), mode="edge")
-    y_padded = jnp.pad(y_shuffled, ((0, padding_needed), (0, 0)), mode="edge")
+    # Ensure full batches only
+    num_full_batches = num_samples // batch_size
+    x_truncated = x_shuffled[: num_full_batches * batch_size]
+    y_truncated = y_shuffled[: num_full_batches * batch_size]
 
-    del x_shuffled, y_shuffled
-    num_batches = x_padded.shape[0] // batch_size
-    x_batched = x_padded.reshape(num_batches, batch_size, num_features)
-    y_batched = y_padded.reshape(num_batches, batch_size, 2)
-    return x_batched, y_batched, num_batches
+    # Reshape into batches
+    x_batched = x_truncated.reshape(num_full_batches, batch_size, num_features)
+    y_batched = y_truncated.reshape(num_full_batches, batch_size, 2)
+
+    return x_batched, y_batched, num_full_batches
 
 
 train_y, train_x, val_y, val_x, test_y, test_x = [
@@ -409,8 +416,8 @@ logger.info(f"Train shape      - X {train_y.shape}, Y {train_x.shape}")
 logger.info(f"Validation shape - X {val_y.shape},  Y {val_x.shape}")
 logger.info(f"Test shape       - X {test_y.shape},  Y {test_x.shape}")
 
-train_x = train_x  # [: 1000 * BATCH_SIZE]
-train_y = train_y  # [: 1000 * BATCH_SIZE]
+# train_x = train_x[: 1000 * BATCH_SIZE]
+# train_y = train_y[: 1000 * BATCH_SIZE]
 
 db_str = "Daisy"
 sim_storage = Storage(
@@ -448,11 +455,12 @@ hyper_dec = {
 
 schedule = optax.cosine_decay_schedule(
     init_value=LR_INIT,
-    decay_steps=int(EPOCHS * 0.7 * train_x.shape[0] / BATCH_SIZE),
-    alpha=LR_END/LR_INIT,
+    decay_steps=int(LR_EPOCH_END * (train_x.shape[0] // BATCH_SIZE) * BATCH_SIZE),
+    alpha=LR_END / LR_INIT,
 )
-opt_enc = optax.flatten(optax.adam(schedule))
-opt_dec = optax.flatten(optax.adam(LR_INIT))
+opt_enc = optax.flatten(optax.adamw(schedule, weight_decay=ENC_WD))
+opt_dec = optax.flatten(optax.adamw(LR_INIT))
+
 params_enc, static_enc, params_dec, static_dec, opt_state_enc, opt_state_dec = None, None, None, None, None, None
 if LOAD_FROM_CHECKPOINT:
     try:
@@ -465,15 +473,13 @@ if LOAD_FROM_CHECKPOINT:
         logger.error(f"Error loading checkpoint: {e}. Starting training from scratch.")
         LOAD_FROM_CHECKPOINT = ""
 if not all((params_enc, static_enc, params_dec, params_dec, opt_state_enc, opt_state_dec)):
+    logger.info("Instantiating new models")
     params_enc, static_enc = eqx.partition(encoder, eqx.is_inexact_array)
     params_dec, static_dec = eqx.partition(decoder, eqx.is_inexact_array)
     opt_state_enc = opt_enc.init(params_enc)
     opt_state_dec = opt_dec.init(params_dec)
 
 # === Training Loop ===
-shuffle_train, shuffle_val, key = jax.random.split(key, 3)
-train_x, train_y, ntrain_batches = prepare_batches(train_x, train_y, BATCH_SIZE, shuffle_train)
-val_x, val_y, nval_batches = prepare_batches(val_x, val_y, BATCH_SIZE, shuffle_val)
 
 writer = SummaryWriter()
 current_losses = {
@@ -482,11 +488,11 @@ current_losses = {
     "concept_loss": jnp.asarray(jnp.inf),
     "locality_loss": jnp.asarray(jnp.inf),
 }
-for epoch in range(EPOCHS):
-    perm = jax.random.permutation(key, ntrain_batches)
-    key, _ = jax.random.split(key)
-    x_shuffled = train_x[perm]
-    y_shuffled = train_y[perm]
+shuffle_val, key = jax.random.split(key, 2)
+val_x, val_y, nval_batches = prepare_batches(val_x, val_y, BATCH_SIZE, shuffle_val)
+for epoch in range(LOAD_EPOCH, EPOCHS):
+    shuffle_key, key = jax.random.split(key)
+    x_shuffled, y_shuffled, ntrain_batches = prepare_batches(train_x, train_y, BATCH_SIZE, shuffle_key)
 
     params_enc, params_dec, opt_state_enc, opt_state_dec, key, epoch_mean_losses, epoch_std_losses = (
         process_train_epoch(
@@ -555,7 +561,3 @@ for epoch in range(EPOCHS):
             hyper_dec,
         )
 writer.close()
-
-# TODO
-# different latent prior
-# result visualization
