@@ -15,7 +15,6 @@ logger = logging.getLogger(__name__)
 
 data_dir = Path(yaib_data_dir)
 
-print(os.listdir(data_dir))
 
 data = preprocess_data(
     data_dir=data_dir,
@@ -38,4 +37,5 @@ data = preprocess_data(
 
 
 if __name__ == "__main__":
+    print(os.listdir(data_dir))
     print(data)

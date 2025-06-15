@@ -30,8 +30,6 @@ from sepsis_osc.utils.logger import setup_logging
 setup_jax(simulation=False)
 setup_logging("info")
 logger = logging.getLogger(__name__)
-# logging.getLogger("sepsis_osc.storage.storage_interface").setLevel(logging.ERROR)
-# logging.getLogger("sepsis_osc.model.vae").setLevel(logging.INFO)
 
 
 def timing(f):
