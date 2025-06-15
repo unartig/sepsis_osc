@@ -73,44 +73,43 @@ class SystemConfig:
 
     @staticmethod
     def batch_as_index(
-        z: jnp.ndarray,
+        alpha: jnp.ndarray,
+        beta: jnp.ndarray,
+        sigma: jnp.ndarray,
         C: float,
     ) -> jnp.ndarray:
+        batch_size = alpha.shape[0]
+
         # variable
-        alphas = z[:, 0].astype(float) / np.pi
-        betas = z[:, 1].astype(float) / np.pi
-        sigmas = z[:, 2].astype(float) / 2
+        alpha = alpha / jnp.pi
+        beta = beta / jnp.pi
+        sigma = sigma / 2
+        _C = jnp.full(batch_size, C)
 
         # constant
-        batch_size = z.shape[0]
-        omega_1_batch = np.full(batch_size, 0.0)
-        omega_2_batch = np.full(batch_size, 0.0)
-        a_1_batch = np.full(batch_size, 1.0)
-        epsilon_1_batch = np.full(batch_size, 0.03)
-        epsilon_2_batch = np.full(batch_size, 0.3)
-        _C = np.full(batch_size, C)
+        omega_1_batch = jnp.full(batch_size, 0.0)
+        omega_2_batch = jnp.full(batch_size, 0.0)
+        a_1_batch = jnp.full(batch_size, 1.0)
+        epsilon_1_batch = jnp.full(batch_size, 0.03)
+        epsilon_2_batch = jnp.full(batch_size, 0.3)
 
-        batch_indices = np.stack(
+        batch_indices = jnp.stack(
             [
                 omega_1_batch,
                 omega_2_batch,
                 a_1_batch,
                 epsilon_1_batch,
                 epsilon_2_batch,
-                alphas,
-                betas,
-                sigmas,
+                alpha.squeeze(),
+                beta.squeeze(),
+                sigma.squeeze(),
                 _C,
             ],
             axis=-1,
-            dtype=np.float32,
+            dtype=jnp.float32,
         )
 
-        return batch_indices
-
-    @staticmethod
-    def str_as_index(s: str) -> tuple[float, ...]:
-        return (0, 0)
+        return batch_indices.squeeze()
 
 
 @dataclass
@@ -355,8 +354,7 @@ class JAXLookup:
         dtype: jnp.dtype = jnp.float32,
     ) -> SystemMetrics:
         # alpha beta sigma
-        indexed_indices = self.indices[:, [5, 6, 7]]
-        diff = query_vectors[:, None, :] - indexed_indices[None, :, :]  # (batch_size, db_size, latent_dim)
+        diff = query_vectors[:, None, :] - self.indices[None, :, :]  # (batch_size, db_size, latent_dim)
         squared_distances = jnp.sum(diff**2, axis=-1)  # (batch_size, num_faiss_vectors)
 
         # nearest neighbour lookup
@@ -373,6 +371,27 @@ class JAXLookup:
         )
 
         return masked_metrics.astype(dtype)
+
+    @filter_jit
+    def soft_get(
+        self,
+        query_vectors: Float[Array, "batch_size latent_dim"],
+        temperature: float = 1.0,
+        dtype: jnp.dtype = jnp.float16,  #  squared matrix is too mem intensive
+        return_dtype: jnp.dtype = jnp.float32,
+    ) -> SystemMetrics:
+        diff = (query_vectors[:, None, :] - self.indices[None, :, :]).astype(dtype)  # (batch_size, db_size, latent_dim)
+        squared_distances = jnp.sum(diff**2, axis=-1)  # (batch_size, num_faiss_vectors)
+
+        # softmin over distances
+        weights = jax.nn.softmax(-squared_distances / temperature, axis=-1)  # (batch_size, num_faiss_vectors)
+
+        def weighted_sum(x):
+            return jnp.matmul(weights, x)
+
+        retrieved_metrics = jax.tree_util.tree_map(weighted_sum, self.metrics)
+
+        return retrieved_metrics.astype(return_dtype)
 
 
 jtu.register_pytree_node(JAXLookup, JAXLookup.tree_flatten, JAXLookup.tree_unflatten)

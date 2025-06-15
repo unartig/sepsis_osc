@@ -19,8 +19,8 @@ logger = logging.getLogger(__name__)
 # === Model Definitions ===
 LATENT_DIM = 3
 INPUT_DIM = 52
-ENC_HIDDEN = 1024
-DEC_HIDDEN = 256
+ENC_HIDDEN = 64
+DEC_HIDDEN = 32
 
 
 class Encoder(eqx.Module):
@@ -44,7 +44,7 @@ class Encoder(eqx.Module):
         input_dim: int = INPUT_DIM,
         latent_dim: int = LATENT_DIM,
         enc_hidden: int = ENC_HIDDEN,
-        dropout_rate: float = 0.7,
+        dropout_rate: float = 0.3,
     ):
         key1, key2, key_attn_score, key3, key4, key_alpha, key_beta, key_sigma, _ = jax.random.split(key, 9)
 
@@ -54,8 +54,10 @@ class Encoder(eqx.Module):
         self.dropout_rate = dropout_rate
         self.initial_layers = [
             eqx.nn.Linear(in_features=input_dim, out_features=enc_hidden, key=key1),
+            eqx.nn.LayerNorm(enc_hidden),
             jax.nn.relu,
             eqx.nn.Linear(in_features=enc_hidden, out_features=enc_hidden, key=key2),
+            eqx.nn.LayerNorm(enc_hidden),
             jax.nn.relu,
         ]
 
@@ -64,6 +66,7 @@ class Encoder(eqx.Module):
 
         self.final_layers = [
             eqx.nn.Linear(in_features=enc_hidden + input_dim, out_features=enc_hidden, key=key3),
+            eqx.nn.LayerNorm(enc_hidden),
             jax.nn.relu,
             eqx.nn.Linear(in_features=enc_hidden, out_features=latent_dim, key=key4),
         ]
@@ -91,22 +94,23 @@ class Encoder(eqx.Module):
         for layer in self.final_layers:
             x_final_enc = layer(x_final_enc)
 
-        alpha_raw = self.alpha_layer(x_final_enc)  # Shape (2,)
-        beta_raw = self.beta_layer(x_final_enc)  # Shape (2,)
-        sigma_raw = self.sigma_layer(x_final_enc)  # Shape (2,)
+        alpha_raw = self.alpha_layer(x_final_enc)
+        beta_raw = self.beta_layer(x_final_enc)
+        sigma_raw = self.sigma_layer(x_final_enc)
 
-        return alpha_raw, beta_raw, sigma_raw
+        return jax.nn.sigmoid(alpha_raw), jax.nn.sigmoid(beta_raw), jax.nn.sigmoid(sigma_raw)
+
 
 @eqx.filter_jit
 def get_pred_concepts(
     z: Float[Array, "batch_size latent_dim"], lookup_table: JAXLookup
 ) -> Float[Array, "batch_size 2"]:
-    z = jax.lax.stop_gradient(z)
-    z = z * jnp.array([1 / jnp.pi, 1 / jnp.pi, 1 / 2])[None, :]
-    sim_results: SystemMetrics = lookup_table.get(z, threshold=150.0)
+    # z = jax.lax.stop_gradient(z)
+    # sim_results: SystemMetrics = lookup_table.get(z, threshold=0.5)
+    sim_results: SystemMetrics = lookup_table.soft_get(z, temperature=0.1)
 
     # Extract f_1 and sr_2 + f_2 from the JAXSystemMetrics
-    # SOFA and infection prob
+    # SOFA and infection
     pred_c = jnp.array([sim_results.f_1, jnp.clip(sim_results.sr_2 + sim_results.f_2, 0, 1)])
 
     return pred_c.squeeze().T
@@ -264,6 +268,8 @@ def load_checkpoint(load_dir, epoch, opt_enc_template=None, opt_dec_template=Non
         skeleton_params_enc, skeleton_static_enc = eqx.partition(skeleton_encoder, eqx.is_array)
         skeleton_params_dec, skeleton_static_dec = eqx.partition(skeleton_decoder, eqx.is_array)
 
+        if opt_enc_template is None or opt_dec_template is None:
+            logger.error("Reading empty model templates")
         skeleton_opt_state_enc = opt_enc_template.init(skeleton_params_enc) if opt_enc_template else None
         skeleton_opt_state_dec = opt_dec_template.init(skeleton_params_dec) if opt_dec_template else None
 
