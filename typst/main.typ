@@ -1,14 +1,14 @@
-#import "@preview/acrostiche:0.4.0": *
+#import "@preview/acrostiche:0.5.2": *
 #import "tuhh_template.typ": thesis
 #import "@preview/drafting:0.2.2": margin-note, note-outline, inline-note, set-margin-note-defaults
 #import "tree.typ": tree_figure
 
 #show: thesis.with(
   title: "Comprehensive Guidelines and Templates for Thesis Writing",
-  abstract: [
+  summary: [
   ],
-  abstract_de: [
-  ],
+  // abstract_de: [
+  // ],
   acronyms: (
     "TUHH": ("Hamburg University of Technology"),
     "SOFA": ("Sequential Organ Failure Assessment"),
@@ -17,10 +17,10 @@
     "RL": ("Reinforcement Learning"),
   ),
   bibliography: bibliography("bibliography.bib"),
-  acknowledgements: [
-    This thesis was written with the help of many people.
-    I would like to thank all of them.
-  ],
+  // acknowledgements: [
+  //   This thesis was written with the help of many people.
+  //   I would like to thank all of them.
+  // ],
 )
 
 #let mean(f) =  $angle.l$ +  f + $angle.r$
@@ -165,7 +165,14 @@ septic $->$ desync $mean(dot(phi)^1_j)$ and $mean(dot(phi)^1_j)$
 
 For the cohort extraction and SOFA calculation I use @ricu and @yaib.
 The nice thing is we could interpret larger SOFA scores (> 3) as the vulnerable state introduced by @osc2.
-Increases in SOFA score $>=$ could then be used as definition for sepsis.
+Increases in SOFA score $>=2$ could then be used as definition for sepsis.
+
+#TODO[mapping not really clear, which metrics correspond to sofa/infection]
+#TODO[YAIB @yaib and other resources care about the "onset" of infection and sepsis @moor_review.
+For sepsis this isn't really problematic since we could use the "state transitions" as indicators.
+But for the suspected infection it is problematic, maybe use si_upr and si_lwr provided by @ricu (https://eth-mds.github.io/ricu/reference/label_si.html).
+These would be 48h - SI - 24h adapted from @sep3_assessment, maybe a bit too much.]
+
 
 = Introduction
 
