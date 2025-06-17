@@ -1,17 +1,19 @@
 import logging
 from functools import wraps
 from time import time
+from typing import Callable
 
 import equinox as eqx
 import jax
 import jax.numpy as jnp
 import numpy as np
 import optax
-from jaxtyping import Array, Float
+from jaxtyping import Array, Float, PyTree
 from torch.utils.tensorboard.writer import SummaryWriter
 
 from sepsis_osc.model.data_loading import data
 from sepsis_osc.model.vae import (
+    LATENT_DIM,
     Decoder,
     Encoder,
     get_pred_concepts,
@@ -19,10 +21,10 @@ from sepsis_osc.model.vae import (
     init_encoder_weights,
     load_checkpoint,
     save_checkpoint,
-    LATENT_DIM,
 )
 from sepsis_osc.simulation.data_classes import JAXLookup, SystemConfig
 from sepsis_osc.storage.storage_interface import Storage
+from sepsis_osc.utils.config import jax_random_seed
 from sepsis_osc.utils.jax_config import setup_jax
 from sepsis_osc.utils.logger import setup_logging
 
@@ -43,7 +45,7 @@ def timing(f):
     return wrap
 
 
-BATCH_SIZE = 256
+BATCH_SIZE = 128
 EPOCHS = 2000
 LOAD_FROM_CHECKPOINT = ""  # set load dir, e.g. "runs/..."
 LOAD_EPOCH = 0
@@ -52,15 +54,15 @@ SAVE_EVERY_EPOCH = 10
 
 
 # cosine decay
-LR_INIT = 5e-3
-LR_END = 1e-8
-LR_EPOCH_END = 50
+LR_INIT = 1e-3
+LR_END = 1e-5
+LR_EPOCH_END = 200
 ENC_WD = 1e-3
 
 ALPHA_SPACE, BETA_SPACE, SIGMA_SPACE = (-1.0, 1.0), (0.2, 1.5), (0.0, 1.5)
 
 
-def ordinal_logits(floats: Float[Array, "batch"], n_classes: int = 24) -> Float[Array, "batch n_classes_minus_1"]:
+def ordinal_logits(floats: Float[Array, "batch 1"], n_classes: int = 24) -> Float[Array, "batch n_classes_minus_1"]:
     thresholds = jnp.linspace(-2.5, 2.5, n_classes - 1)
     # [0, 1] -> [-2.5, 2.5]
     floats = 5.0 * (floats - 0.5)
@@ -72,35 +74,37 @@ def ordinal_logits(floats: Float[Array, "batch"], n_classes: int = 24) -> Float[
 # try
 # https://towardsdatascience.com/how-to-perform-ordinal-regression-classification-in-pytorch-361a2a095a99/
 def ordinal_loss(
-    predicted_sofa: Float[Array, "batch"], true_sofa: Float[Array, "batch"], n_classes: int = 24
-) -> Float[Array, ""]:
+    predicted_sofa: Float[Array, "batch 1"], true_sofa: Float[Array, "batch 1"], n_classes: int = 24
+) -> Float[Array, "batch 1"]:
     # https://arxiv.org/abs/1901.07884
     # CORN (Cumulative Ordinal Regression)
     logits = ordinal_logits(predicted_sofa, n_classes)  # [B, 23]
 
     targets = jnp.arange(n_classes - 1)  # [0, 1, ..., 22]
     true_sofa = true_sofa.squeeze()
-    true_ord_targets = (true_sofa[:, None] > targets[None, :]).astype(jnp.bool)  # [B, 23]
+    true_ord_targets = true_sofa[:, None] > targets[None, :]  # [B, 23]
     return jnp.mean(optax.sigmoid_binary_cross_entropy(logits, true_ord_targets))
 
 
-def binary_logits(probs: Float[Array, "batch"], eps: float = 1e-6) -> Float[Array, "batch"]:
+def binary_logits(probs: Float[Array, "batch 1"], eps: float = 1e-6) -> Float[Array, "batch 1"]:
     probs = jnp.clip(probs, eps, 1 - eps)
     return jnp.log(probs) - jnp.log1p(-probs)
 
 
-def binary_loss(predicted_infection: Float[Array, "batch"], true_infection: Float[Array, "batch"]) -> Float[Array, ""]:
+def binary_loss(
+    predicted_infection: Float[Array, "batch 1"], true_infection: Float[Array, "batch 1"]
+) -> Float[Array, "batch 1"]:
     logits = binary_logits(predicted_infection)
     return jnp.mean(optax.sigmoid_binary_cross_entropy(logits, true_infection))
 
 
 def calc_concept_loss(
     prediction: Float[Array, "batch 2"],
-    true_sofa: Float[Array, "batch"],
-    true_infection: Float[Array, "batch"],
+    true_sofa: Float[Array, "batch 1"],
+    true_infection: Float[Array, "batch 1"],
     alpha: float = 1.0,
     beta: float = 1.0,
-) -> Float[Array, ""]:
+) -> Float[Array, "batch 1"]:
     pred_sofa = prediction[:, 0]  # SOFA prediction
     pred_infection = prediction[:, 1]  # Infection prediction
 
@@ -129,7 +133,7 @@ def loss(
     *,
     key: jnp.ndarray,
     lookup_table: JAXLookup,
-    lambda1=1e2,
+    lambda1=1e3,
     lambda2=1e1,
 ) -> tuple[Array, dict[str, Array]]:
     aux_losses = {}
@@ -138,7 +142,7 @@ def loss(
     key, *drop_keys = jax.random.split(key, BATCH_SIZE + 1)
     drop_keys = jnp.array(drop_keys)
 
-    alpha, beta, sigma = jax.vmap(encoder)(x, key=drop_keys)
+    alpha, beta, sigma, lookup_temp = jax.vmap(encoder)(x, key=drop_keys)
     alpha = alpha * (ALPHA_SPACE[1] - ALPHA_SPACE[0]) + ALPHA_SPACE[0]
     beta = beta * (BETA_SPACE[1] - BETA_SPACE[0]) + BETA_SPACE[0]
     sigma = sigma * (SIGMA_SPACE[1] - SIGMA_SPACE[0]) + SIGMA_SPACE[0]
@@ -151,7 +155,11 @@ def loss(
     aux_losses["recon_loss"] = jnp.mean((x - x_recon) ** 2, axis=-1)
 
     nearest_metrics = SystemConfig.batch_as_index(alpha=alpha, beta=beta, sigma=sigma, C=0.2)
-    pred_concepts = get_pred_concepts(nearest_metrics, lookup_table)
+    pred_concepts = get_pred_concepts(
+        nearest_metrics,
+        temperatures=lookup_temp,
+        lookup_table=lookup_table,
+    )
     # TODO change, we actually want to predict both :^)
     aux_losses["concept_loss"] = calc_concept_loss(
         pred_concepts, true_concepts[:, 0], true_concepts[:, 1], alpha=1.0, beta=0.0
@@ -161,6 +169,7 @@ def loss(
         aux_losses["recon_loss"] + lambda1 * aux_losses["concept_loss"] + lambda2 + aux_losses["locality_loss"]
     )
 
+    aux_losses["lookup_temperature"] = lookup_temp.mean(axis=-1)
     aux_losses = jax.tree_util.tree_map(jnp.mean, aux_losses)
     return aux_losses["total_loss"], aux_losses
 
@@ -172,8 +181,8 @@ def step_model(
     models: tuple[Encoder, Decoder],
     opt_state_enc: optax.OptState,
     opt_state_dec: optax.OptState,
-    update_enc,
-    update_dec,
+    update_enc: Callable,
+    update_dec: Callable,
     *,
     key,
     lookup_table: JAXLookup,
@@ -197,64 +206,30 @@ def step_model(
     return (encoder, decoder), (opt_state_enc, opt_state_dec), (total_loss, aux_losses)
 
 
-def update_mean(m, M2, batch_size, total_count, values):
-    batch_mean = jnp.mean(values, axis=0) if values.ndim > 0 else values
-    delta = batch_mean - m
-    new_mean = m + delta * batch_size / total_count
-    return new_mean
-
-
-def update_M2(m, M2, batch_size, total_count, values):
-    batch_mean = jnp.mean(values, axis=0) if values.ndim > 0 else values
-    delta = batch_mean - m
-    batch_M2 = jnp.sum((values - batch_mean) ** 2, axis=0) if values.ndim > 0 else 0.0
-    mean_diff_contrib = delta**2 * (total_count - batch_size) * batch_size / total_count
-    new_M2 = M2 + batch_M2 + mean_diff_contrib
-    return new_M2
-
-
-def update_tree_stats(mean_tree, M2_tree, values_tree, count):
-    example_leaf = jax.tree_util.tree_leaves(values_tree)[0]
-    batch_size = example_leaf.shape[0] if example_leaf.ndim > 0 else 1
-    total_count = count + batch_size
-
-    new_means = jax.tree_util.tree_map(
-        lambda m, M2, v: update_mean(m, M2, batch_size, total_count, v), mean_tree, M2_tree, values_tree
-    )
-    new_M2s = jax.tree_util.tree_map(
-        lambda m, M2, v: update_M2(m, M2, batch_size, total_count, v), mean_tree, M2_tree, values_tree
-    )
-
-    return new_means, new_M2s, total_count
-
-
 @timing
 @eqx.filter_jit
 def process_train_epoch(
-    encoder,
-    decoder,
+    encoder: Encoder,
+    decoder: Decoder,
     opt_state_enc,
     opt_state_dec,
     x_data: Float[Array, "num_samples input_dim"],
     y_data: Float[Array, "num_samples 2"],
-    update_enc,
-    update_dec,
+    update_enc: Callable,
+    update_dec: Callable,
     *,
-    key,
+    key: jnp.ndarray,
     lookup_table: JAXLookup,
-):
+) -> tuple[PyTree, PyTree, optax.OptState, optax.OptState, dict[str, Float[Array, "nbatches"]], jnp.ndarray]:
     encoder_params, encoder_static = eqx.partition(encoder, eqx.is_inexact_array)
     decoder_params, decoder_static = eqx.partition(decoder, eqx.is_inexact_array)
 
-    key, init_key = jax.random.split(key)
-    _, initial_aux_losses = loss((encoder, decoder), x_data[0], y_data[0], key=init_key, lookup_table=lookup_table)
+    key, _ = jax.random.split(key)
 
-    running_means = jax.tree_util.tree_map(lambda x: jnp.zeros_like(x), initial_aux_losses)
-    running_M2s = jax.tree_util.tree_map(lambda x: jnp.zeros_like(x), initial_aux_losses)
-    running_count = jnp.array(0)
+    step_losses = []
 
     def scan_step(carry, batch):
-        (encoder_f, decoder_f), (opt_state_enc, opt_state_dec), running_means, running_M2s, running_count, key = carry
+        (encoder_f, decoder_f), (opt_state_enc, opt_state_dec), key = carry
         batch_x, batch_true_c = batch
 
         key, batch_key = jax.random.split(key)
@@ -262,7 +237,7 @@ def process_train_epoch(
         encoder_full = eqx.combine(encoder_f, encoder_static)
         decoder_full = eqx.combine(decoder_f, decoder_static)
 
-        (encoder_new, decoder_new), (opt_state_enc, opt_state_dec), losses = step_model(
+        (encoder_new, decoder_new), (opt_state_enc, opt_state_dec), (_, aux_losses) = step_model(
             batch_x,
             batch_true_c,
             (encoder_full, decoder_full),
@@ -274,72 +249,54 @@ def process_train_epoch(
             lookup_table=lookup_table,
         )
 
-        running_means, running_M2s, running_count = update_tree_stats(
-            running_means, running_M2s, losses[1], running_count
-        )
         encoder_f = eqx.filter(encoder_new, eqx.is_inexact_array)
         decoder_f = eqx.filter(decoder_new, eqx.is_inexact_array)
 
         return (
             (encoder_f, decoder_f),
             (opt_state_enc, opt_state_dec),
-            running_means,
-            running_M2s,
-            running_count,
             key,
-        ), None
+        ), aux_losses
 
     carry = (
         (encoder_params, decoder_params),
         (opt_state_enc, opt_state_dec),
-        running_means,
-        running_M2s,
-        running_count,
         key,
     )
     batches = (x_data, y_data)
-    carry, _ = jax.lax.scan(scan_step, carry, batches)
+    carry, step_losses = jax.lax.scan(scan_step, carry, batches)
 
-    (encoder_params, decoder_params), (opt_state_enc, opt_state_dec), running_means, running_M2s, running_count, key = (
-        carry
-    )
-    overall_mean_losses = jax.tree.map(lambda stat_mean: stat_mean, running_means)
-    overall_std_losses = jax.tree.map(lambda stat_M2: jnp.sqrt(jnp.maximum(stat_M2 / running_count, 0.0)), running_M2s)
+    (encoder_params, decoder_params), (opt_state_enc, opt_state_dec), key = carry
 
     return (
         encoder_params,
         decoder_params,
         opt_state_enc,
         opt_state_dec,
+        step_losses,
         key,
-        overall_mean_losses,
-        overall_std_losses,
     )
 
 
 @timing
 @eqx.filter_jit
 def process_val_epoch(
-    encoder,
-    decoder,
+    encoder: Encoder,
+    decoder: Decoder,
     x_data: Float[Array, "num_samples input_dim"],
     y_data: Float[Array, "num_samples 2"],
     *,
-    key,
+    key: jnp.ndarray,
     lookup_table: JAXLookup,
-):
+) -> tuple[jnp.ndarray, dict[str, Float[Array, "nbatches"]]]:
     encoder_params, encoder_static = eqx.partition(encoder, eqx.is_inexact_array)
     decoder_params, decoder_static = eqx.partition(decoder, eqx.is_inexact_array)
 
-    key, init_key = jax.random.split(key)
-    _, initial_aux_losses = loss((encoder, decoder), x_data[0], y_data[0], key=init_key, lookup_table=lookup_table)
-
-    running_means = jax.tree_util.tree_map(lambda x: jnp.zeros_like(x), initial_aux_losses)
-    running_M2s = jax.tree_util.tree_map(lambda x: jnp.zeros_like(x), initial_aux_losses)
-    running_count = jnp.array(0)
+    key, _ = jax.random.split(key)
+    step_losses = []
 
     def scan_step(carry, batch):
-        (encoder_f, decoder_f), running_means, running_M2s, running_count, key = carry
+        (encoder_f, decoder_f), key = carry
         batch_x, batch_true_c = batch
 
         key, batch_key = jax.random.split(key)
@@ -351,25 +308,15 @@ def process_val_epoch(
             (encoder_full, decoder_full), batch_x, batch_true_c, key=batch_key, lookup_table=lookup_table
         )
 
-        running_means, running_M2s, running_count = update_tree_stats(
-            running_means, running_M2s, aux_losses, running_count
-        )
+        return ((encoder_f, decoder_f), key), aux_losses
 
-        return ((encoder_f, decoder_f), running_means, running_M2s, running_count, key), None
-
-    carry = ((encoder_params, decoder_params), running_means, running_M2s, running_count, key)
+    carry = ((encoder_params, decoder_params), key)
     batches = (x_data, y_data)
-    carry, _ = jax.lax.scan(scan_step, carry, batches)
+    carry, step_losses = jax.lax.scan(scan_step, carry, batches)
 
-    (encoder_params, decoder_params), running_means, running_M2s, running_count, key = carry
-    overall_mean_losses = jax.tree.map(lambda stat_mean: stat_mean, running_means)
-    overall_std_losses = jax.tree.map(lambda stat_M2: jnp.sqrt(jnp.maximum(stat_M2 / running_count, 0.0)), running_M2s)
+    (encoder_params, decoder_params), key = carry
 
-    return (
-        key,
-        overall_mean_losses,
-        overall_std_losses,
-    )
+    return (key, step_losses)
 
 
 # === Data ===
@@ -430,7 +377,7 @@ indices, np_metrics = sim_storage.get_np_lookup()
 lookup_table = JAXLookup(metrics=np_metrics.to_jax(), indices=jnp.asarray(indices))
 
 # === Initialization ===
-key = jax.random.PRNGKey(0)
+key = jax.random.PRNGKey(jax_random_seed)
 key_enc, key_dec = jax.random.split(key)
 
 encoder = Encoder(key_enc)
@@ -480,50 +427,61 @@ if not all((params_enc, static_enc, params_dec, params_dec, opt_state_enc, opt_s
     opt_state_dec = opt_dec.init(params_dec)
 
 # === Training Loop ===
-
 writer = SummaryWriter()
 current_losses = {
     "total_loss": jnp.asarray(jnp.inf),
     "recon_loss": jnp.asarray(jnp.inf),
     "concept_loss": jnp.asarray(jnp.inf),
     "locality_loss": jnp.asarray(jnp.inf),
+    "lookup_temp": jnp.asarray(jnp.inf),
 }
 shuffle_val, key = jax.random.split(key, 2)
 val_x, val_y, nval_batches = prepare_batches(val_x, val_y, BATCH_SIZE, shuffle_val)
+
+key, _ = jax.random.split(key)
+key, val_step_losses = process_val_epoch(
+    encoder,
+    decoder,
+    x_data=val_x,
+    y_data=val_y,
+    key=key,
+    lookup_table=lookup_table,
+)
+for loss_name, loss_values in val_step_losses.items():
+    writer.add_scalar(f"val/{loss_name}_mean", np.asarray(loss_values.mean()), -1)
+    writer.add_scalar(f"val/{loss_name}_std", np.asarray(loss_values.std()), -1)
 for epoch in range(LOAD_EPOCH, EPOCHS):
-    shuffle_key, key = jax.random.split(key)
+    key, shuffle_key = jax.random.split(key)
     x_shuffled, y_shuffled, ntrain_batches = prepare_batches(train_x, train_y, BATCH_SIZE, shuffle_key)
 
-    params_enc, params_dec, opt_state_enc, opt_state_dec, key, epoch_mean_losses, epoch_std_losses = (
-        process_train_epoch(
-            encoder,
-            decoder,
-            opt_state_enc=opt_state_enc,
-            opt_state_dec=opt_state_dec,
-            x_data=x_shuffled,
-            y_data=y_shuffled,
-            update_enc=opt_enc.update,
-            update_dec=opt_dec.update,
-            key=key,
-            lookup_table=lookup_table,
-        )
+    params_enc, params_dec, opt_state_enc, opt_state_dec, train_step_losses, key = process_train_epoch(
+        encoder,
+        decoder,
+        opt_state_enc=opt_state_enc,
+        opt_state_dec=opt_state_dec,
+        x_data=x_shuffled,
+        y_data=y_shuffled,
+        update_enc=opt_enc.update,
+        update_dec=opt_dec.update,
+        key=key,
+        lookup_table=lookup_table,
     )
     encoder = eqx.combine(params_enc, static_enc)
     decoder = eqx.combine(params_dec, static_dec)
 
-    logger.info(
-        f"Epoch {epoch}: Training Metrics: "
-        f"Total Loss = {epoch_mean_losses['total_loss']:.4f}, "
-        f"Recon Loss = {epoch_mean_losses['recon_loss']:.4f}, "
-        f"Concept Loss = {epoch_mean_losses['concept_loss']:.4f}, "
-        f"Locality Loss = {epoch_mean_losses['locality_loss']:.4f}"
-    )
-    for loss_name, loss_value in epoch_mean_losses.items():
-        writer.add_scalar(f"train/{loss_name}_mean", np.asarray(loss_value), epoch)
+    samples_per_epoch = train_step_losses["total_loss"].shape[0]
+    log_msg = f"Epoch {epoch} Training  Metrics "
+    for loss_name, loss_values in train_step_losses.items():
+        log_msg += f"{loss_name} = {loss_values.mean():.4f} ({loss_values.std():.4f}), "
+        for step in range(samples_per_epoch)[::int(samples_per_epoch*0.5)]:
+            writer.add_scalar(
+                f"train/{loss_name}_step", np.asarray(loss_values[step]), epoch * samples_per_epoch + step
+            )
+    logger.info(log_msg)
     del x_shuffled, y_shuffled
 
     key, _ = jax.random.split(key)
-    key, val_mean_losses, val_std_losses = process_val_epoch(
+    key, val_step_losses = process_val_epoch(
         encoder,
         decoder,
         x_data=val_x,
@@ -531,18 +489,12 @@ for epoch in range(LOAD_EPOCH, EPOCHS):
         key=key,
         lookup_table=lookup_table,
     )
-    logger.warning(
-        f"Epoch {epoch}: Validation Metrics: "
-        f"Total Loss = {val_mean_losses['total_loss']:.4f} ({val_std_losses['total_loss']:.4f}), "
-        f"Recon Loss = {val_mean_losses['recon_loss']:.4f} ({val_std_losses['recon_loss']:.4f}), "
-        f"Concept Loss = {val_mean_losses['concept_loss']:.4f} ({val_std_losses['concept_loss']:.4f}), "
-        f"Locality Loss = {val_mean_losses['locality_loss']:.4f} ({val_std_losses['locality_loss']:.4f})"
-    )
-
-    for loss_name, loss_value in val_mean_losses.items():
-        writer.add_scalar(f"val/{loss_name}_mean", np.asarray(loss_value), epoch)
-    for loss_name, loss_value in val_std_losses.items():
-        writer.add_scalar(f"val/{loss_name}_std", np.asarray(loss_value), epoch)
+    log_msg = f"Epoch {epoch} Valdation Metrics "
+    for loss_name, loss_values in val_step_losses.items():
+        log_msg += f"{loss_name} = {loss_values.mean():.4f} ({loss_values.std():.4f}), "
+        writer.add_scalar(f"val/{loss_name}_mean", np.asarray(loss_values.mean()), epoch)
+        writer.add_scalar(f"val/{loss_name}_std", np.asarray(loss_values.std()), epoch)
+    logger.warning(log_msg)
     writer.add_scalar("lr/learning_rate", np.asarray(schedule(epoch * train_x.shape[0])), epoch)
 
     # --- Save checkpoint ---
