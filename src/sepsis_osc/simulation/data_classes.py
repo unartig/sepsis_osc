@@ -1,14 +1,14 @@
 from dataclasses import dataclass, fields
 from typing import Optional
 
-from equinox import filter_jit
 import jax
 import jax.numpy as jnp
 import jax.tree_util as jtu
 import numpy as np
+from equinox import filter_jit, static_field
 from jaxtyping import Array, Float
-from scipy.ndimage import uniform_filter1d
 from numpy.typing import DTypeLike
+from scipy.ndimage import uniform_filter1d
 
 
 @dataclass
@@ -136,11 +136,7 @@ class SystemState:
         return self
 
     def last(self) -> "SystemState":
-        self.phi_1 = self.phi_1[-1]
-        self.phi_2 = self.phi_2[-1]
-        self.kappa_1 = self.kappa_1[-1]
-        self.kappa_2 = self.kappa_2[-1]
-        return self
+        return jax.tree.map(lambda x: x[-1], self)
 
     def squeeze(self) -> "SystemState":
         # when running with ensemble size 1, we want to get rid of the ensemble dimension
@@ -151,27 +147,18 @@ class SystemState:
         return self
 
     def astype(self, dtype: jnp.dtype = jnp.float64) -> "SystemState":
-        return SystemState(
-            phi_1=self.phi_1.astype(dtype),
-            phi_2=self.phi_2.astype(dtype),
-            kappa_1=self.kappa_1.astype(dtype),
-            kappa_2=self.kappa_2.astype(dtype),
-        )
+        return jax.tree.map(lambda x: x.astype(dtype), self)
 
     def remove_infs(self) -> "SystemState":
-        self.phi_1 = self.phi_1[~jnp.isinf(self.phi_1).any(axis=1)]
-        self.phi_2 = self.phi_2[~jnp.isinf(self.phi_2).any(axis=1)]
-        self.kappa_1 = self.kappa_1[~jnp.isinf(self.kappa_1).any(axis=(1, 2))]
-        self.kappa_2 = self.kappa_2[~jnp.isinf(self.kappa_2).any(axis=(1, 2))]
-        return self
+        phi_1_has_inf = jnp.isinf(self.phi_1).any(axis=(1, 2))
+        phi_2_has_inf = jnp.isinf(self.phi_2).any(axis=(1, 2))
+        kappa_1_has_inf = jnp.isinf(self.kappa_1).any(axis=(1, 2, 3))
+        kappa_2_has_inf = jnp.isinf(self.kappa_2).any(axis=(1, 2, 3))
+        combined_mask = ~(phi_1_has_inf | phi_2_has_inf | kappa_1_has_inf | kappa_2_has_inf)
+        return jax.tree.map(lambda x: x[combined_mask], self)
 
     def copy(self) -> "SystemState":
-        return SystemState(
-            jnp.asarray(self.phi_1).copy(),
-            jnp.asarray(self.phi_2).copy(),
-            jnp.asarray(self.kappa_1).copy(),
-            jnp.asarray(self.kappa_2).copy(),
-        )
+        return SystemState(self.phi_1, self.phi_2, self.kappa_1, self.kappa_2)
 
 
 # Register SystemState as a JAX PyTree
@@ -203,59 +190,24 @@ class SystemMetrics:
 
     @property
     def shape(self):
-        return (
-            self.r_1.shape,
-            self.r_2.shape,
-            self.m_1.shape,
-            self.m_2.shape,
-            self.s_1.shape,
-            self.s_2.shape,
-            self.q_1.shape,
-            self.q_2.shape,
-            self.f_1.shape,
-            self.f_2.shape,
-            self.sr_1.shape if self.sr_1 is not None else None,
-            self.sr_2.shape if self.sr_2 is not None else None,
-            self.tt.shape if self.tt is not None else None,
+        return jax.tree.map(
+            lambda x: x.shape if x is not None else None,
+            self.__dict__
         )
 
     def tree_flatten(self):
-        return (
-            self.r_1,
-            self.r_2,
-            self.m_1,
-            self.m_2,
-            self.s_1,
-            self.s_2,
-            self.q_1,
-            self.q_2,
-            self.f_1,
-            self.f_2,
-            self.sr_1 if self.sr_1 is not None else None,
-            self.sr_2 if self.sr_2 is not None else None,
-            self.tt if self.tt is not None else None,
-        ), None
+        flat_children = []
+        for field_name in [f.name for f in fields(self)]:
+            value = getattr(self, field_name)
+            flat_children.append(value)
+        return flat_children, None
 
     @classmethod
     def tree_unflatten(cls, aux_data, children):
         return cls(*children)
 
     def copy(self) -> "SystemMetrics":
-        return SystemMetrics(
-            r_1=jnp.asarray(self.r_1).copy(),
-            r_2=jnp.asarray(self.r_2).copy(),
-            m_1=jnp.asarray(self.m_1).copy(),
-            m_2=jnp.asarray(self.m_2).copy(),
-            s_1=jnp.asarray(self.s_1).copy(),
-            s_2=jnp.asarray(self.s_2).copy(),
-            q_1=jnp.asarray(self.q_1).copy(),
-            q_2=jnp.asarray(self.q_2).copy(),
-            f_1=jnp.asarray(self.f_1).copy(),
-            f_2=jnp.asarray(self.f_2).copy(),
-            sr_1=jnp.asarray(self.sr_1).copy() if self.sr_1 is not None else None,
-            sr_2=jnp.asarray(self.sr_2).copy() if self.sr_1 is not None else None,
-            tt=jnp.asarray(self.tt).copy() if self.tt is not None else None,
-        )
+        return SystemMetrics(**{f.name: getattr(self, f.name) for f in fields(self)})
 
     def add_follow_ups(self) -> "SystemMetrics":
         if self.sr_1 is None and self.r_1.size > 1:
@@ -294,41 +246,25 @@ class SystemMetrics:
 
     @staticmethod
     def np_empty(shape: tuple[int, ...], dtype: DTypeLike = np.float32) -> "SystemMetrics":
-        return SystemMetrics(
-            r_1=np.zeros(shape, dtype=dtype),
-            r_2=np.zeros(shape, dtype=dtype),
-            m_1=np.zeros(shape, dtype=dtype),
-            m_2=np.zeros(shape, dtype=dtype),
-            s_1=np.zeros(shape, dtype=dtype),
-            s_2=np.zeros(shape, dtype=dtype),
-            q_1=np.zeros(shape, dtype=dtype),
-            q_2=np.zeros(shape, dtype=dtype),
-            f_1=np.zeros(shape, dtype=dtype),
-            f_2=np.zeros(shape, dtype=dtype),
-            sr_1=np.zeros(shape, dtype=dtype),
-            sr_2=np.zeros(shape, dtype=dtype),
-            tt=np.zeros(shape, dtype=dtype),
-        )
+        initialized_fields = {}
+        for f in fields(SystemMetrics):
+            if f.name in ["sr_1", "sr_2", "tt"]:
+                initialized_fields[f.name] = None
+            else:
+                initialized_fields[f.name] = np.zeros(shape, dtype=dtype)
+        return SystemMetrics(**initialized_fields)
 
     def to_jax(self) -> "SystemMetrics":
-        converted = {}
-        for f in fields(self):
-            val = getattr(self, f.name)
-            if val is not None:
-                converted[f.name] = jnp.asarray(val)
-            else:
-                converted[f.name] = None
-        return SystemMetrics(**converted)
+        return jax.tree.map(
+            lambda x: jnp.asarray(x) if x is not None else None,
+            self
+        )
 
     def astype(self, dtype: jnp.dtype = jnp.float32) -> "SystemMetrics":
-        converted = {}
-        for f in fields(self):
-            val = getattr(self, f.name)
-            if val is not None:
-                converted[f.name] = jnp.astype(val, dtype)
-            else:
-                converted[f.name] = None
-        return SystemMetrics(**converted)
+        return jax.tree.map(
+            lambda x: x.astype(dtype) if x is not None else None,
+            self
+        )
 
 
 jtu.register_pytree_node(SystemMetrics, SystemMetrics.tree_flatten, SystemMetrics.tree_unflatten)
@@ -336,8 +272,18 @@ jtu.register_pytree_node(SystemMetrics, SystemMetrics.tree_flatten, SystemMetric
 
 @dataclass(frozen=True)
 class JAXLookup:
-    metrics: SystemMetrics
-    indices: Float[Array, "db_size 9"]
+    metrics: SystemMetrics = static_field()
+    indices: Float[Array, "db_size 9"] = static_field()
+    relevant_metrics: Float[Array, "db_size 3"] = static_field()
+
+    def __init__(self, metrics: SystemMetrics, indices: Float[Array, "db_size 9"]):
+        object.__setattr__(self, "metrics", metrics)
+        object.__setattr__(self, "indices", indices)
+        object.__setattr__(
+            self,
+            "relevant_metrics",
+            jnp.stack([self.metrics.f_1, self.metrics.sr_2, self.metrics.f_2], axis=-1).reshape(-1, 3),  # type: ignore
+        )  # shape: (N, 3)
 
     def tree_flatten(self):
         return (self.metrics, self.indices), None
@@ -347,51 +293,80 @@ class JAXLookup:
         return cls(*children)
 
     @filter_jit
-    def get(
+    def hard_get(
         self,
-        query_vectors: Float[Array, "batch_size latent_dim"],
-        threshold: float = jnp.inf,
-        dtype: jnp.dtype = jnp.float32,
-    ) -> SystemMetrics:
-        # alpha beta sigma
-        diff = query_vectors[:, None, :] - self.indices[None, :, :]  # (batch_size, db_size, latent_dim)
-        squared_distances = jnp.sum(diff**2, axis=-1)  # (batch_size, num_faiss_vectors)
+        query_vectors: Float[Array, "batch latent"],
+        temperatures,  # placeholder to make compatible with soft get
+    ) -> Float[Array, "batch 2"]:
+        query_vectors = jax.lax.stop_gradient(query_vectors)
+        q_norm = jnp.sum(query_vectors**2, axis=-1, keepdims=True)
+        i_norm = jnp.sum(self.indices**2, axis=-1, keepdims=True).T
+        dot_prod = query_vectors @ self.indices.T
+        squared_distances = q_norm + i_norm - 2 * dot_prod
 
         # nearest neighbour lookup
-        min_distances, min_indices = jax.lax.top_k(-squared_distances, k=1)  # top_k for min_indices and min_distances
-        min_indices = min_indices.squeeze(axis=-1)  # (batch_size,)
-        min_distances = -min_distances.squeeze(axis=-1)  # (batch_size,)
+        min_indices = jnp.argmin(squared_distances, axis=-1)
+        # min_indices = min_indices.squeeze(axis=-1)
 
-        valid_mask = min_distances <= threshold  # (batch_size,)
+        pred_c = jnp.stack(
+            [
+                self.relevant_metrics[min_indices, 0],  # f_1
+                jnp.clip(
+                    self.relevant_metrics[min_indices, 1] + self.relevant_metrics[min_indices, 2], 0, 1
+                ),  # sr_2 + f_2
+            ],
+            axis=-1,
+        ).reshape(-1, 2)
 
-        retrieved_metrics = jax.tree_util.tree_map(lambda x: jnp.take(x, min_indices, axis=0), self.metrics)
-
-        masked_metrics = jax.tree_util.tree_map(
-            lambda x: jnp.where(valid_mask[:, None], x, jnp.array(0.0, dtype=x.dtype)), retrieved_metrics
-        )
-
-        return masked_metrics.astype(dtype)
+        return pred_c
 
     @filter_jit
-    def soft_get(
+    def soft_get_full(
         self,
-        query_vectors: Float[Array, "batch_size latent_dim"],
-        temperature: float = 1.0,
-        dtype: jnp.dtype = jnp.float16,  #  squared matrix is too mem intensive
-        return_dtype: jnp.dtype = jnp.float32,
-    ) -> SystemMetrics:
-        diff = (query_vectors[:, None, :] - self.indices[None, :, :]).astype(dtype)  # (batch_size, db_size, latent_dim)
-        squared_distances = jnp.sum(diff**2, axis=-1)  # (batch_size, num_faiss_vectors)
+        query_vectors: Float[Array, "batch latent"],
+        temperatures: Float[Array, "batch 1"],
+    ) -> Float[Array, "batch 2"]:
+        q_norm = jnp.sum(query_vectors**2, axis=-1, keepdims=True)
+        i_norm = jnp.sum(self.indices**2, axis=-1, keepdims=True).T
+        dot_prod = query_vectors @ self.indices.T
+        squared_distances = q_norm + i_norm - 2 * dot_prod
 
-        # softmin over distances
-        weights = jax.nn.softmax(-squared_distances / temperature, axis=-1)  # (batch_size, num_faiss_vectors)
+        weights = jax.nn.softmax(-squared_distances / temperatures, axis=-1)  # (B, N)
+        weighted_metrics = jnp.einsum("bn,nm->bm", weights, self.relevant_metrics)
 
-        def weighted_sum(x):
-            return jnp.matmul(weights, x)
+        pred_c = jnp.stack(
+            [
+                weighted_metrics[:, 0],  # f_1
+                jnp.clip(weighted_metrics[:, 1] + weighted_metrics[:, 2], 0, 1),  # sr_2 + f_2
+            ],
+            axis=-1,
+        )
 
-        retrieved_metrics = jax.tree_util.tree_map(weighted_sum, self.metrics)
+        return pred_c
 
-        return retrieved_metrics.astype(return_dtype)
+    @filter_jit
+    def soft_get_k(
+        self, query_vectors: Float[Array, "batch latent"], temperatures: Float[Array, "batch 1"], k: int = 9
+    ) -> Float[Array, "batch 2"]:
+        q_norm = jnp.sum(query_vectors**2, axis=-1, keepdims=True)
+        i_norm = jnp.sum(self.indices**2, axis=-1, keepdims=True).T
+        dot_prod = query_vectors @ self.indices.T
+        squared_distances = q_norm + i_norm - 2 * dot_prod
+
+        min_distances, min_indices = jax.lax.top_k(-squared_distances, k=k)
+
+        weights = jax.nn.softmax(-min_distances / temperatures, axis=-1)  # (B, N)
+        weighted_metrics = jnp.einsum("bk,bkm->bm", weights, self.relevant_metrics[min_indices])
+
+        pred_c = jnp.stack(
+            [
+                weighted_metrics[:, 0],  # f_1
+                jnp.clip(weighted_metrics[:, 1] + weighted_metrics[:, 2], 0, 1),  # sr_2 + f_2
+            ],
+            axis=-1,
+        )
+
+        return pred_c
 
 
 jtu.register_pytree_node(JAXLookup, JAXLookup.tree_flatten, JAXLookup.tree_unflatten)
