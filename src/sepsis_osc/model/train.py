@@ -5,14 +5,15 @@ from typing import Callable
 
 import equinox as eqx
 import jax
-import jax.random as jr
 import jax.numpy as jnp
+import jax.random as jr
 import numpy as np
 import optax
 from jaxtyping import Array, Float, PyTree
 from torch.utils.tensorboard.writer import SummaryWriter
 
 from sepsis_osc.model.data_loading import data
+from sepsis_osc.model.model_utils import load_checkpoint, prepare_batches, save_checkpoint
 from sepsis_osc.model.vae import (
     LATENT_DIM,
     Decoder,
@@ -20,8 +21,6 @@ from sepsis_osc.model.vae import (
     get_pred_concepts,
     init_decoder_weights,
     init_encoder_weights,
-    load_checkpoint,
-    save_checkpoint,
 )
 from sepsis_osc.simulation.data_classes import JAXLookup, SystemConfig
 from sepsis_osc.storage.storage_interface import Storage
@@ -321,32 +320,6 @@ def process_val_epoch(
 
 
 # === Data ===
-def prepare_batches(
-    x_data: Float[Array, "num_samples dim"],
-    y_data: Float[Array, "num_samples dim"],
-    batch_size: int,
-    key,
-) -> tuple[Float[Array, "num_batches batch_size dim"], Float[Array, "num_batches batch_size dim"], int]:
-    num_samples = x_data.shape[0]
-    num_features = x_data.shape[1]
-
-    # Shuffle data
-    perm = jr.permutation(key, num_samples)
-    x_shuffled = x_data[perm]
-    y_shuffled = y_data[perm]
-
-    # Ensure full batches only
-    num_full_batches = num_samples // batch_size
-    x_truncated = x_shuffled[: num_full_batches * batch_size]
-    y_truncated = y_shuffled[: num_full_batches * batch_size]
-
-    # Reshape into batches
-    x_batched = x_truncated.reshape(num_full_batches, batch_size, num_features)
-    y_batched = y_truncated.reshape(num_full_batches, batch_size, 2)
-
-    return x_batched, y_batched, num_full_batches
-
-
 train_y, train_x, val_y, val_x, test_y, test_x = [
     jnp.array(
         v.drop([
@@ -380,13 +353,20 @@ lookup_table = JAXLookup(metrics=np_metrics.to_jax(), indices=jnp.asarray(indice
 # === Initialization ===
 key = jr.PRNGKey(jax_random_seed)
 key_enc, key_dec = jr.split(key)
-
 encoder = Encoder(key_enc)
 decoder = Decoder(key_dec)
 
-key_enc_init, key_dec_init = jr.split(key, 2)
-encoder = init_encoder_weights(encoder, key_enc_init)
-decoder = init_decoder_weights(decoder, key_dec_init)
+schedule = optax.cosine_decay_schedule(
+    init_value=LR_INIT,
+    decay_steps=int(LR_EPOCH_END * (train_x.shape[0] // BATCH_SIZE) * BATCH_SIZE),
+    alpha=LR_END / LR_INIT,
+)
+opt_enc = optax.flatten(optax.adamw(schedule, weight_decay=ENC_WD))
+opt_dec = optax.flatten(optax.adamw(LR_INIT))
+
+key_enc_weights, key_dec_weights = jr.split(key, 2)
+encoder = init_encoder_weights(encoder, key_enc_weights)
+decoder = init_decoder_weights(decoder, key_dec_weights)
 
 hyper_enc = {
     "input_dim": encoder.input_dim,
@@ -399,33 +379,22 @@ hyper_dec = {
     "latent_dim": decoder.latent_dim,
     "dec_hidden": decoder.dec_hidden,
 }
-
-
-schedule = optax.cosine_decay_schedule(
-    init_value=LR_INIT,
-    decay_steps=int(LR_EPOCH_END * (train_x.shape[0] // BATCH_SIZE) * BATCH_SIZE),
-    alpha=LR_END / LR_INIT,
-)
-opt_enc = optax.flatten(optax.adamw(schedule, weight_decay=ENC_WD))
-opt_dec = optax.flatten(optax.adamw(LR_INIT))
-
-params_enc, static_enc, params_dec, static_dec, opt_state_enc, opt_state_dec = None, None, None, None, None, None
+params_enc, static_enc = eqx.partition(encoder, eqx.is_inexact_array)
+params_dec, static_dec = eqx.partition(decoder, eqx.is_inexact_array)
+opt_state_enc = opt_enc.init(params_enc)
+opt_state_dec = opt_dec.init(params_dec)
 if LOAD_FROM_CHECKPOINT:
     try:
         params_enc, static_enc, params_dec, static_dec, opt_state_enc, opt_state_dec = load_checkpoint(
             LOAD_FROM_CHECKPOINT + "/checkpoints", LOAD_EPOCH, opt_enc, opt_dec
         )
         initial_epoch = LOAD_EPOCH + 1
+        encoder= eqx.combine(params_enc, static_enc)
+        decoder= eqx.combine(params_dec, static_dec)
         logger.info(f"Resuming training from epoch {initial_epoch}")
     except FileNotFoundError as e:
         logger.error(f"Error loading checkpoint: {e}. Starting training from scratch.")
         LOAD_FROM_CHECKPOINT = ""
-if not all((params_enc, static_enc, params_dec, params_dec, opt_state_enc, opt_state_dec)):
-    logger.info("Instantiating new models")
-    params_enc, static_enc = eqx.partition(encoder, eqx.is_inexact_array)
-    params_dec, static_dec = eqx.partition(decoder, eqx.is_inexact_array)
-    opt_state_enc = opt_enc.init(params_enc)
-    opt_state_dec = opt_dec.init(params_dec)
 
 # === Training Loop ===
 writer = SummaryWriter()
@@ -438,19 +407,6 @@ current_losses = {
 }
 shuffle_val, key = jr.split(key, 2)
 val_x, val_y, nval_batches = prepare_batches(val_x, val_y, BATCH_SIZE, shuffle_val)
-
-key, _ = jr.split(key)
-key, val_step_losses = process_val_epoch(
-    encoder,
-    decoder,
-    x_data=val_x,
-    y_data=val_y,
-    key=key,
-    lookup_table=lookup_table,
-)
-for loss_name, loss_values in val_step_losses.items():
-    writer.add_scalar(f"val/{loss_name}_mean", np.asarray(loss_values.mean()), -1)
-    writer.add_scalar(f"val/{loss_name}_std", np.asarray(loss_values.std()), -1)
 for epoch in range(LOAD_EPOCH, EPOCHS):
     key, shuffle_key = jr.split(key)
     x_shuffled, y_shuffled, ntrain_batches = prepare_batches(train_x, train_y, BATCH_SIZE, shuffle_key)
@@ -474,7 +430,7 @@ for epoch in range(LOAD_EPOCH, EPOCHS):
     log_msg = f"Epoch {epoch} Training  Metrics "
     for loss_name, loss_values in train_step_losses.items():
         log_msg += f"{loss_name} = {loss_values.mean():.4f} ({loss_values.std():.4f}), "
-        for step in range(samples_per_epoch)[::int(samples_per_epoch*0.5)]:
+        for step in range(samples_per_epoch)[:: int(samples_per_epoch * 0.5)]:
             writer.add_scalar(
                 f"train/{loss_name}_step", np.asarray(loss_values[step]), epoch * samples_per_epoch + step
             )
