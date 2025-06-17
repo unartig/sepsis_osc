@@ -5,6 +5,7 @@ from typing import Callable
 
 import equinox as eqx
 import jax
+import jax.random as jr
 import jax.numpy as jnp
 import numpy as np
 import optax
@@ -139,7 +140,7 @@ def loss(
     aux_losses = {}
     encoder, decoder = models
 
-    key, *drop_keys = jax.random.split(key, BATCH_SIZE + 1)
+    key, *drop_keys = jr.split(key, BATCH_SIZE + 1)
     drop_keys = jnp.array(drop_keys)
 
     alpha, beta, sigma, lookup_temp = jax.vmap(encoder)(x, key=drop_keys)
@@ -224,7 +225,7 @@ def process_train_epoch(
     encoder_params, encoder_static = eqx.partition(encoder, eqx.is_inexact_array)
     decoder_params, decoder_static = eqx.partition(decoder, eqx.is_inexact_array)
 
-    key, _ = jax.random.split(key)
+    key, _ = jr.split(key)
 
     step_losses = []
 
@@ -232,7 +233,7 @@ def process_train_epoch(
         (encoder_f, decoder_f), (opt_state_enc, opt_state_dec), key = carry
         batch_x, batch_true_c = batch
 
-        key, batch_key = jax.random.split(key)
+        key, batch_key = jr.split(key)
 
         encoder_full = eqx.combine(encoder_f, encoder_static)
         decoder_full = eqx.combine(decoder_f, decoder_static)
@@ -292,14 +293,14 @@ def process_val_epoch(
     encoder_params, encoder_static = eqx.partition(encoder, eqx.is_inexact_array)
     decoder_params, decoder_static = eqx.partition(decoder, eqx.is_inexact_array)
 
-    key, _ = jax.random.split(key)
+    key, _ = jr.split(key)
     step_losses = []
 
     def scan_step(carry, batch):
         (encoder_f, decoder_f), key = carry
         batch_x, batch_true_c = batch
 
-        key, batch_key = jax.random.split(key)
+        key, batch_key = jr.split(key)
 
         encoder_full = eqx.combine(encoder_f, encoder_static)
         decoder_full = eqx.combine(decoder_f, decoder_static)
@@ -330,7 +331,7 @@ def prepare_batches(
     num_features = x_data.shape[1]
 
     # Shuffle data
-    perm = jax.random.permutation(key, num_samples)
+    perm = jr.permutation(key, num_samples)
     x_shuffled = x_data[perm]
     y_shuffled = y_data[perm]
 
@@ -377,13 +378,13 @@ indices, np_metrics = sim_storage.get_np_lookup()
 lookup_table = JAXLookup(metrics=np_metrics.to_jax(), indices=jnp.asarray(indices))
 
 # === Initialization ===
-key = jax.random.PRNGKey(jax_random_seed)
-key_enc, key_dec = jax.random.split(key)
+key = jr.PRNGKey(jax_random_seed)
+key_enc, key_dec = jr.split(key)
 
 encoder = Encoder(key_enc)
 decoder = Decoder(key_dec)
 
-key_enc_init, key_dec_init = jax.random.split(key, 2)
+key_enc_init, key_dec_init = jr.split(key, 2)
 encoder = init_encoder_weights(encoder, key_enc_init)
 decoder = init_decoder_weights(decoder, key_dec_init)
 
@@ -435,10 +436,10 @@ current_losses = {
     "locality_loss": jnp.asarray(jnp.inf),
     "lookup_temp": jnp.asarray(jnp.inf),
 }
-shuffle_val, key = jax.random.split(key, 2)
+shuffle_val, key = jr.split(key, 2)
 val_x, val_y, nval_batches = prepare_batches(val_x, val_y, BATCH_SIZE, shuffle_val)
 
-key, _ = jax.random.split(key)
+key, _ = jr.split(key)
 key, val_step_losses = process_val_epoch(
     encoder,
     decoder,
@@ -451,7 +452,7 @@ for loss_name, loss_values in val_step_losses.items():
     writer.add_scalar(f"val/{loss_name}_mean", np.asarray(loss_values.mean()), -1)
     writer.add_scalar(f"val/{loss_name}_std", np.asarray(loss_values.std()), -1)
 for epoch in range(LOAD_EPOCH, EPOCHS):
-    key, shuffle_key = jax.random.split(key)
+    key, shuffle_key = jr.split(key)
     x_shuffled, y_shuffled, ntrain_batches = prepare_batches(train_x, train_y, BATCH_SIZE, shuffle_key)
 
     params_enc, params_dec, opt_state_enc, opt_state_dec, train_step_losses, key = process_train_epoch(
@@ -480,7 +481,7 @@ for epoch in range(LOAD_EPOCH, EPOCHS):
     logger.info(log_msg)
     del x_shuffled, y_shuffled
 
-    key, _ = jax.random.split(key)
+    key, _ = jr.split(key)
     key, val_step_losses = process_val_epoch(
         encoder,
         decoder,
