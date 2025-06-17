@@ -318,155 +318,155 @@ def process_val_epoch(
 
     return (key, step_losses)
 
-
-# === Data ===
-train_y, train_x, val_y, val_x, test_y, test_x = [
-    jnp.array(
-        v.drop([
-            col
-            for col in v.columns
-            if col.startswith("Missing") or col in {"stay_id", "time", "sep3_alt", "__index_level_0__", "los_icu"}
-        ]),
-        dtype=jnp.float32,
-    )
-    for inner in data.values()
-    for v in inner.values()
-]
-
-logger.info(f"Train shape      - X {train_y.shape}, Y {train_x.shape}")
-logger.info(f"Validation shape - X {val_y.shape},  Y {val_x.shape}")
-logger.info(f"Test shape       - X {test_y.shape},  Y {test_x.shape}")
-
-# train_x = train_x[: 1000 * BATCH_SIZE]
-# train_y = train_y[: 1000 * BATCH_SIZE]
-
-db_str = "Daisy"
-sim_storage = Storage(
-    key_dim=9,
-    metrics_kv_name=f"data/{db_str}SepsisMetrics.db/",
-    parameter_k_name=f"data/{db_str}SepsisParameters_index.bin",
-    use_mem_cache=True,
-)
-indices, np_metrics = sim_storage.get_np_lookup()
-lookup_table = JAXLookup(metrics=np_metrics.to_jax(), indices=jnp.asarray(indices))
-
-# === Initialization ===
-key = jr.PRNGKey(jax_random_seed)
-key_enc, key_dec = jr.split(key)
-encoder = Encoder(key_enc)
-decoder = Decoder(key_dec)
-
-schedule = optax.cosine_decay_schedule(
-    init_value=LR_INIT,
-    decay_steps=int(LR_EPOCH_END * (train_x.shape[0] // BATCH_SIZE) * BATCH_SIZE),
-    alpha=LR_END / LR_INIT,
-)
-opt_enc = optax.flatten(optax.adamw(schedule, weight_decay=ENC_WD))
-opt_dec = optax.flatten(optax.adamw(LR_INIT))
-
-key_enc_weights, key_dec_weights = jr.split(key, 2)
-encoder = init_encoder_weights(encoder, key_enc_weights)
-decoder = init_decoder_weights(decoder, key_dec_weights)
-
-hyper_enc = {
-    "input_dim": encoder.input_dim,
-    "latent_dim": encoder.latent_dim,
-    "enc_hidden": encoder.enc_hidden,
-    "dropout_rate": encoder.dropout_rate,
-}
-hyper_dec = {
-    "input_dim": decoder.input_dim,
-    "latent_dim": decoder.latent_dim,
-    "dec_hidden": decoder.dec_hidden,
-}
-params_enc, static_enc = eqx.partition(encoder, eqx.is_inexact_array)
-params_dec, static_dec = eqx.partition(decoder, eqx.is_inexact_array)
-opt_state_enc = opt_enc.init(params_enc)
-opt_state_dec = opt_dec.init(params_dec)
-if LOAD_FROM_CHECKPOINT:
-    try:
-        params_enc, static_enc, params_dec, static_dec, opt_state_enc, opt_state_dec = load_checkpoint(
-            LOAD_FROM_CHECKPOINT + "/checkpoints", LOAD_EPOCH, opt_enc, opt_dec
+if __name__ == "__main__":
+    # === Data ===
+    train_y, train_x, val_y, val_x, test_y, test_x = [
+        jnp.array(
+            v.drop([
+                col
+                for col in v.columns
+                if col.startswith("Missing") or col in {"stay_id", "time", "sep3_alt", "__index_level_0__", "los_icu"}
+            ]),
+            dtype=jnp.float32,
         )
-        initial_epoch = LOAD_EPOCH + 1
-        encoder= eqx.combine(params_enc, static_enc)
-        decoder= eqx.combine(params_dec, static_dec)
-        logger.info(f"Resuming training from epoch {initial_epoch}")
-    except FileNotFoundError as e:
-        logger.error(f"Error loading checkpoint: {e}. Starting training from scratch.")
-        LOAD_FROM_CHECKPOINT = ""
+        for inner in data.values()
+        for v in inner.values()
+    ]
 
-# === Training Loop ===
-writer = SummaryWriter()
-current_losses = {
-    "total_loss": jnp.asarray(jnp.inf),
-    "recon_loss": jnp.asarray(jnp.inf),
-    "concept_loss": jnp.asarray(jnp.inf),
-    "locality_loss": jnp.asarray(jnp.inf),
-    "lookup_temp": jnp.asarray(jnp.inf),
-}
-shuffle_val, key = jr.split(key, 2)
-val_x, val_y, nval_batches = prepare_batches(val_x, val_y, BATCH_SIZE, shuffle_val)
-for epoch in range(LOAD_EPOCH, EPOCHS):
-    key, shuffle_key = jr.split(key)
-    x_shuffled, y_shuffled, ntrain_batches = prepare_batches(train_x, train_y, BATCH_SIZE, shuffle_key)
+    logger.info(f"Train shape      - X {train_y.shape}, Y {train_x.shape}")
+    logger.info(f"Validation shape - X {val_y.shape},  Y {val_x.shape}")
+    logger.info(f"Test shape       - X {test_y.shape},  Y {test_x.shape}")
 
-    params_enc, params_dec, opt_state_enc, opt_state_dec, train_step_losses, key = process_train_epoch(
-        encoder,
-        decoder,
-        opt_state_enc=opt_state_enc,
-        opt_state_dec=opt_state_dec,
-        x_data=x_shuffled,
-        y_data=y_shuffled,
-        update_enc=opt_enc.update,
-        update_dec=opt_dec.update,
-        key=key,
-        lookup_table=lookup_table,
+    # train_x = train_x[: 1000 * BATCH_SIZE]
+    # train_y = train_y[: 1000 * BATCH_SIZE]
+
+    db_str = "Daisy"
+    sim_storage = Storage(
+        key_dim=9,
+        metrics_kv_name=f"data/{db_str}SepsisMetrics.db/",
+        parameter_k_name=f"data/{db_str}SepsisParameters_index.bin",
+        use_mem_cache=True,
     )
-    encoder = eqx.combine(params_enc, static_enc)
-    decoder = eqx.combine(params_dec, static_dec)
+    indices, np_metrics = sim_storage.get_np_lookup()
+    lookup_table = JAXLookup(metrics=np_metrics.to_jax(), indices=jnp.asarray(indices))
 
-    samples_per_epoch = train_step_losses["total_loss"].shape[0]
-    log_msg = f"Epoch {epoch} Training  Metrics "
-    for loss_name, loss_values in train_step_losses.items():
-        log_msg += f"{loss_name} = {loss_values.mean():.4f} ({loss_values.std():.4f}), "
-        for step in range(samples_per_epoch)[:: int(samples_per_epoch * 0.5)]:
-            writer.add_scalar(
-                f"train/{loss_name}_step", np.asarray(loss_values[step]), epoch * samples_per_epoch + step
+    # === Initialization ===
+    key = jr.PRNGKey(jax_random_seed)
+    key_enc, key_dec = jr.split(key)
+    encoder = Encoder(key_enc)
+    decoder = Decoder(key_dec)
+
+    schedule = optax.cosine_decay_schedule(
+        init_value=LR_INIT,
+        decay_steps=int(LR_EPOCH_END * (train_x.shape[0] // BATCH_SIZE) * BATCH_SIZE),
+        alpha=LR_END / LR_INIT,
+    )
+    opt_enc = optax.flatten(optax.adamw(schedule, weight_decay=ENC_WD))
+    opt_dec = optax.flatten(optax.adamw(LR_INIT))
+
+    key_enc_weights, key_dec_weights = jr.split(key, 2)
+    encoder = init_encoder_weights(encoder, key_enc_weights)
+    decoder = init_decoder_weights(decoder, key_dec_weights)
+
+    hyper_enc = {
+        "input_dim": encoder.input_dim,
+        "latent_dim": encoder.latent_dim,
+        "enc_hidden": encoder.enc_hidden,
+        "dropout_rate": encoder.dropout_rate,
+    }
+    hyper_dec = {
+        "input_dim": decoder.input_dim,
+        "latent_dim": decoder.latent_dim,
+        "dec_hidden": decoder.dec_hidden,
+    }
+    params_enc, static_enc = eqx.partition(encoder, eqx.is_inexact_array)
+    params_dec, static_dec = eqx.partition(decoder, eqx.is_inexact_array)
+    opt_state_enc = opt_enc.init(params_enc)
+    opt_state_dec = opt_dec.init(params_dec)
+    if LOAD_FROM_CHECKPOINT:
+        try:
+            params_enc, static_enc, params_dec, static_dec, opt_state_enc, opt_state_dec = load_checkpoint(
+                LOAD_FROM_CHECKPOINT + "/checkpoints", LOAD_EPOCH, opt_enc, opt_dec
             )
-    logger.info(log_msg)
-    del x_shuffled, y_shuffled
+            initial_epoch = LOAD_EPOCH + 1
+            encoder= eqx.combine(params_enc, static_enc)
+            decoder= eqx.combine(params_dec, static_dec)
+            logger.info(f"Resuming training from epoch {initial_epoch}")
+        except FileNotFoundError as e:
+            logger.error(f"Error loading checkpoint: {e}. Starting training from scratch.")
+            LOAD_FROM_CHECKPOINT = ""
 
-    key, _ = jr.split(key)
-    key, val_step_losses = process_val_epoch(
-        encoder,
-        decoder,
-        x_data=val_x,
-        y_data=val_y,
-        key=key,
-        lookup_table=lookup_table,
-    )
-    log_msg = f"Epoch {epoch} Valdation Metrics "
-    for loss_name, loss_values in val_step_losses.items():
-        log_msg += f"{loss_name} = {loss_values.mean():.4f} ({loss_values.std():.4f}), "
-        writer.add_scalar(f"val/{loss_name}_mean", np.asarray(loss_values.mean()), epoch)
-        writer.add_scalar(f"val/{loss_name}_std", np.asarray(loss_values.std()), epoch)
-    logger.warning(log_msg)
-    writer.add_scalar("lr/learning_rate", np.asarray(schedule(epoch * train_x.shape[0])), epoch)
+    # === Training Loop ===
+    writer = SummaryWriter()
+    current_losses = {
+        "total_loss": jnp.asarray(jnp.inf),
+        "recon_loss": jnp.asarray(jnp.inf),
+        "concept_loss": jnp.asarray(jnp.inf),
+        "locality_loss": jnp.asarray(jnp.inf),
+        "lookup_temp": jnp.asarray(jnp.inf),
+    }
+    shuffle_val, key = jr.split(key, 2)
+    val_x, val_y, nval_batches = prepare_batches(val_x, val_y, BATCH_SIZE, shuffle_val)
+    for epoch in range(LOAD_EPOCH, EPOCHS):
+        key, shuffle_key = jr.split(key)
+        x_shuffled, y_shuffled, ntrain_batches = prepare_batches(train_x, train_y, BATCH_SIZE, shuffle_key)
 
-    # --- Save checkpoint ---
-    if (epoch + 1) % SAVE_EVERY_EPOCH == 0 and SAVE_CHECKPOINTS:
-        save_dir = writer.get_logdir() if not LOAD_FROM_CHECKPOINT else LOAD_FROM_CHECKPOINT
-        save_checkpoint(
-            save_dir + "/checkpoints",
-            epoch,
-            params_enc,
-            static_enc,
-            params_dec,
-            static_dec,
-            opt_state_enc,
-            opt_state_dec,
-            hyper_enc,
-            hyper_dec,
+        params_enc, params_dec, opt_state_enc, opt_state_dec, train_step_losses, key = process_train_epoch(
+            encoder,
+            decoder,
+            opt_state_enc=opt_state_enc,
+            opt_state_dec=opt_state_dec,
+            x_data=x_shuffled,
+            y_data=y_shuffled,
+            update_enc=opt_enc.update,
+            update_dec=opt_dec.update,
+            key=key,
+            lookup_table=lookup_table,
         )
-writer.close()
+        encoder = eqx.combine(params_enc, static_enc)
+        decoder = eqx.combine(params_dec, static_dec)
+
+        samples_per_epoch = train_step_losses["total_loss"].shape[0]
+        log_msg = f"Epoch {epoch} Training  Metrics "
+        for loss_name, loss_values in train_step_losses.items():
+            log_msg += f"{loss_name} = {loss_values.mean():.4f} ({loss_values.std():.4f}), "
+            for step in range(samples_per_epoch)[:: int(samples_per_epoch * 0.5)]:
+                writer.add_scalar(
+                    f"train/{loss_name}_step", np.asarray(loss_values[step]), epoch * samples_per_epoch + step
+                )
+        logger.info(log_msg)
+        del x_shuffled, y_shuffled
+
+        key, _ = jr.split(key)
+        key, val_step_losses = process_val_epoch(
+            encoder,
+            decoder,
+            x_data=val_x,
+            y_data=val_y,
+            key=key,
+            lookup_table=lookup_table,
+        )
+        log_msg = f"Epoch {epoch} Valdation Metrics "
+        for loss_name, loss_values in val_step_losses.items():
+            log_msg += f"{loss_name} = {loss_values.mean():.4f} ({loss_values.std():.4f}), "
+            writer.add_scalar(f"val/{loss_name}_mean", np.asarray(loss_values.mean()), epoch)
+            writer.add_scalar(f"val/{loss_name}_std", np.asarray(loss_values.std()), epoch)
+        logger.warning(log_msg)
+        writer.add_scalar("lr/learning_rate", np.asarray(schedule(epoch * train_x.shape[0])), epoch)
+
+        # --- Save checkpoint ---
+        if (epoch + 1) % SAVE_EVERY_EPOCH == 0 and SAVE_CHECKPOINTS:
+            save_dir = writer.get_logdir() if not LOAD_FROM_CHECKPOINT else LOAD_FROM_CHECKPOINT
+            save_checkpoint(
+                save_dir + "/checkpoints",
+                epoch,
+                params_enc,
+                static_enc,
+                params_dec,
+                static_dec,
+                opt_state_enc,
+                opt_state_dec,
+                hyper_enc,
+                hyper_dec,
+            )
+    writer.close()
