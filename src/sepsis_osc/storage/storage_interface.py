@@ -241,14 +241,14 @@ class Storage:
         np_keys = np.zeros((num_vectors, self.__db_keys.d), dtype="float32")
         self.__db_keys.reconstruct_n(0, num_vectors, np_keys)
 
-        metrics = self.read_multiple_results(np_keys)
+        metrics, _ = self.read_multiple_results(np_keys)
 
         if not metrics:
             raise ValueError("Could not create numpy lookup")
         return np_keys, metrics
 
     @timing
-    def read_multiple_results(self, params: np.ndarray, threshold: float = 0.0) -> Optional[SystemMetrics]:
+    def read_multiple_results(self, params: np.ndarray, threshold: float = 0.0) -> tuple[SystemMetrics, np.ndarray] | tuple[None, None]:
         logger.info(f"Getting Metrics for multiple queries with shape {params.shape}")
 
         original_shape = params.shape[:-1]
@@ -258,7 +258,7 @@ class Storage:
 
         if np.any(distances.max() > threshold):
             logger.error("Could not match bulk query")
-            return None
+            return None, None
 
         inds = np.unravel_index(np.arange(np.prod(original_shape)), original_shape)
         inds = list(zip(*inds))
@@ -313,10 +313,10 @@ class Storage:
 
         if not any(valid_results):
             logger.error("Retrieved invalid metrics")
-            return None
+            return None, None
 
         logger.info("Successfuly fetched bulk metrics")
-        return res
+        return res, distances.reshape(original_shape)
 
     def write(self):
         logger.info(f"Writing FAISS index to {self.parameter_k_name}")
