@@ -331,14 +331,9 @@ if __name__ == "__main__":
         use_mem_cache=True,
     )
     indices, np_metrics = sim_storage.get_np_lookup()
-    coords = np.array(indices)[:, 5:8]
-    grid_origin, grid_spacing, grid_shape = infer_grid_params(coords)
     lookup_table = JAXLookup(
         metrics=np_metrics.to_jax(),
         indices=jnp.asarray(indices[:, 5:8]),
-        grid_origin=grid_origin,
-        grid_spacing=grid_spacing,
-        grid_shape=grid_shape,
     )
 
     # === Initialization ===
