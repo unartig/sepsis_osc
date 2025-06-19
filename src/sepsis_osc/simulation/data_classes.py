@@ -9,6 +9,7 @@ from equinox import filter_jit, static_field
 from jaxtyping import Array, Float
 from numpy.typing import DTypeLike
 from scipy.ndimage import uniform_filter1d
+import jaxkd as jkd
 
 
 @dataclass
@@ -190,10 +191,7 @@ class SystemMetrics:
 
     @property
     def shape(self):
-        return jax.tree.map(
-            lambda x: x.shape if x is not None else None,
-            self.__dict__
-        )
+        return jax.tree.map(lambda x: x.shape if x is not None else None, self.__dict__)
 
     def tree_flatten(self):
         flat_children = []
@@ -248,23 +246,14 @@ class SystemMetrics:
     def np_empty(shape: tuple[int, ...], dtype: DTypeLike = np.float32) -> "SystemMetrics":
         initialized_fields = {}
         for f in fields(SystemMetrics):
-            if f.name in ["sr_1", "sr_2", "tt"]:
-                initialized_fields[f.name] = None
-            else:
-                initialized_fields[f.name] = np.zeros(shape, dtype=dtype)
+            initialized_fields[f.name] = np.zeros(shape, dtype=dtype)
         return SystemMetrics(**initialized_fields)
 
     def to_jax(self) -> "SystemMetrics":
-        return jax.tree.map(
-            lambda x: jnp.asarray(x) if x is not None else None,
-            self
-        )
+        return jax.tree.map(lambda x: jnp.asarray(x) if x is not None else None, self)
 
     def astype(self, dtype: jnp.dtype = jnp.float32) -> "SystemMetrics":
-        return jax.tree.map(
-            lambda x: x.astype(dtype) if x is not None else None,
-            self
-        )
+        return jax.tree.map(lambda x: x.astype(dtype) if x is not None else None, self)
 
 
 jtu.register_pytree_node(SystemMetrics, SystemMetrics.tree_flatten, SystemMetrics.tree_unflatten)
@@ -272,25 +261,50 @@ jtu.register_pytree_node(SystemMetrics, SystemMetrics.tree_flatten, SystemMetric
 
 @dataclass(frozen=True)
 class JAXLookup:
+    from sepsis_osc.storage.storage_interface import Storage
+    
     metrics: SystemMetrics = static_field()
-    indices: Float[Array, "db_size 9"] = static_field()
+    indices: Float[Array, "db_size 3"] = static_field()
     relevant_metrics: Float[Array, "db_size 3"] = static_field()
 
-    def __init__(self, metrics: SystemMetrics, indices: Float[Array, "db_size 9"]):
+    # Precomputations
+    # norm for faster distance calculation
+    i_norm: Float[Array, "db_size 3"] = static_field()
+    # tree for jkd approx lookup
+    tree: jkd.tree.tree_type = static_field()
+    # grid for local lookup
+    grid_origin: jnp.ndarray= static_field() #  shape (3,), min coordinate of grid
+    grid_spacing: jnp.ndarray= static_field() #  shape (3,), distance between points along x,y,z
+    grid_shape: jnp.ndarray= static_field() #  tuple (Nx, Ny, Nz)
+    grid_flat_index: jnp.ndarray = static_field()  # (Nx, Ny, Nz)
+
+
+    def __init__(self, metrics: SystemMetrics, indices: Float[Array, "db_size 3"], grid_origin, grid_spacing, grid_shape):
         object.__setattr__(self, "metrics", metrics)
         object.__setattr__(self, "indices", indices)
-        object.__setattr__(
-            self,
-            "relevant_metrics",
-            jnp.stack([self.metrics.f_1, self.metrics.sr_2, self.metrics.f_2], axis=-1).reshape(-1, 3),  # type: ignore
-        )  # shape: (N, 3)
+        relevant_metrics = jnp.stack(
+            [1 - metrics.r_1, metrics.sr_2, metrics.f_2], axis=-1  # type: ignore
+        ).reshape(-1, 3)
+        object.__setattr__(self, "relevant_metrics", relevant_metrics)
+
+        i_norm = jnp.sum(indices ** 2, axis=-1, keepdims=True).T
+        object.__setattr__(self, "i_norm", i_norm)
+
+        object.__setattr__(self, "tree", jkd.build_tree(indices, optimize=True))
+
+        
+
+        object.__setattr__(self, "grid_origin", grid_origin)
+        object.__setattr__(self, "grid_spacing", grid_spacing)
+        object.__setattr__(self, "grid_shape", grid_shape)
 
     def tree_flatten(self):
-        return (self.metrics, self.indices), None
+        return (self.metrics, self.indices, self.grid_origin, self.grid_spacing, self.grid_shape), None
 
     @classmethod
     def tree_unflatten(cls, aux_data, children):
         return cls(*children)
+
 
     @filter_jit
     def hard_get(
@@ -298,15 +312,12 @@ class JAXLookup:
         query_vectors: Float[Array, "batch latent"],
         temperatures,  # placeholder to make compatible with soft get
     ) -> Float[Array, "batch 2"]:
-        query_vectors = jax.lax.stop_gradient(query_vectors)
+        query_vectors = jax.lax.stop_gradient(query_vectors[:, 5:8])
         q_norm = jnp.sum(query_vectors**2, axis=-1, keepdims=True)
-        i_norm = jnp.sum(self.indices**2, axis=-1, keepdims=True).T
         dot_prod = query_vectors @ self.indices.T
-        squared_distances = q_norm + i_norm - 2 * dot_prod
+        squared_distances = q_norm + self.i_norm - 2 * dot_prod
 
-        # nearest neighbour lookup
         min_indices = jnp.argmin(squared_distances, axis=-1)
-        # min_indices = min_indices.squeeze(axis=-1)
 
         pred_c = jnp.stack(
             [
@@ -326,10 +337,9 @@ class JAXLookup:
         query_vectors: Float[Array, "batch latent"],
         temperatures: Float[Array, "batch 1"],
     ) -> Float[Array, "batch 2"]:
-        q_norm = jnp.sum(query_vectors**2, axis=-1, keepdims=True)
-        i_norm = jnp.sum(self.indices**2, axis=-1, keepdims=True).T
-        dot_prod = query_vectors @ self.indices.T
-        squared_distances = q_norm + i_norm - 2 * dot_prod
+        q_norm = jnp.sum(query_vectors[:, 5:8]**2, axis=-1, keepdims=True)
+        dot_prod = query_vectors[:, 5:8] @ self.indices.T
+        squared_distances = q_norm + self.i_norm - 2 * dot_prod
 
         weights = jax.nn.softmax(-squared_distances / temperatures, axis=-1)  # (B, N)
         weighted_metrics = jnp.einsum("bn,nm->bm", weights, self.relevant_metrics)
@@ -346,17 +356,16 @@ class JAXLookup:
 
     @filter_jit
     def soft_get_k(
-        self, query_vectors: Float[Array, "batch latent"], temperatures: Float[Array, "batch 1"], k: int = 9
+        self,
+        query_vectors: Float[Array, "batch latent"],
+        temperatures: Float[Array, "batch 1"],
+        *,
+        k: int = 9,
     ) -> Float[Array, "batch 2"]:
-        q_norm = jnp.sum(query_vectors**2, axis=-1, keepdims=True)
-        i_norm = jnp.sum(self.indices**2, axis=-1, keepdims=True).T
-        dot_prod = query_vectors @ self.indices.T
-        squared_distances = q_norm + i_norm - 2 * dot_prod
-
-        min_distances, min_indices = jax.lax.top_k(-squared_distances, k=k)
+        min_indices, min_distances = jkd.query_neighbors(self.tree, query_vectors[:, 5:8], k=k)
 
         weights = jax.nn.softmax(-min_distances / temperatures, axis=-1)  # (B, N)
-        weighted_metrics = jnp.einsum("bk,bkm->bm", weights, self.relevant_metrics[min_indices])
+        weighted_metrics = jnp.einsum("bk,bkm->bm", weights, self.relevant_metrics[min_indices.astype(jnp.int32)])
 
         pred_c = jnp.stack(
             [
@@ -367,6 +376,63 @@ class JAXLookup:
         )
 
         return pred_c
+
+    def world_to_grid(self, query: jnp.ndarray) -> jnp.ndarray:
+        """Map 3D vector to fractional grid index."""
+        query = query[:, 5:8]
+        relative = (query - self.grid_origin) / self.grid_spacing  # (B, 3)
+        return relative  # fractional grid index (not int!)
+
+    def get_local_grid_indices(self, grid_coords: jnp.ndarray, radius=1):
+        """Get integer neighbor indices in 3D radius cube."""
+        ranges = jnp.stack(
+            jnp.meshgrid(
+                jnp.arange(-radius, radius + 1),
+                jnp.arange(-radius, radius + 1),
+                jnp.arange(-radius, radius + 1),
+                indexing='ij'
+            ), axis=-1
+        ).reshape(-1, 3)  # (K, 3)
+
+        def per_query(g):
+            candidates = g[None, :] + ranges  # (K, 3)
+            return jnp.clip(candidates, 0, jnp.array(self.grid_shape) - 1)
+
+        return jax.vmap(per_query)(jnp.floor(grid_coords).astype(int))  # (B, K, 3)
+
+    def grid_to_flat(self, indices3d):
+        Nx, Ny, Nz = self.grid_shape
+        return indices3d[:, :, 0] * Ny * Nz + indices3d[:, :, 1] * Nz + indices3d[:, :, 2]  # (B, K)
+
+    @filter_jit
+    def soft_get_local(self, query_vectors, temperatures, radius=1):
+        grid_coords = self.world_to_grid(query_vectors)  # (B, 3)
+        neighbor_3d = self.get_local_grid_indices(grid_coords, radius=radius)  # (B, K, 3)
+        flat_idx = self.grid_to_flat(neighbor_3d)  # (B, K)
+
+        def lookup_single(query, temp, idxs):
+            # idxs: (K,)
+            points = self.indices[idxs]          # (K, 3)
+            dists = jnp.sum((query[None, :] - points) ** 2, axis=-1)  # (K,)
+            weights = jax.nn.softmax(-dists / temp)                   # (K,)
+            metrics = self.relevant_metrics[idxs]                     # (K, M)
+            return weights @ metrics                                  # (M,)
+
+        # Wrap in a scan for memory-efficient batching
+        def scan_fn(carry, inputs):
+            query, temp, idxs = inputs
+            result = lookup_single(query, temp, idxs)
+            return carry, result
+
+        # Prepare inputs: (B, ...)
+        inputs = (query_vectors, temperatures[:, 0], flat_idx)
+        _, result = jax.lax.scan(scan_fn, None, inputs)  # result: (B, M)
+
+        return jnp.stack([
+            result[:, 0],
+            jnp.clip(result[:, 1] + result[:, 2], 0, 1),
+        ], axis=-1)  # (B, 2)
+
 
 
 jtu.register_pytree_node(JAXLookup, JAXLookup.tree_flatten, JAXLookup.tree_unflatten)
