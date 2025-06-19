@@ -119,7 +119,7 @@ for x, beta in enumerate(xs):
         )
         params[-y, x] = np.array(run_conf.as_index)
 
-metrix = storage.read_multiple_results(params)
+metrix, _ = storage.read_multiple_results(params)
 storage.close()
 if not metrix:
     exit(0)

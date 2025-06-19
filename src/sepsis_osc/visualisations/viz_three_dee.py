@@ -9,8 +9,6 @@ from sepsis_osc.simulation.data_classes import SystemConfig, SystemMetrics
 from sepsis_osc.storage.storage_interface import Storage
 from sepsis_osc.utils.logger import setup_logging
 
-setup_logging()
-logger = logging.getLogger(__name__)
 
 num_ticks = 20
 
@@ -69,62 +67,66 @@ def three_dee(
         fig.show()
     if filename:
         fig.write_html(f"{figure_dir}/{filename}.html")
+    return fig
 
 
-betas = np.arange(0.2, 1.5, 0.02)
-sigmas = np.arange(0.0, 1.5, 0.04)
-alphas = np.arange(-1.0, 1.0, 0.04)
+if __name__ ==  "__main__":
+    setup_logging()
+    logger = logging.getLogger(__name__)
+    betas = np.arange(0.2, 1.5, 0.02)
+    sigmas = np.arange(0.0, 1.5, 0.04)
+    alphas = np.arange(-1.0, 1.0, 0.04)
 
 
-size = (len(betas), len(sigmas), len(alphas))
-db_str = "Daisy"  # other/Tiny"
-storage = Storage(
-    key_dim=9,
-    metrics_kv_name=f"data/{db_str}SepsisMetrics.db/",
-    parameter_k_name=f"data/{db_str}SepsisParameters_index.bin",
-    use_mem_cache=True,
-)
-params = np.ndarray((*size, 9))
+    size = (len(betas), len(sigmas), len(alphas))
+    db_str = "Daisy"  # other/Tiny"
+    storage = Storage(
+        key_dim=9,
+        metrics_kv_name=f"data/{db_str}SepsisMetrics.db/",
+        parameter_k_name=f"data/{db_str}SepsisParameters_index.bin",
+        use_mem_cache=True,
+    )
+    params = np.ndarray((*size, 9))
 
-for x, beta in enumerate(betas):
-    for y, sigma in enumerate(sigmas):
-        for z, alpha in enumerate(alphas):
-            N = 100
-            run_conf = SystemConfig(
-                N=100,
-                C=int(0.2 * N),
-                omega_1=0.0,
-                omega_2=0.0,
-                a_1=1.0,
-                epsilon_1=0.03,
-                epsilon_2=0.3,
-                alpha=float(alpha),
-                beta=float(beta),
-                sigma=float(sigma),
-            )
-            params[x, y, z] = np.array(run_conf.as_index)
+    for x, beta in enumerate(betas):
+        for y, sigma in enumerate(sigmas):
+            for z, alpha in enumerate(alphas):
+                N = 100
+                run_conf = SystemConfig(
+                    N=100,
+                    C=int(0.2 * N),
+                    omega_1=0.0,
+                    omega_2=0.0,
+                    a_1=1.0,
+                    epsilon_1=0.03,
+                    epsilon_2=0.3,
+                    alpha=float(alpha),
+                    beta=float(beta),
+                    sigma=float(sigma),
+                )
+                params[x, y, z] = np.array(run_conf.as_index)
 
-metrix = storage.read_multiple_results(params)
-storage.close()
-if not metrix:
-    exit(0)
+    metrix, _ = storage.read_multiple_results(params)
+    storage.close()
+    if not metrix:
+        exit(0)
 
 
-print(metrix.shape)
-log = False
-show = False
-figure_dir = "figures"
-fs = (8, 8)
-three_dee(params, np.asarray(metrix.r_1), "Parameter Space Kuramoto 1", "kuramoto1", "figures/3d")
-three_dee(params, np.asarray(metrix.r_2), "Parameter Space Kuramoto 2", "kuramoto2", "figures/3d")
-three_dee(params, np.asarray(metrix.s_1), "Parameter Space STD 1", "std1", "figures/3d")
-three_dee(params, np.asarray(metrix.s_2), "Parameter Space STD 2", "std2", "figures/3d")
-three_dee(params, np.asarray(metrix.m_1), "Parameter Space Mean 1", "mean1", "figures/3d")
-three_dee(params, np.asarray(metrix.m_2), "Parameter Space Mean 2", "mean2", "figures/3d")
-three_dee(params, np.asarray(metrix.q_1), "Parameter Space Entropy 1", "entropy1", "figures/3d")
-three_dee(params, np.asarray(metrix.q_2), "Parameter Space Entropy 2", "entropy2", "figures/3d")
-three_dee(params, np.asarray(metrix.f_1), "Parameter Space Cluster Ratio 1", "cluster1", "figures/3d")
-three_dee(params, np.asarray(metrix.f_2), "Parameter Space Cluster Ratio 2", "cluster2", "figures/3d")
-three_dee(params, np.asarray(metrix.sr_1), "Parameter Space Splay Ratio 1", "splay1", "figures/3d")
-three_dee(params, np.asarray(metrix.sr_2), "Parameter Space Splay Ratio 2", "splay2", "figures/3d")
-three_dee(params, np.asarray(metrix.tt), "Parameter Space Transient Time", "tt1", "figures/3d")
+    print(metrix.shape)
+    log = False
+    show = False
+    figure_dir = "figures"
+    fs = (8, 8)
+    three_dee(params, np.asarray(metrix.r_1), "Parameter Space Kuramoto 1", "kuramoto1", "figures/3d")
+    three_dee(params, np.asarray(metrix.r_2), "Parameter Space Kuramoto 2", "kuramoto2", "figures/3d")
+    three_dee(params, np.asarray(metrix.s_1), "Parameter Space STD 1", "std1", "figures/3d")
+    three_dee(params, np.asarray(metrix.s_2), "Parameter Space STD 2", "std2", "figures/3d")
+    three_dee(params, np.asarray(metrix.m_1), "Parameter Space Mean 1", "mean1", "figures/3d")
+    three_dee(params, np.asarray(metrix.m_2), "Parameter Space Mean 2", "mean2", "figures/3d")
+    three_dee(params, np.asarray(metrix.q_1), "Parameter Space Entropy 1", "entropy1", "figures/3d")
+    three_dee(params, np.asarray(metrix.q_2), "Parameter Space Entropy 2", "entropy2", "figures/3d")
+    three_dee(params, np.asarray(metrix.f_1), "Parameter Space Cluster Ratio 1", "cluster1", "figures/3d")
+    three_dee(params, np.asarray(metrix.f_2), "Parameter Space Cluster Ratio 2", "cluster2", "figures/3d")
+    three_dee(params, np.asarray(metrix.sr_1), "Parameter Space Splay Ratio 1", "splay1", "figures/3d")
+    three_dee(params, np.asarray(metrix.sr_2), "Parameter Space Splay Ratio 2", "splay2", "figures/3d")
+    three_dee(params, np.asarray(metrix.tt), "Parameter Space Transient Time", "tt1", "figures/3d")
