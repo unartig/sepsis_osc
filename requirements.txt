@@ -1,6 +1,7 @@
 matplotlib>=3.9.2
 numpy>=2.0.1
 jax==0.6.0
+jaxkd==0.1.0
 diffrax==0.7.0
 equinox==0.12.1
 tqdm==4.67.1
@@ -9,5 +10,4 @@ faiss-cpu==1.11.0
 msgpack-numpy==0.4.8
 rocksdb-py==0.0.5
 
-# at some point we need this
-# torch>=2.3.1
+# YAIB packages: polars scikit-learn joblib threadpoolctl recipies gin-config torch
