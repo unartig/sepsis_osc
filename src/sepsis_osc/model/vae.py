@@ -102,22 +102,9 @@ class Encoder(eqx.Module):
         beta_raw = jax.nn.sigmoid(self.beta_layer(x_final_enc))
         sigma_raw = jax.nn.sigmoid(self.sigma_layer(x_final_enc))
 
-        temperature = (jax.nn.sigmoid(self.temperature_layer(x_final_enc)) + 1e-4) * 3
+        temperature = (jax.nn.sigmoid(self.temperature_layer(x_final_enc)) + 1e-6) * 3
 
         return alpha_raw, beta_raw, sigma_raw, temperature
-
-
-@eqx.filter_jit
-def get_pred_concepts(
-    z: Float[Array, "batch latent"],
-    temperatures: Float[Array, "batch 1"],
-    *,
-    lookup_table: JAXLookup,
-) -> Float[Array, "2"]:
-    # pred_c: Float[Array, "2"] = jax.vmap(lookup_table.soft_get)(z, temperatures=temperatures)
-    pred_c: Float[Array, "batch 2"] = lookup_table.hard_get(z, temperatures=temperatures)
-
-    return pred_c
 
 
 class Decoder(eqx.Module):

@@ -1,6 +1,4 @@
 import logging
-from functools import wraps
-from time import time
 from typing import Callable
 
 import equinox as eqx
@@ -13,12 +11,11 @@ from jaxtyping import Array, Float, PyTree
 from torch.utils.tensorboard.writer import SummaryWriter
 
 from sepsis_osc.model.data_loading import data
-from sepsis_osc.model.model_utils import load_checkpoint, prepare_batches, save_checkpoint
+from sepsis_osc.model.model_utils import infer_grid_params, load_checkpoint, prepare_batches, save_checkpoint, timing
 from sepsis_osc.model.vae import (
     LATENT_DIM,
     Decoder,
     Encoder,
-    get_pred_concepts,
     init_decoder_weights,
     init_encoder_weights,
 )
@@ -27,37 +24,6 @@ from sepsis_osc.storage.storage_interface import Storage
 from sepsis_osc.utils.config import jax_random_seed
 from sepsis_osc.utils.jax_config import setup_jax
 from sepsis_osc.utils.logger import setup_logging
-
-setup_jax(simulation=False)
-setup_logging("info")
-logger = logging.getLogger(__name__)
-
-
-def timing(f):
-    @wraps(f)
-    def wrap(*args, **kw):
-        ts = time()
-        result = f(*args, **kw)
-        te = time()
-        logger.info("func:%r took: %2.6f sec" % (f.__name__, te - ts))
-        return result
-
-    return wrap
-
-
-BATCH_SIZE = 128
-EPOCHS = 2000
-LOAD_FROM_CHECKPOINT = ""  # set load dir, e.g. "runs/..."
-LOAD_EPOCH = 0
-SAVE_CHECKPOINTS = True
-SAVE_EVERY_EPOCH = 10
-
-
-# cosine decay
-LR_INIT = 1e-3
-LR_END = 1e-5
-LR_EPOCH_END = 200
-ENC_WD = 1e-3
 
 ALPHA_SPACE, BETA_SPACE, SIGMA_SPACE = (-1.0, 1.0), (0.2, 1.5), (0.0, 1.5)
 
@@ -104,14 +70,14 @@ def calc_concept_loss(
     true_infection: Float[Array, "batch 1"],
     alpha: float = 1.0,
     beta: float = 1.0,
-) -> Float[Array, "batch 1"]:
+) -> tuple[Float[Array, "batch 1"], Float[Array, "batch 1"]]:
     pred_sofa = prediction[:, 0]  # SOFA prediction
     pred_infection = prediction[:, 1]  # Infection prediction
 
     loss_sofa = ordinal_loss(pred_sofa, true_sofa)
     loss_infection = binary_loss(pred_infection, true_infection)
 
-    return alpha * loss_sofa + beta * loss_infection
+    return alpha * loss_sofa, beta * loss_infection
 
 
 def calc_locality_loss(input: Float[Array, "batch 52"], latent: Float[Array, "batch 3"], sigma=1.0):
@@ -132,14 +98,14 @@ def loss(
     true_concepts: jnp.ndarray,
     *,
     key: jnp.ndarray,
-    lookup_table: JAXLookup,
-    lambda1=1e3,
-    lambda2=1e1,
+    lookup_func: Callable,
+    lambda1: float = 1e3,
+    lambda2: float = 1e1,
 ) -> tuple[Array, dict[str, Array]]:
     aux_losses = {}
     encoder, decoder = models
 
-    key, *drop_keys = jr.split(key, BATCH_SIZE + 1)
+    key, *drop_keys = jr.split(key, x.shape[0] + 1)
     drop_keys = jnp.array(drop_keys)
 
     alpha, beta, sigma, lookup_temp = jax.vmap(encoder)(x, key=drop_keys)
@@ -154,19 +120,19 @@ def loss(
     x_recon = jax.vmap(decoder)(z)
     aux_losses["recon_loss"] = jnp.mean((x - x_recon) ** 2, axis=-1)
 
-    nearest_metrics = SystemConfig.batch_as_index(alpha=alpha, beta=beta, sigma=sigma, C=0.2)
-    pred_concepts = get_pred_concepts(
-        nearest_metrics,
+    # lookup_indices = SystemConfig.batch_as_index(alpha=alpha, beta=beta, sigma=sigma, C=0.2)
+    pred_concepts = lookup_func(
+        z,
         temperatures=lookup_temp,
-        lookup_table=lookup_table,
     )
     # TODO change, we actually want to predict both :^)
-    aux_losses["concept_loss"] = calc_concept_loss(
+    aux_losses["sofa"], aux_losses["infection"] = calc_concept_loss(
         pred_concepts, true_concepts[:, 0], true_concepts[:, 1], alpha=1.0, beta=0.0
     )
+    aux_losses["concept_loss"] = aux_losses["sofa"] + aux_losses["infection"]
 
     aux_losses["total_loss"] = (
-        aux_losses["recon_loss"] + lambda1 * aux_losses["concept_loss"] + lambda2 + aux_losses["locality_loss"]
+        aux_losses["recon_loss"] + lambda1 * aux_losses["concept_loss"] + lambda2 * aux_losses["locality_loss"]
     )
 
     aux_losses["lookup_temperature"] = lookup_temp.mean(axis=-1)
@@ -185,11 +151,11 @@ def step_model(
     update_dec: Callable,
     *,
     key,
-    lookup_table: JAXLookup,
+    lookup_func: Callable,
 ):
     encoder, decoder = models
     (total_loss, aux_losses), (grads_enc, grads_dec) = eqx.filter_value_and_grad(loss, has_aux=True)(
-        models, x_batch, true_c_batch, key=key, lookup_table=lookup_table
+        models, x_batch, true_c_batch, key=key, lookup_func=lookup_func
     )
 
     encoder_params, encoder_static = eqx.partition(encoder, eqx.is_inexact_array)
@@ -219,13 +185,12 @@ def process_train_epoch(
     update_dec: Callable,
     *,
     key: jnp.ndarray,
-    lookup_table: JAXLookup,
+    lookup_func: Callable,
 ) -> tuple[PyTree, PyTree, optax.OptState, optax.OptState, dict[str, Float[Array, "nbatches"]], jnp.ndarray]:
     encoder_params, encoder_static = eqx.partition(encoder, eqx.is_inexact_array)
     decoder_params, decoder_static = eqx.partition(decoder, eqx.is_inexact_array)
 
     key, _ = jr.split(key)
-
     step_losses = []
 
     def scan_step(carry, batch):
@@ -246,7 +211,7 @@ def process_train_epoch(
             update_enc,
             update_dec,
             key=batch_key,
-            lookup_table=lookup_table,
+            lookup_func=lookup_func,
         )
 
         encoder_f = eqx.filter(encoder_new, eqx.is_inexact_array)
@@ -287,7 +252,7 @@ def process_val_epoch(
     y_data: Float[Array, "num_samples 2"],
     *,
     key: jnp.ndarray,
-    lookup_table: JAXLookup,
+    lookup_func: Callable,
 ) -> tuple[jnp.ndarray, dict[str, Float[Array, "nbatches"]]]:
     encoder_params, encoder_static = eqx.partition(encoder, eqx.is_inexact_array)
     decoder_params, decoder_static = eqx.partition(decoder, eqx.is_inexact_array)
@@ -305,7 +270,7 @@ def process_val_epoch(
         decoder_full = eqx.combine(decoder_f, decoder_static)
 
         _, aux_losses = loss(
-            (encoder_full, decoder_full), batch_x, batch_true_c, key=batch_key, lookup_table=lookup_table
+            (encoder_full, decoder_full), batch_x, batch_true_c, key=batch_key, lookup_func=lookup_func
         )
 
         return ((encoder_f, decoder_f), key), aux_losses
@@ -318,7 +283,25 @@ def process_val_epoch(
 
     return (key, step_losses)
 
+
 if __name__ == "__main__":
+    setup_jax(simulation=False)
+    setup_logging("info")
+    logger = logging.getLogger(__name__)
+
+    BATCH_SIZE = 128
+    EPOCHS = 100
+    LOAD_FROM_CHECKPOINT = ""  # set load dir, e.g. "runs/..."
+    LOAD_EPOCH = 0
+    SAVE_CHECKPOINTS = True
+    SAVE_EVERY_EPOCH = 10
+
+    # cosine decay
+    LR_INIT = 1e-3
+    LR_END = 1e-5
+    LR_EPOCH_END = 200
+    ENC_WD = 1e-3
+
     # === Data ===
     train_y, train_x, val_y, val_x, test_y, test_x = [
         jnp.array(
@@ -348,7 +331,15 @@ if __name__ == "__main__":
         use_mem_cache=True,
     )
     indices, np_metrics = sim_storage.get_np_lookup()
-    lookup_table = JAXLookup(metrics=np_metrics.to_jax(), indices=jnp.asarray(indices))
+    coords = np.array(indices)[:, 5:8]
+    grid_origin, grid_spacing, grid_shape = infer_grid_params(coords)
+    lookup_table = JAXLookup(
+        metrics=np_metrics.to_jax(),
+        indices=jnp.asarray(indices[:, 5:8]),
+        grid_origin=grid_origin,
+        grid_spacing=grid_spacing,
+        grid_shape=grid_shape,
+    )
 
     # === Initialization ===
     key = jr.PRNGKey(jax_random_seed)
@@ -361,8 +352,8 @@ if __name__ == "__main__":
         decay_steps=int(LR_EPOCH_END * (train_x.shape[0] // BATCH_SIZE) * BATCH_SIZE),
         alpha=LR_END / LR_INIT,
     )
-    opt_enc = optax.flatten(optax.adamw(schedule, weight_decay=ENC_WD))
-    opt_dec = optax.flatten(optax.adamw(LR_INIT))
+    opt_enc = optax.adamw(schedule, weight_decay=ENC_WD)
+    opt_dec = optax.adamw(LR_INIT)
 
     key_enc_weights, key_dec_weights = jr.split(key, 2)
     encoder = init_encoder_weights(encoder, key_enc_weights)
@@ -388,10 +379,9 @@ if __name__ == "__main__":
             params_enc, static_enc, params_dec, static_dec, opt_state_enc, opt_state_dec = load_checkpoint(
                 LOAD_FROM_CHECKPOINT + "/checkpoints", LOAD_EPOCH, opt_enc, opt_dec
             )
-            initial_epoch = LOAD_EPOCH + 1
-            encoder= eqx.combine(params_enc, static_enc)
-            decoder= eqx.combine(params_dec, static_dec)
-            logger.info(f"Resuming training from epoch {initial_epoch}")
+            encoder = eqx.combine(params_enc, static_enc)
+            decoder = eqx.combine(params_dec, static_dec)
+            logger.info(f"Resuming training from epoch {LOAD_EPOCH + 1}")
         except FileNotFoundError as e:
             logger.error(f"Error loading checkpoint: {e}. Starting training from scratch.")
             LOAD_FROM_CHECKPOINT = ""
@@ -404,9 +394,11 @@ if __name__ == "__main__":
         "concept_loss": jnp.asarray(jnp.inf),
         "locality_loss": jnp.asarray(jnp.inf),
         "lookup_temp": jnp.asarray(jnp.inf),
+        "sofa": jnp.asarray(jnp.inf),
+        "infection": jnp.asarray(jnp.inf),
     }
-    shuffle_val, key = jr.split(key, 2)
-    val_x, val_y, nval_batches = prepare_batches(val_x, val_y, BATCH_SIZE, shuffle_val)
+    shuffle_val_key, key = jr.split(key, 2)
+    val_x, val_y, nval_batches = prepare_batches(val_x, val_y, BATCH_SIZE, shuffle_val_key)
     for epoch in range(LOAD_EPOCH, EPOCHS):
         key, shuffle_key = jr.split(key)
         x_shuffled, y_shuffled, ntrain_batches = prepare_batches(train_x, train_y, BATCH_SIZE, shuffle_key)
@@ -421,7 +413,7 @@ if __name__ == "__main__":
             update_enc=opt_enc.update,
             update_dec=opt_dec.update,
             key=key,
-            lookup_table=lookup_table,
+            lookup_func=lookup_table.soft_get_full,
         )
         encoder = eqx.combine(params_enc, static_enc)
         decoder = eqx.combine(params_dec, static_dec)
@@ -430,7 +422,7 @@ if __name__ == "__main__":
         log_msg = f"Epoch {epoch} Training  Metrics "
         for loss_name, loss_values in train_step_losses.items():
             log_msg += f"{loss_name} = {loss_values.mean():.4f} ({loss_values.std():.4f}), "
-            for step in range(samples_per_epoch)[:: int(samples_per_epoch * 0.5)]:
+            for step in range(samples_per_epoch)[:: None if epoch == 0 else int(samples_per_epoch * 0.05)]:
                 writer.add_scalar(
                     f"train/{loss_name}_step", np.asarray(loss_values[step]), epoch * samples_per_epoch + step
                 )
@@ -444,7 +436,7 @@ if __name__ == "__main__":
             x_data=val_x,
             y_data=val_y,
             key=key,
-            lookup_table=lookup_table,
+            lookup_func=lookup_table.hard_get,
         )
         log_msg = f"Epoch {epoch} Valdation Metrics "
         for loss_name, loss_values in val_step_losses.items():

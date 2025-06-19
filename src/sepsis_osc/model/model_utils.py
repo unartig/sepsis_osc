@@ -1,18 +1,33 @@
 import json
 import logging
 import os
+from functools import wraps
+from time import time
 
 import equinox as eqx
 import jax.numpy as jnp
 import jax.random as jr
+import numpy as np
 from jaxtyping import Array, Float, PyTree
-from optax import OptState, GradientTransformation 
+from optax import GradientTransformation, OptState
 
 from sepsis_osc.model.vae import make_decoder, make_encoder
 from sepsis_osc.utils.logger import setup_logging
 
 setup_logging("info")
 logger = logging.getLogger(__name__)
+
+
+def timing(f):
+    @wraps(f)
+    def wrap(*args, **kw):
+        ts = time()
+        result = f(*args, **kw)
+        te = time()
+        logger.info("func:%r took: %2.6f sec" % (f.__name__, te - ts))
+        return result
+
+    return wrap
 
 
 def save_checkpoint(
@@ -50,8 +65,11 @@ def save_checkpoint(
 
 
 def load_checkpoint(
-    load_dir: str, epoch: int, opt_enc_template: GradientTransformation | None = None, opt_dec_template: GradientTransformation | None = None
-)-> tuple[PyTree, PyTree, PyTree, PyTree, OptState, OptState] :
+    load_dir: str,
+    epoch: int,
+    opt_enc_template: GradientTransformation | None = None,
+    opt_dec_template: GradientTransformation | None = None,
+) -> tuple[PyTree, PyTree, PyTree, PyTree, OptState, OptState]:
     filename = os.path.join(load_dir, f"checkpoint_epoch_{epoch:04d}.eqx")
 
     if not os.path.exists(filename):
@@ -70,7 +88,9 @@ def load_checkpoint(
         skeleton_params_dec, skeleton_static_dec = eqx.partition(skeleton_decoder, eqx.is_array)
 
         if opt_enc_template is None or opt_dec_template is None:
-            logger.error("Reading empty model templates")
+            logger.warning(
+                "Reading empty optimizer templates, if you want to resume training, provide suitable templates."
+            )
         skeleton_opt_state_enc = opt_enc_template.init(skeleton_params_enc) if opt_enc_template else None
         skeleton_opt_state_dec = opt_dec_template.init(skeleton_params_dec) if opt_dec_template else None
 
@@ -105,6 +125,7 @@ def prepare_batches(
 ) -> tuple[Float[Array, "nbatches batch dim"], Float[Array, "nbatches batch dim"], int]:
     num_samples = x_data.shape[0]
     num_features = x_data.shape[1]
+    num_targets = y_data.shape[1]
 
     # Shuffle data
     perm = jr.permutation(key, num_samples)
@@ -118,6 +139,28 @@ def prepare_batches(
 
     # Reshape into batches
     x_batched = x_truncated.reshape(num_full_batches, batch_size, num_features)
-    y_batched = y_truncated.reshape(num_full_batches, batch_size, 2)
+    y_batched = y_truncated.reshape(num_full_batches, batch_size, num_targets)
 
     return x_batched, y_batched, num_full_batches
+
+
+def infer_grid_params(coords: np.ndarray):
+    origin = coords.min(axis=0)
+
+    # Safe spacing: avoid zero-spacing errors
+    spacing = []
+    shape = []
+
+    for i in range(3):
+        unique_vals = np.unique(coords[:, i])
+        if len(unique_vals) > 1:
+            d = np.min(np.diff(unique_vals))
+            spacing.append(d)
+            dim_size = int(np.round((coords[:, i].max() - origin[i]) / d)) + 1
+            shape.append(dim_size)
+        else:
+            # Grid is flat along this axis
+            spacing.append(1.0)  # or a small epsilon
+            shape.append(1)
+
+    return np.array(origin), np.array(spacing), np.array(shape)
