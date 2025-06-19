@@ -303,7 +303,7 @@ class JAXLookup:
         query_vectors: Float[Array, "batch latent"],
         temperatures,  # placeholder to make compatible with soft get
     ) -> Float[Array, "batch 2"]:
-        query_vectors = jax.lax.stop_gradient(query_vectors[:, 5:8])
+        query_vectors = jax.lax.stop_gradient(query_vectors)
         q_norm = jnp.sum(query_vectors**2, axis=-1, keepdims=True)
         dot_prod = query_vectors @ self.indices.T
         squared_distances = q_norm + self.i_norm - 2 * dot_prod
@@ -328,8 +328,8 @@ class JAXLookup:
         query_vectors: Float[Array, "batch latent"],
         temperatures: Float[Array, "batch 1"],
     ) -> Float[Array, "batch 2"]:
-        q_norm = jnp.sum(query_vectors[:, 5:8]**2, axis=-1, keepdims=True)
-        dot_prod = query_vectors[:, 5:8] @ self.indices.T
+        q_norm = jnp.sum(query_vectors**2, axis=-1, keepdims=True)
+        dot_prod = query_vectors @ self.indices.T
         squared_distances = q_norm + self.i_norm - 2 * dot_prod
 
         weights = jax.nn.softmax(-squared_distances / temperatures, axis=-1)  # (B, N)
@@ -353,7 +353,7 @@ class JAXLookup:
         *,
         k: int = 9,
     ) -> Float[Array, "batch 2"]:
-        min_indices, min_distances = jkd.query_neighbors(self.tree, query_vectors[:, 5:8], k=k)
+        min_indices, min_distances = jkd.query_neighbors(self.tree, query_vectors, k=k)
 
         weights = jax.nn.softmax(-min_distances / temperatures, axis=-1)  # (B, N)
         weighted_metrics = jnp.einsum("bk,bkm->bm", weights, self.relevant_metrics[min_indices.astype(jnp.int32)])
