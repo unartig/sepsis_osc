@@ -272,14 +272,9 @@ class JAXLookup:
     i_norm: Float[Array, "db_size 3"] = static_field()
     # tree for jkd approx lookup
     tree: jkd.tree.tree_type = static_field()
-    # grid for local lookup
-    grid_origin: jnp.ndarray= static_field() #  shape (3,), min coordinate of grid
-    grid_spacing: jnp.ndarray= static_field() #  shape (3,), distance between points along x,y,z
-    grid_shape: jnp.ndarray= static_field() #  tuple (Nx, Ny, Nz)
-    grid_flat_index: jnp.ndarray = static_field()  # (Nx, Ny, Nz)
 
 
-    def __init__(self, metrics: SystemMetrics, indices: Float[Array, "db_size 3"], grid_origin, grid_spacing, grid_shape):
+    def __init__(self, metrics: SystemMetrics, indices: Float[Array, "db_size 3"]):
         object.__setattr__(self, "metrics", metrics)
         object.__setattr__(self, "indices", indices)
         relevant_metrics = jnp.stack(
@@ -291,15 +286,11 @@ class JAXLookup:
         object.__setattr__(self, "i_norm", i_norm)
 
         object.__setattr__(self, "tree", jkd.build_tree(indices, optimize=True))
+     
 
-        
-
-        object.__setattr__(self, "grid_origin", grid_origin)
-        object.__setattr__(self, "grid_spacing", grid_spacing)
-        object.__setattr__(self, "grid_shape", grid_shape)
 
     def tree_flatten(self):
-        return (self.metrics, self.indices, self.grid_origin, self.grid_spacing, self.grid_shape), None
+        return (self.metrics, self.indices), None
 
     @classmethod
     def tree_unflatten(cls, aux_data, children):
@@ -377,61 +368,6 @@ class JAXLookup:
 
         return pred_c
 
-    def world_to_grid(self, query: jnp.ndarray) -> jnp.ndarray:
-        """Map 3D vector to fractional grid index."""
-        query = query[:, 5:8]
-        relative = (query - self.grid_origin) / self.grid_spacing  # (B, 3)
-        return relative  # fractional grid index (not int!)
-
-    def get_local_grid_indices(self, grid_coords: jnp.ndarray, radius=1):
-        """Get integer neighbor indices in 3D radius cube."""
-        ranges = jnp.stack(
-            jnp.meshgrid(
-                jnp.arange(-radius, radius + 1),
-                jnp.arange(-radius, radius + 1),
-                jnp.arange(-radius, radius + 1),
-                indexing='ij'
-            ), axis=-1
-        ).reshape(-1, 3)  # (K, 3)
-
-        def per_query(g):
-            candidates = g[None, :] + ranges  # (K, 3)
-            return jnp.clip(candidates, 0, jnp.array(self.grid_shape) - 1)
-
-        return jax.vmap(per_query)(jnp.floor(grid_coords).astype(int))  # (B, K, 3)
-
-    def grid_to_flat(self, indices3d):
-        Nx, Ny, Nz = self.grid_shape
-        return indices3d[:, :, 0] * Ny * Nz + indices3d[:, :, 1] * Nz + indices3d[:, :, 2]  # (B, K)
-
-    @filter_jit
-    def soft_get_local(self, query_vectors, temperatures, radius=1):
-        grid_coords = self.world_to_grid(query_vectors)  # (B, 3)
-        neighbor_3d = self.get_local_grid_indices(grid_coords, radius=radius)  # (B, K, 3)
-        flat_idx = self.grid_to_flat(neighbor_3d)  # (B, K)
-
-        def lookup_single(query, temp, idxs):
-            # idxs: (K,)
-            points = self.indices[idxs]          # (K, 3)
-            dists = jnp.sum((query[None, :] - points) ** 2, axis=-1)  # (K,)
-            weights = jax.nn.softmax(-dists / temp)                   # (K,)
-            metrics = self.relevant_metrics[idxs]                     # (K, M)
-            return weights @ metrics                                  # (M,)
-
-        # Wrap in a scan for memory-efficient batching
-        def scan_fn(carry, inputs):
-            query, temp, idxs = inputs
-            result = lookup_single(query, temp, idxs)
-            return carry, result
-
-        # Prepare inputs: (B, ...)
-        inputs = (query_vectors, temperatures[:, 0], flat_idx)
-        _, result = jax.lax.scan(scan_fn, None, inputs)  # result: (B, M)
-
-        return jnp.stack([
-            result[:, 0],
-            jnp.clip(result[:, 1] + result[:, 2], 0, 1),
-        ], axis=-1)  # (B, 2)
 
 
 
