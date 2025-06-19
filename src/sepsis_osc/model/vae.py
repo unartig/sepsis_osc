@@ -31,6 +31,9 @@ class Encoder(eqx.Module):
     beta_layer: eqx.nn.Linear
     sigma_layer: eqx.nn.Linear
 
+    sofa_layer: eqx.nn.Linear
+    infection_layer: eqx.nn.Linear
+
     temperature_layer: eqx.nn.Linear
 
     input_dim: int
@@ -46,8 +49,8 @@ class Encoder(eqx.Module):
         enc_hidden: int = ENC_HIDDEN,
         dropout_rate: float = 0.5,
     ):
-        key1, key2, key_attn_score, key3, key4, key_alpha, key_beta, key_sigma, key_temp = (
-            jax.random.split(key, 9)
+        key1, key2, key_attn_score, key3, key4, key_alpha, key_beta, key_sigma, key_temp, key_sofa, key_inf = (
+            jax.random.split(key, 11)
         )
 
         self.input_dim = input_dim
@@ -77,6 +80,9 @@ class Encoder(eqx.Module):
         self.beta_layer = eqx.nn.Linear(in_features=latent_dim, out_features=1, key=key_beta)
         self.sigma_layer = eqx.nn.Linear(in_features=latent_dim, out_features=1, key=key_sigma)
 
+        self.sofa_layer = eqx.nn.Linear(latent_dim, out_features=1, key=key_sofa)
+        self.infection_layer = eqx.nn.Linear(latent_dim, out_features=1, key=key_inf)
+
         self.temperature_layer = eqx.nn.Linear(latent_dim, out_features=1, key=key_temp)
 
     def __call__(self, x: Float[Array, "input_dim"], *, key):
@@ -102,9 +108,12 @@ class Encoder(eqx.Module):
         beta_raw = jax.nn.sigmoid(self.beta_layer(x_final_enc))
         sigma_raw = jax.nn.sigmoid(self.sigma_layer(x_final_enc))
 
+        sofa_raw = jax.nn.sigmoid(self.sofa_layer(x_final_enc))
+        infection_raw = jax.nn.sigmoid(self.infection_layer(x_final_enc))
+
         temperature = (jax.nn.sigmoid(self.temperature_layer(x_final_enc)) + 1e-6) * 3
 
-        return alpha_raw, beta_raw, sigma_raw, temperature
+        return alpha_raw, beta_raw, sigma_raw, sofa_raw, infection_raw, temperature
 
 
 class Decoder(eqx.Module):
@@ -214,5 +223,3 @@ def make_encoder(key, input_dim: int, latent_dim: int, enc_hidden: int, dropout_
 
 def make_decoder(key, input_dim: int, latent_dim: int, dec_hidden: int):
     return Decoder(key, input_dim, latent_dim, dec_hidden)
-
-
