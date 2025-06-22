@@ -123,6 +123,7 @@ def prepare_batches(
     batch_size: int,
     key: jnp.ndarray,
 ) -> tuple[Float[Array, "nbatches batch dim"], Float[Array, "nbatches batch dim"], int]:
+    # TODO balance classes for training?
     num_samples = x_data.shape[0]
     num_features = x_data.shape[1]
     num_targets = y_data.shape[1]
@@ -164,3 +165,17 @@ def infer_grid_params(coords: np.ndarray):
             shape.append(1)
 
     return np.array(origin), np.array(spacing), np.array(shape)
+
+
+def as_3d_indices(
+    alpha_space: tuple[float, float, float],
+    beta_space: tuple[float, float, float],
+    sigma_space: tuple[float, float, float],
+)-> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    betas = np.arange(*beta_space)
+    sigmas = np.arange(*sigma_space)
+    alphas = np.arange(*alpha_space)
+    beta_grid, sigma_grid, alpha_grid = np.meshgrid(betas, sigmas, alphas, indexing="ij")
+    permutations = np.stack([alpha_grid, beta_grid, sigma_grid], axis=-1)
+    a, b, s = permutations[:, :, :, 0:1], permutations[:, :, :, 1:2], permutations[:, :, :, 2:3]
+    return a, b, s
