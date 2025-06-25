@@ -1,12 +1,14 @@
 import json
 import logging
 import os
+from dataclasses import dataclass
 from functools import wraps
 from time import time
 
 import equinox as eqx
 import jax.numpy as jnp
 import jax.random as jr
+from jax.tree_util import register_dataclass
 import numpy as np
 from jaxtyping import Array, Float, PyTree
 from optax import GradientTransformation, OptState
@@ -29,6 +31,63 @@ def timing(f):
 
     return wrap
 
+@dataclass
+class ModelConfig:
+    latent_dim: int
+    input_dim: int
+    enc_hidden: int
+    dec_hidden: int
+
+@dataclass
+class TrainingConfig:
+    batch_size: int
+    epochs: int
+    perc_train_set: float = 1.0
+
+@dataclass
+class LoadingConfig:
+    from_dir: str
+    epoch: int
+
+@dataclass
+class SaveConfig:
+    every: int
+    do_save: bool
+
+@dataclass
+class LRConfig:
+    init: float
+    peak: float
+    peak_decay: float
+    end: float
+    warmup_epochs: int
+    enc_wd: float
+    grad_norm: float
+
+@register_dataclass
+@dataclass
+class ConceptLossConfig:
+    w_sofa: float
+    w_inf: float
+
+@register_dataclass
+@dataclass
+class LocalityLossConfig:
+    sigma_input: float
+    sigma_sofa: float
+    w_input: float
+    w_sofa: float
+    temperature: float
+
+@register_dataclass
+@dataclass
+class LossesConfig:
+    w_recon: float
+    w_concept: float
+    w_locality: float
+    w_tc: float
+    concept: ConceptLossConfig
+    locality: LocalityLossConfig
 
 def save_checkpoint(
     save_dir: str,
