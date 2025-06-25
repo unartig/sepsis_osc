@@ -75,8 +75,8 @@ def calc_concept_loss(
     prediction: Float[Array, "batch 2"],
     true_sofa: Float[Array, "batch 1"],
     true_infection: Float[Array, "batch 1"],
-    alpha: float = 1.0,
-    beta: float = 1.0,
+    w_sofa: float = 1.0,
+    w_inf: float = 1.0,
 ) -> tuple[Float[Array, "batch 1"], Float[Array, "batch 1"]]:
     pred_sofa = prediction[:, 0]  # SOFA prediction
     pred_infection = prediction[:, 1]  # Infection prediction
@@ -84,18 +84,18 @@ def calc_concept_loss(
     loss_sofa = ordinal_loss(pred_sofa, true_sofa)
     loss_infection = binary_loss(pred_infection, true_infection)
 
-    return alpha * loss_sofa, beta * loss_infection
+    return w_sofa * loss_sofa, w_inf * loss_infection
 
 
 def calc_locality_loss(
     input: Float[Array, "batch d_in"],
     latent: Float[Array, "batch d_latent"],
-    true_sofa: Float[Array, "batch"],
-    sigma_x=1.0,
-    tau_sofa=2.0,
+    true_sofa: Float[Array, "batch 1"],
+    sigma_input=1.0,
+    sigma_sofa=2.0,
     w_input=1.0,
     w_sofa=2.0,
-    margin=35.0,
+    temperature=10.0,
 ):
     # Compute distances
     x_dists = jnp.sum((input[:, None, :] - input[None, :, :]) ** 2, axis=-1)
@@ -103,15 +103,16 @@ def calc_locality_loss(
     sofa_dists = (true_sofa[:, None] - true_sofa[None, :]) ** 2
 
     # Similarity weights
-    sim_x = jnp.exp(-x_dists / (2 * sigma_x**2))
-    sim_sofa = jnp.exp(-sofa_dists / (2 * tau_sofa**2))
+    sim_x = jnp.exp(-x_dists / (2.0 * sigma_input**2))
+    sim_sofa = jnp.exp(-sofa_dists / (2.0 * sigma_sofa**2))
     sim = (w_input * sim_x + w_sofa * sim_sofa) / (w_input + w_sofa)
 
     # Positive pairs: pull together
     attract = sim * z_dists
 
     # Negative pairs: repel if too close
-    repel = (1.0 - sim) * jnp.maximum(0.0, margin - z_dists)
+    repel = (1.0 - sim) * jnp.exp(-z_dists / temperature)
+    # repel = (1.0 - sim) * jnp.maximum(0.0, margin - z_dists)
 
     loss = jnp.mean(attract + repel)
     return loss
@@ -130,7 +131,7 @@ def loss(
     lambda2: float = 5e-1,
     lambda3: float = 1e1,
 ) -> tuple[Array, dict[str, dict[str, Array]]]:
-    aux_losses = {"latents": {}, "concepts": {}, "losses": {}}
+    aux_losses: dict[str, dict[str, jnp.ndarray]] = {"latents": {}, "concepts": {}, "losses": {}}
     encoder, decoder = models
 
     key, *drop_keys = jr.split(key, x.shape[0] + 1)
@@ -156,17 +157,17 @@ def loss(
 
     # TODO change, we actually want to predict both :^)
     aux_losses["concepts"]["sofa_lookup"], aux_losses["concepts"]["infection_lookup"] = calc_concept_loss(
-        concepts_lookup, true_concepts[:, 0], true_concepts[:, 1], alpha=1.0, beta=0.0
+        concepts_lookup, true_concepts[:, 0], true_concepts[:, 1], w_sofa=1.0, w_inf=0.0
     )
     aux_losses["concepts"]["sofa_direct"], aux_losses["concepts"]["infection_direct"] = calc_concept_loss(
-        concepts_direct, true_concepts[:, 0], true_concepts[:, 1], alpha=1.0, beta=0.0
+        concepts_direct, true_concepts[:, 0], true_concepts[:, 1], w_sofa=1.0, w_inf=0.0
     )
     lookup_loss = aux_losses["concepts"]["sofa_lookup"] + aux_losses["concepts"]["infection_lookup"]
     direct_loss = aux_losses["concepts"]["sofa_direct"] + aux_losses["concepts"]["infection_direct"]
     aux_losses["losses"]["concept_loss"] = lookup_loss * 0.7 + direct_loss * 0.3
 
-    # cov = z_lookup.T @ z_lookup / z_lookup.shape[0]
-    # aux_losses["losses"]["tc_loss"]= jnp.sum(jnp.abs(cov - jnp.diag(jnp.diag(cov)))**2)
+    cov = z_lookup.T @ z_lookup / z_lookup.shape[0]
+    aux_losses["losses"]["tc_loss"] = jnp.sum(jnp.abs(cov - jnp.diag(jnp.diag(cov))) ** 2)
 
     aux_losses["losses"]["locality_loss"] = calc_locality_loss(x, z_lookup, true_concepts[:, 0])
 
