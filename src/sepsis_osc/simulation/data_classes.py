@@ -269,8 +269,6 @@ class JAXLookup:
     # Precomputations
     # norm for faster distance calculation
     i_norm: Float[Array, "db_size 3"] = static_field()
-    # tree for jkd approx lookup
-    tree: jkd.tree.tree_type = static_field()
 
     grid_shape: tuple[int, int, int] = static_field()
     grid_origin: Float[Array, "3"] = static_field()
