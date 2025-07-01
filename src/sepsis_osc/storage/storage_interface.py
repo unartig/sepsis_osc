@@ -17,7 +17,6 @@ from sepsis_osc.utils.config import db_metrics_key_value, db_parameter_keys, max
 from sepsis_osc.utils.logger import setup_logging
 
 mnp.patch()
-setup_logging("info", console_log=True)
 logger = logging.getLogger(__name__)
 
 

@@ -5,14 +5,7 @@ import jax
 import jax.numpy as jnp
 from jaxtyping import Array, Float
 
-from sepsis_osc.utils.jax_config import setup_jax
-from sepsis_osc.utils.logger import setup_logging
-from sepsis_osc.simulation.data_classes import JAXLookup, SystemMetrics
-
-setup_jax(simulation=False)
-setup_logging("info")
 logger = logging.getLogger(__name__)
-
 
 # === Model Definitions ===
 class Encoder(eqx.Module):
