@@ -17,7 +17,6 @@ from optax import GradientTransformation, OptState
 from sepsis_osc.model.vae import make_decoder, make_encoder
 from sepsis_osc.utils.logger import setup_logging
 
-setup_logging("info")
 logger = logging.getLogger(__name__)
 
 

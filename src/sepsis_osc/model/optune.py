@@ -150,7 +150,7 @@ def make_objective(train_x_inner, train_y_inner, val_x_inner, val_y_inner, jkey)
 
 if __name__ == "__main__":
     setup_jax(simulation=False)
-    setup_logging("info")
+    setup_logging("info", console_log=True)
     logger = logging.getLogger(__name__)
     key = jr.PRNGKey(jax_random_seed)
     TOTAL_TRIALS = 200
@@ -191,7 +191,7 @@ if __name__ == "__main__":
 
     study = optuna.create_study(
         direction="minimize",
-        storage="sqlite:///db.sqlite3",  # Specify the storage URL here.
+        storage="sqlite:///data/db.sqlite3",  # Specify the storage URL here.
         study_name="f1_lookup_local",
         load_if_exists=True,
         sampler=optuna.samplers.TPESampler(),

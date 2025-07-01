@@ -10,7 +10,6 @@ from sepsis_osc.utils.config import yaib_data_dir
 from sepsis_osc.model.gin_configs import file_names, vars, modality_mapping
 import os
 
-setup_logging()
 logger = logging.getLogger(__name__)
 
 data_dir = Path(yaib_data_dir)
@@ -41,5 +40,6 @@ for si, s in data.items():
 
 
 if __name__ == "__main__":
+    setup_logging()
     print(os.listdir(data_dir))
     print(data)
