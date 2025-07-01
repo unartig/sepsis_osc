@@ -9,7 +9,6 @@ from equinox import filter_jit, static_field
 from jaxtyping import Array, Float
 from numpy.typing import DTypeLike
 from scipy.ndimage import uniform_filter1d
-import jaxkd as jkd
 
 
 @dataclass
@@ -299,8 +298,6 @@ class JAXLookup:
         i_norm = jnp.sum(indices**2, axis=-1, keepdims=True).T
         object.__setattr__(self, "i_norm", i_norm)
 
-        object.__setattr__(self, "tree", jkd.build_tree(indices, optimize=True))
-
         object.__setattr__(self, "grid_shape", indices_3d.shape[:-1])
         object.__setattr__(self, "grid_origin", indices_3d[0, 0, 0])
         object.__setattr__(self, "grid_spacing", grid_spacing.astype(dtype))
@@ -368,7 +365,7 @@ class JAXLookup:
         offsets = jnp.array([-1, 0, 1])  # orig 1
         neighbor_offsets = jnp.stack(jnp.meshgrid(offsets, offsets, offsets, indexing="ij"), axis=-1).reshape(
             -1, 3
-        )  # (27, 3)
+        )
 
         def gather_neighbors(vi, q_point, temp_i):
             coords = vi[None, :] + neighbor_offsets
