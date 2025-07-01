@@ -5,7 +5,7 @@ import colorlog
 from sepsis_osc.utils.config import log_file, cfg_log_level
 
 
-def setup_logging(log_level: str = cfg_log_level, console_log=True):
+def setup_logging(log_level: str = cfg_log_level, console_log=True, log_file=log_file):
     for handler in logging.root.handlers[:]:  # Clean existing handlers
         logging.root.removeHandler(handler)
     if log_level == "debug":
@@ -18,6 +18,9 @@ def setup_logging(log_level: str = cfg_log_level, console_log=True):
         level = logging.WARNING
 
     logger = logging.getLogger()
+    logger.setLevel(level)
+    logger.propagate = False
+
     if console_log:
         console_formatter = colorlog.ColoredFormatter(
             "%(asctime)s - %(name)-30s - %(log_color)s%(levelname)-8s%(reset)s - %(message)s",
@@ -32,10 +35,8 @@ def setup_logging(log_level: str = cfg_log_level, console_log=True):
         )
         console_handler = logging.StreamHandler()
         console_handler.setFormatter(console_formatter)
-
-        logger.setLevel(level)
         logger.addHandler(console_handler)
-        logger.propagate = False
+    
 
     if log_file:
         file_formatter = logging.Formatter(
