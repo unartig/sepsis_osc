@@ -8,6 +8,7 @@ from time import time
 import equinox as eqx
 import jax.numpy as jnp
 import jax.random as jr
+from numpy.typing import DTypeLike
 from jax.tree_util import register_dataclass
 import numpy as np
 from jaxtyping import Array, Float, PyTree
@@ -31,6 +32,75 @@ def timing(f):
 
     return wrap
 
+
+@register_dataclass
+@dataclass
+class AuxLosses:
+    latents_alpha: jnp.ndarray
+    latents_beta: jnp.ndarray
+    latents_sigma: jnp.ndarray
+
+    concepts_infection_direct: jnp.ndarray
+    concepts_sofa_direct: jnp.ndarray
+    concepts_infection_lookup: jnp.ndarray
+    concepts_sofa_lookup: jnp.ndarray
+    concepts_lookup_temperature: jnp.ndarray
+    concepts_label_temperature: jnp.ndarray
+
+    losses_recon_loss: jnp.ndarray
+    losses_locality_loss: jnp.ndarray
+    losses_total_loss: jnp.ndarray
+    losses_concept_loss: jnp.ndarray
+
+    hists_sofa_score: jnp.ndarray
+
+    @staticmethod
+    def empty() -> "AuxLosses":
+        empty_losses = AuxLosses(
+            latents_alpha=jnp.zeros(()),
+            latents_beta=jnp.zeros(()),
+            latents_sigma=jnp.zeros(()),
+            concepts_infection_direct=jnp.zeros(()),
+            concepts_sofa_direct=jnp.zeros(()),
+            concepts_infection_lookup=jnp.zeros(()),
+            concepts_sofa_lookup=jnp.zeros(()),
+            concepts_lookup_temperature=jnp.zeros(()),
+            concepts_label_temperature=jnp.zeros(()),
+            losses_recon_loss=jnp.zeros(()),
+            losses_locality_loss=jnp.zeros(()),
+            losses_total_loss=jnp.zeros(()),
+            losses_concept_loss=jnp.zeros(()),
+            hists_sofa_score=jnp.ones(()),
+        )
+        return empty_losses
+
+    def to_dict(self) -> dict[str, dict[str, jnp.ndarray]]:
+        return {
+            "latents": {
+                "alpha": self.latents_alpha,
+                "beta": self.latents_beta,
+                "sigma": self.latents_sigma,
+            },
+            "concepts": {
+                "infection_direct": self.concepts_infection_direct,
+                "sofa_direct": self.concepts_sofa_direct,
+                "infection_lookup": self.concepts_infection_lookup,
+                "sofa_lookup": self.concepts_sofa_lookup,
+                "lookup_temperature": self.concepts_lookup_temperature,
+                "label_temperature": self.concepts_label_temperature,
+            },
+            "losses": {
+                "total_loss": self.losses_total_loss,
+                "recon_loss": self.losses_recon_loss,
+                "locality_loss": self.losses_locality_loss,
+                "concept_loss": self.losses_concept_loss,
+            },
+            "hists": {
+                "sofa_score": self.hists_sofa_score,
+            },
+        }
+
+
 @dataclass
 class ModelConfig:
     latent_dim: int
@@ -38,21 +108,26 @@ class ModelConfig:
     enc_hidden: int
     dec_hidden: int
 
+
 @dataclass
 class TrainingConfig:
     batch_size: int
     epochs: int
     perc_train_set: float = 1.0
+    validate_every: float = 1.0
+
 
 @dataclass
 class LoadingConfig:
     from_dir: str
     epoch: int
 
+
 @dataclass
 class SaveConfig:
-    every: int
-    do_save: bool
+    save_every: int
+    perform: bool
+
 
 @dataclass
 class LRConfig:
@@ -64,11 +139,13 @@ class LRConfig:
     enc_wd: float
     grad_norm: float
 
+
 @register_dataclass
 @dataclass
 class ConceptLossConfig:
     w_sofa: float
     w_inf: float
+
 
 @register_dataclass
 @dataclass
@@ -77,7 +154,9 @@ class LocalityLossConfig:
     sigma_sofa: float
     w_input: float
     w_sofa: float
+    z_scale: jnp.ndarray
     temperature: float
+
 
 @register_dataclass
 @dataclass
@@ -88,6 +167,7 @@ class LossesConfig:
     w_tc: float
     concept: ConceptLossConfig
     locality: LocalityLossConfig
+
 
 def save_checkpoint(
     save_dir: str,
@@ -181,11 +261,15 @@ def prepare_batches(
     y_data: Float[Array, "nsamples dim"],
     batch_size: int,
     key: jnp.ndarray,
+    perc: float = 1.0,
 ) -> tuple[Float[Array, "nbatches batch dim"], Float[Array, "nbatches batch dim"], int]:
     # TODO balance classes for training?
-    num_samples = x_data.shape[0]
+
+    num_samples = int(perc * x_data.shape[0])
     num_features = x_data.shape[1]
     num_targets = y_data.shape[1]
+    x_data = x_data[:num_samples]
+    y_data = y_data[:num_samples]
 
     # Shuffle data
     perm = jr.permutation(key, num_samples)
@@ -205,7 +289,7 @@ def prepare_batches(
 
 
 def infer_grid_params(coords: np.ndarray):
-    origin = coords.min(axis=0)
+    origin = np.min(coords, axis=0)
 
     # Safe spacing: avoid zero-spacing errors
     spacing = []
@@ -230,7 +314,7 @@ def as_3d_indices(
     alpha_space: tuple[float, float, float],
     beta_space: tuple[float, float, float],
     sigma_space: tuple[float, float, float],
-)-> tuple[np.ndarray, np.ndarray, np.ndarray]:
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     betas = np.arange(*beta_space)
     sigmas = np.arange(*sigma_space)
     alphas = np.arange(*alpha_space)

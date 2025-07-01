@@ -35,6 +35,10 @@ data = preprocess_data(
     modality_mapping=modality_mapping,
 )
 
+for si, s in data.items():
+    for k, df in s.items():
+        data[si][k] = data[si][k].sort(by=["stay_id", "time"])
+
 
 if __name__ == "__main__":
     print(os.listdir(data_dir))

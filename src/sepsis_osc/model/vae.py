@@ -40,7 +40,11 @@ class Encoder(eqx.Module):
     sigma_layer: eqx.nn.Linear
     sofa_layer: eqx.nn.Linear
     infection_layer: eqx.nn.Linear
-    temperature_layer: eqx.nn.Linear
+
+    # Parameter
+    label_temperature: Array
+    lookup_temperature: Array
+    ordinal_deltas: Array
 
     # Hyperparams
     input_dim: int
@@ -68,8 +72,7 @@ class Encoder(eqx.Module):
             key_sigma,
             key_sofa,
             key_inf,
-            key_temp,
-        ) = jax.random.split(key, 11)
+        ) = jax.random.split(key, 10)
 
         self.input_dim = input_dim
         self.latent_dim = latent_dim
@@ -90,6 +93,7 @@ class Encoder(eqx.Module):
         self.post_attention_dropout = eqx.nn.Dropout(dropout_rate)
 
         # Final encoder layers
+        # self.final_linear1 = eqx.nn.Linear(enc_hidden, enc_hidden, key=key_lin4, dtype=dtype)
         self.final_linear1 = eqx.nn.Linear(enc_hidden + input_dim, enc_hidden, key=key_lin4, dtype=dtype)
         self.final_norm1 = eqx.nn.LayerNorm(enc_hidden, dtype=dtype)
         self.dropout3 = eqx.nn.Dropout(dropout_rate)
@@ -101,7 +105,13 @@ class Encoder(eqx.Module):
         self.sigma_layer = eqx.nn.Linear(latent_dim, 1, key=key_sigma, dtype=dtype)
         self.sofa_layer = eqx.nn.Linear(latent_dim, 1, key=key_sofa, dtype=dtype)
         self.infection_layer = eqx.nn.Linear(latent_dim, 1, key=key_inf, dtype=dtype)
-        self.temperature_layer = eqx.nn.Linear(latent_dim, 1, key=key_temp, dtype=dtype)
+
+        # Parameter
+        self.label_temperature = jnp.ones(1,) * 0.1
+        # ordinals = jnp.arange(25, 1, 1) 
+        # self.ordinal_deltas= ordinals[::-1]/jnp.linalg.norm(ordinals)
+        self.ordinal_deltas= jnp.ones((24,))
+        self.lookup_temperature = jnp.ones(1,) * 0.5
 
     def __call__(self, x: Float[Array, "input_dim"], *, key):
         # Split keys for dropout layers
@@ -133,6 +143,7 @@ class Encoder(eqx.Module):
         x_final_enc = self.dropout3(x_final_enc, key=k4)
 
         x_final_enc = self.final_linear2(x_final_enc)
+        x_final_enc = jax.nn.swish(x_final_enc)
 
         # === Outputs ===
         alpha_raw = jax.nn.sigmoid(self.alpha_layer(x_final_enc))
@@ -142,9 +153,11 @@ class Encoder(eqx.Module):
         sofa_raw = jax.nn.sigmoid(self.sofa_layer(x_final_enc))
         infection_raw = jax.nn.sigmoid(self.infection_layer(x_final_enc))
 
-        temperature = (jax.nn.sigmoid(self.temperature_layer(x_final_enc)) + 1e-6) * 2
+        label_temperature = self.label_temperature
+        lookup_temperature = self.lookup_temperature
+        ordinal_thresholds = jnp.cumsum(jax.nn.softmax(self.ordinal_deltas))  # monotonicity
 
-        return alpha_raw, beta_raw, sigma_raw, sofa_raw, infection_raw, temperature
+        return alpha_raw, beta_raw, sigma_raw, sofa_raw, infection_raw, lookup_temperature, label_temperature, ordinal_thresholds
 
 
 class Decoder(eqx.Module):
