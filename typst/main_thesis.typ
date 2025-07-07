@@ -1,5 +1,5 @@
 #import "@preview/acrostiche:0.5.2": *
-#import "tuhh_template.typ": thesis
+#import "thesis_template.typ": thesis
 #import "@preview/drafting:0.2.2": margin-note, note-outline, inline-note, set-margin-note-defaults
 #import "tree.typ": tree_figure
 

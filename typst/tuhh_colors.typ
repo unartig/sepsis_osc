@@ -1,0 +1,2 @@
+#let colors = (   black: rgb(0, 0, 0),   warm_grey: rgb(168, 150, 140),   silver_grey: rgb(208, 208, 206),   light_grey: rgb(242, 242, 242),   red: rgb(255, 79, 79),   coral: rgb(255, 174, 162),   pink: rgb(255, 150, 209),   orange: rgb(255, 128, 21),   yellow: rgb(255, 220, 54),   turquoise: rgb(0, 193, 212),   mint_green: rgb(90, 255, 197),   petrol: rgb(38, 93, 113),   blue: rgb(20, 58, 255),   purple: rgb(115, 0, 254), )
+
