@@ -104,10 +104,10 @@ def calc_locality_loss(
 ):
     # Compute distances
     x_dists = jnp.sum((input[:, None, :] - input[None, :, :]) ** 2, axis=-1)
-    x_dists = x_dists/ (jnp.mean(x_dists) + 1e-8)
+    x_dists = x_dists / (jnp.mean(x_dists) + 1e-8)
 
     latent = latent / (jnp.linalg.norm(latent, axis=-1, keepdims=True) + 1e-8)
-    z_dists = jnp.sum(((latent[:, None, :] - latent[None, :, :])*latent_scale[None, :]) ** 2, axis=-1)
+    z_dists = jnp.sum(((latent[:, None, :] - latent[None, :, :]) * latent_scale[None, :]) ** 2, axis=-1)
     z_dists = z_dists / (jnp.mean(z_dists) + 1e-8)
 
     sofa_dists = (true_sofa[:, None] - true_sofa[None, :]) ** 2
@@ -117,7 +117,7 @@ def calc_locality_loss(
     sim_x = jnp.exp(-x_dists / 2.0)
     sim_sofa = jnp.exp(-sofa_dists / 2.0)
     # sim = (params.w_input * sim_x + params.w_sofa * sim_sofa) / (params.w_input + params.w_sofa)
-    sim =  params.alpha* sim_x + (1.0 - params.alpha) * sim_sofa
+    sim = params.input_vs_label * sim_x + (1.0 - params.input_vs_label) * sim_sofa
 
     # Positive pairs: pull together
     attract = sim * z_dists
@@ -180,7 +180,7 @@ def loss(
     )
     lookup_loss = aux_losses.sofa_lookup + aux_losses.infection_lookup
     direct_loss = aux_losses.sofa_direct + aux_losses.infection_direct
-    aux_losses.concept_loss = lookup_loss * params.w_lookup + direct_loss * (1 - params.w_lookup)
+    aux_losses.concept_loss = lookup_loss * params.lookup_vs_direct + direct_loss * (1 - params.lookup_vs_direct)
 
     z_centered = z_lookup - jnp.mean(z_lookup, axis=0, keepdims=True)
     cov = z_centered.T @ z_centered / z_lookup.shape[0]
@@ -194,7 +194,7 @@ def loss(
     aux_losses.total_loss = (
         0.5 * jnp.exp(-ls_recon) * aux_losses.recon_loss / 0.8
         + ls_recon
-        + 0.5 * jnp.exp(-ls_locality) * aux_losses.locality_loss / 0.7
+        + 0.5 * jnp.exp(-ls_locality) * params.w_locality * aux_losses.locality_loss / 0.7
         + ls_locality
         # + aux_losses.concept_loss * params.w_concept
         + 0.5 * jnp.exp(-ls_concept) * params.w_concept * aux_losses.concept_loss / 0.4
@@ -412,21 +412,18 @@ if __name__ == "__main__":
     setup_logging("info")
     logger = logging.getLogger(__name__)
 
-    model_conf = ModelConfig(latent_dim=3, input_dim=52, enc_hidden=128, dec_hidden=32)
+    model_conf = ModelConfig(latent_dim=3, input_dim=52, enc_hidden=32, dec_hidden=32)
     train_conf = TrainingConfig(batch_size=1024, epochs=5000, perc_train_set=1.0, validate_every=2.0)
     load_conf = LoadingConfig(from_dir="", epoch=0)
     save_conf = SaveConfig(save_every=10, perform=True)
     lr_conf = LRConfig(init=0.0, peak=5e-3, peak_decay=0.9, end=5e-5, warmup_epochs=75, enc_wd=1e-3, grad_norm=0.7)
     loss_conf = LossesConfig(
-        w_concept=8,
-        w_lookup=0.8,
-        w_locality=1,
+        w_concept=8.0,
+        w_locality=0.0,
+        lookup_vs_direct=0.8,
         concept=ConceptLossConfig(w_sofa=1.0, w_inf=0.0),
         locality=LocalityLossConfig(
-            sigma_input=1.0,
-            sigma_sofa=2.0,
-            w_input=1.0,
-            w_sofa=2.0,
+            input_vs_label=0.7,
             temperature=2.0,
         ),
     )
@@ -475,7 +472,6 @@ if __name__ == "__main__":
     key = jr.PRNGKey(jax_random_seed)
     key_enc, key_dec = jr.split(key)
     train_sofa_dist, _ = jnp.histogram(train_y, bins=25, density=True)
-    print(train_sofa_dist, train_sofa_dist.sum())
     encoder = Encoder(key_enc, model_conf.input_dim, model_conf.latent_dim, model_conf.enc_hidden, train_sofa_dist[:-1])
     decoder = Decoder(key_dec, model_conf.input_dim, model_conf.latent_dim, model_conf.dec_hidden)
 
@@ -549,6 +545,7 @@ if __name__ == "__main__":
             lookup_func=lookup_table.soft_get_local,
             loss_params=loss_conf,
         )
+        # loss_conf.w_locality = loss_conf.w_locality * (1 - 0.015)
         encoder = eqx.combine(params_enc, static_enc)
         decoder = eqx.combine(params_dec, static_dec)
 

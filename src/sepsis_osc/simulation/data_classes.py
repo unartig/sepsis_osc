@@ -1,10 +1,11 @@
 from dataclasses import dataclass, fields
-from typing import Optional
+from typing import Optional, Annotated
 
 import jax
 import jax.numpy as jnp
 import jax.tree_util as jtu
 import numpy as np
+from numpy.typing import NDArray
 from equinox import filter_jit, static_field
 from jaxtyping import Array, Float
 from numpy.typing import DTypeLike
@@ -73,25 +74,25 @@ class SystemConfig:
 
     @staticmethod
     def batch_as_index(
-        alpha: jnp.ndarray | np.ndarray,
-        beta: jnp.ndarray | np.ndarray,
-        sigma: jnp.ndarray | np.ndarray,
+        alpha: Float[Array, "... 1"]| np.ndarray,
+        beta: Float[Array, "... 1"]| np.ndarray,
+        sigma: Float[Array, "... 1"]| np.ndarray,
         C: float,
     ) -> jnp.ndarray:
-        batch_size = alpha.shape
+        batch_shape = alpha.shape
 
         # variable
         alpha = alpha / jnp.pi
         beta = beta / jnp.pi
         sigma = sigma / 2
-        _C = jnp.full(batch_size, C)
+        _C = jnp.full(batch_shape, C)
 
         # constant
-        omega_1_batch = jnp.full(batch_size, 0.0)
-        omega_2_batch = jnp.full(batch_size, 0.0)
-        a_1_batch = jnp.full(batch_size, 1.0)
-        epsilon_1_batch = jnp.full(batch_size, 0.03)
-        epsilon_2_batch = jnp.full(batch_size, 0.3)
+        omega_1_batch = jnp.full(batch_shape, 0.0)
+        omega_2_batch = jnp.full(batch_shape, 0.0)
+        a_1_batch = jnp.full(batch_shape, 1.0)
+        epsilon_1_batch = jnp.full(batch_shape, 0.03)
+        epsilon_2_batch = jnp.full(batch_shape, 0.3)
 
         batch_indices = jnp.stack(
             [
@@ -365,7 +366,7 @@ class JAXLookup:
             -1, 3
         )
 
-        def gather_neighbors(vi, q_point, temp_i):
+        def gather_neighbors(vi, q_point):
             coords = vi[None, :] + neighbor_offsets
             x, y, z = coords[:, 0], coords[:, 1], coords[:, 2]
 
@@ -375,12 +376,12 @@ class JAXLookup:
             # Compute distances to neighbors
             dists = jnp.sum((q_point - neighbor_xyz) ** 2, axis=-1)
 
-            weights = jax.nn.softmax(-dists / temp_i, axis=-1)
+            weights = jax.nn.softmax(-dists / temp, axis=-1)
             weighted = jnp.sum(weights[:, None] * neighbor_metrics, axis=0)
 
             return weighted
 
-        pred_c = jax.vmap(gather_neighbors)(voxel_idx, q, temp)
+        pred_c = jax.vmap(gather_neighbors)(voxel_idx, q)
         return pred_c.astype(orig_dtype)
 
 
