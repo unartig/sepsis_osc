@@ -7,6 +7,7 @@ from jaxtyping import Array, Float
 
 logger = logging.getLogger(__name__)
 
+
 # === Model Definitions ===
 class Encoder(eqx.Module):
     # Layers
@@ -38,6 +39,13 @@ class Encoder(eqx.Module):
     label_temperature: Array
     lookup_temperature: Array
     ordinal_deltas: Array
+    z_scaling: Array
+
+    # Loss Unvertainties
+    sigma_recon: Array
+    sigma_locality: Array
+    sigma_concept: Array
+    sigma_tc: Array
 
     # Hyperparams
     input_dim: int
@@ -47,12 +55,13 @@ class Encoder(eqx.Module):
 
     def __init__(
         self,
-        key: jnp.ndarray,
+        key: Array,
         input_dim: int,
         latent_dim: int,
         enc_hidden: int,
+        sofa_dist: Array,
         dropout_rate: float = 0.3,
-        dtype=jnp.float32
+        dtype=jnp.float32,
     ):
         (
             key_lin1,
@@ -86,7 +95,6 @@ class Encoder(eqx.Module):
         self.post_attention_dropout = eqx.nn.Dropout(dropout_rate)
 
         # Final encoder layers
-        # self.final_linear1 = eqx.nn.Linear(enc_hidden, enc_hidden, key=key_lin4, dtype=dtype)
         self.final_linear1 = eqx.nn.Linear(enc_hidden + input_dim, enc_hidden, key=key_lin4, dtype=dtype)
         self.final_norm1 = eqx.nn.LayerNorm(enc_hidden, dtype=dtype)
         self.dropout3 = eqx.nn.Dropout(dropout_rate)
@@ -100,11 +108,16 @@ class Encoder(eqx.Module):
         self.infection_layer = eqx.nn.Linear(latent_dim, 1, key=key_inf, dtype=dtype)
 
         # Parameter
-        self.label_temperature = jnp.ones(1,) * 0.1
-        # ordinals = jnp.arange(25, 1, 1) 
-        # self.ordinal_deltas= ordinals[::-1]/jnp.linalg.norm(ordinals)
-        self.ordinal_deltas= jnp.ones((24,))
-        self.lookup_temperature = jnp.ones(1,) * 0.5
+        self.label_temperature = jnp.ones((1,)) * 0.1
+        self.lookup_temperature = jnp.ones((1,)) * 0.5
+
+        self.sigma_recon = jnp.ones((1,)) * 0.1
+        self.sigma_locality = jnp.ones((1,)) * 0.1
+        self.sigma_concept = jnp.ones((1,)) * 0.1
+        self.sigma_tc = jnp.ones((1,)) * 0.1
+
+        self.ordinal_deltas = sofa_dist
+        self.z_scaling = jnp.ones((3,))
 
     def __call__(self, x: Float[Array, "input_dim"], *, key):
         # Split keys for dropout layers
@@ -146,11 +159,27 @@ class Encoder(eqx.Module):
         sofa_raw = jax.nn.sigmoid(self.sofa_layer(x_final_enc))
         infection_raw = jax.nn.sigmoid(self.infection_layer(x_final_enc))
 
-        label_temperature = self.label_temperature
-        lookup_temperature = self.lookup_temperature
-        ordinal_thresholds = jnp.cumsum(jax.nn.softmax(self.ordinal_deltas))  # monotonicity
+        return (
+            alpha_raw,
+            beta_raw,
+            sigma_raw,
+            sofa_raw,
+            infection_raw,
+        )
 
-        return alpha_raw, beta_raw, sigma_raw, sofa_raw, infection_raw, lookup_temperature, label_temperature, ordinal_thresholds
+    def get_parameters(self) -> tuple[Array, Array, Array, Array, Array, Array, Array, Array]:
+        ordinal_thresholds = jnp.cumsum(jax.nn.softmax(self.ordinal_deltas))  # monotonicity
+        z_scaling = jax.nn.softplus(self.z_scaling) + 0.1
+        return (
+            self.lookup_temperature,
+            self.label_temperature,
+            self.sigma_recon,
+            self.sigma_locality,
+            self.sigma_concept,
+            self.sigma_tc,
+            ordinal_thresholds,
+            z_scaling,
+        )
 
 
 class Decoder(eqx.Module):
@@ -183,18 +212,18 @@ class Decoder(eqx.Module):
 
 
 # He Uniform Initialization for ReLU activation
-def he_uniform_init(weight: jax.Array, key: jnp.ndarray) -> Array:
+def he_uniform_init(weight: Array, key: Array) -> Array:
     out, in_ = weight.shape
     stddev = jnp.sqrt(2 / in_)  # He init scale
     return jax.random.uniform(key, shape=(out, in_), minval=-stddev, maxval=stddev, dtype=weight.dtype)
 
 
 # Bias initialization to target softplus output around 1
-def softplus_bias_init(bias: jax.Array, key: jnp.ndarray, dtype=jnp.float32) -> Array:
+def softplus_bias_init(bias: Array, key: Array, dtype=jnp.float32) -> Array:
     return jnp.full(bias.shape, jnp.log(jnp.exp(1.0) - 1.0), dtype=bias.dtype)
 
 
-def zero_bias_init(bias: jax.Array, key: jnp.ndarray) -> jax.Array:
+def zero_bias_init(bias: Array, key: Array) -> Array:
     return jnp.zeros_like(bias, dtype=bias.dtype)
 
 
