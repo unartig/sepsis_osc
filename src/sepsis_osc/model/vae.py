@@ -108,8 +108,8 @@ class Encoder(eqx.Module):
         self.infection_layer = eqx.nn.Linear(latent_dim, 1, key=key_inf, dtype=dtype)
 
         # Parameter
-        self.label_temperature = jnp.ones((1,)) * 0.1
-        self.lookup_temperature = jnp.ones((1,)) * 0.5
+        self.label_temperature = jnp.log(jnp.ones((1,)) * 0.1)
+        self.lookup_temperature = jnp.log(jnp.ones((1,)) * 0.5)
 
         self.sigma_recon = jnp.ones((1,)) * 0.1
         self.sigma_locality = jnp.ones((1,)) * 0.1
@@ -171,8 +171,8 @@ class Encoder(eqx.Module):
         ordinal_thresholds = jnp.cumsum(jax.nn.softmax(self.ordinal_deltas))  # monotonicity
         z_scaling = jax.nn.softplus(self.z_scaling) + 0.1
         return (
-            self.lookup_temperature,
-            self.label_temperature,
+            jnp.exp(self.lookup_temperature),
+            jnp.exp(self.label_temperature),
             self.sigma_recon,
             self.sigma_locality,
             self.sigma_concept,

@@ -166,7 +166,7 @@ class ConceptLossConfig:
 @register_dataclass
 @dataclass
 class LocalityLossConfig:
-    alpha: float
+    input_vs_label: float
     temperature: float
 
 
@@ -174,7 +174,8 @@ class LocalityLossConfig:
 @dataclass
 class LossesConfig:
     w_concept: float
-    w_lookup: float
+    w_locality: float
+    lookup_vs_direct: float
     concept: ConceptLossConfig
     locality: LocalityLossConfig
 
