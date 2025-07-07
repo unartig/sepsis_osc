@@ -15,7 +15,6 @@ from jaxtyping import Array, Float, PyTree
 from optax import GradientTransformation, OptState
 
 from sepsis_osc.model.vae import make_decoder, make_encoder
-from sepsis_osc.utils.logger import setup_logging
 
 logger = logging.getLogger(__name__)
 
@@ -35,40 +34,51 @@ def timing(f):
 @register_dataclass
 @dataclass
 class AuxLosses:
-    latents_alpha: jnp.ndarray
-    latents_beta: jnp.ndarray
-    latents_sigma: jnp.ndarray
+    alpha: Array
+    beta: Array
+    sigma: Array
 
-    concepts_infection_direct: jnp.ndarray
-    concepts_sofa_direct: jnp.ndarray
-    concepts_infection_lookup: jnp.ndarray
-    concepts_sofa_lookup: jnp.ndarray
-    concepts_lookup_temperature: jnp.ndarray
-    concepts_label_temperature: jnp.ndarray
+    infection_direct: Array
+    sofa_direct: Array
+    infection_lookup: Array
+    sofa_lookup: Array
+    lookup_temperature: Array
+    label_temperature: Array
 
-    losses_recon_loss: jnp.ndarray
-    losses_locality_loss: jnp.ndarray
-    losses_total_loss: jnp.ndarray
-    losses_concept_loss: jnp.ndarray
+    sigma_recon: Array
+    sigma_locality: Array
+    sigma_concept: Array
+    sigma_tc: Array
 
-    hists_sofa_score: jnp.ndarray
+    total_loss: Array
+    recon_loss: Array
+    locality_loss: Array
+    concept_loss: Array
+    tc_loss: Array
+
+    hists_sofa_score: Array
 
     @staticmethod
     def empty() -> "AuxLosses":
         empty_losses = AuxLosses(
-            latents_alpha=jnp.zeros(()),
-            latents_beta=jnp.zeros(()),
-            latents_sigma=jnp.zeros(()),
-            concepts_infection_direct=jnp.zeros(()),
-            concepts_sofa_direct=jnp.zeros(()),
-            concepts_infection_lookup=jnp.zeros(()),
-            concepts_sofa_lookup=jnp.zeros(()),
-            concepts_lookup_temperature=jnp.zeros(()),
-            concepts_label_temperature=jnp.zeros(()),
-            losses_recon_loss=jnp.zeros(()),
-            losses_locality_loss=jnp.zeros(()),
-            losses_total_loss=jnp.zeros(()),
-            losses_concept_loss=jnp.zeros(()),
+            alpha=jnp.zeros(()),
+            beta=jnp.zeros(()),
+            sigma=jnp.zeros(()),
+            infection_direct=jnp.zeros(()),
+            sofa_direct=jnp.zeros(()),
+            infection_lookup=jnp.zeros(()),
+            sofa_lookup=jnp.zeros(()),
+            lookup_temperature=jnp.zeros(()),
+            label_temperature=jnp.zeros(()),
+            sigma_recon=jnp.zeros(()),
+            sigma_locality=jnp.zeros(()),
+            sigma_concept=jnp.zeros(()),
+            sigma_tc=jnp.zeros(()),
+            total_loss=jnp.zeros(()),
+            recon_loss=jnp.zeros(()),
+            locality_loss=jnp.zeros(()),
+            concept_loss=jnp.zeros(()),
+            tc_loss=jnp.zeros(()),
             hists_sofa_score=jnp.ones(()),
         )
         return empty_losses
@@ -76,23 +86,30 @@ class AuxLosses:
     def to_dict(self) -> dict[str, dict[str, jnp.ndarray]]:
         return {
             "latents": {
-                "alpha": self.latents_alpha,
-                "beta": self.latents_beta,
-                "sigma": self.latents_sigma,
+                "alpha": self.alpha,
+                "beta": self.beta,
+                "sigma": self.sigma,
+            },
+            "sigmas": {
+                "s_recon": self.sigma_recon,
+                "s_locality": self.sigma_locality,
+                "s_concept": self.sigma_concept,
+                "s_tc": self.sigma_tc,
             },
             "concepts": {
-                "infection_direct": self.concepts_infection_direct,
-                "sofa_direct": self.concepts_sofa_direct,
-                "infection_lookup": self.concepts_infection_lookup,
-                "sofa_lookup": self.concepts_sofa_lookup,
-                "lookup_temperature": self.concepts_lookup_temperature,
-                "label_temperature": self.concepts_label_temperature,
+                "infection_direct": self.infection_direct,
+                "sofa_direct": self.sofa_direct,
+                "infection_lookup": self.infection_lookup,
+                "sofa_lookup": self.sofa_lookup,
+                "lookup_temperature": self.lookup_temperature,
+                "label_temperature": self.label_temperature,
             },
             "losses": {
-                "total_loss": self.losses_total_loss,
-                "recon_loss": self.losses_recon_loss,
-                "locality_loss": self.losses_locality_loss,
-                "concept_loss": self.losses_concept_loss,
+                "total_loss": self.total_loss,
+                "recon_loss": self.recon_loss,
+                "locality_loss": self.locality_loss,
+                "concept_loss": self.concept_loss,
+                "tc_loss": self.tc_loss,
             },
             "hists": {
                 "sofa_score": self.hists_sofa_score,
@@ -149,21 +166,15 @@ class ConceptLossConfig:
 @register_dataclass
 @dataclass
 class LocalityLossConfig:
-    sigma_input: float
-    sigma_sofa: float
-    w_input: float
-    w_sofa: float
-    z_scale: jnp.ndarray
+    alpha: float
     temperature: float
 
 
 @register_dataclass
 @dataclass
 class LossesConfig:
-    w_recon: float
     w_concept: float
-    w_locality: float
-    w_tc: float
+    w_lookup: float
     concept: ConceptLossConfig
     locality: LocalityLossConfig
 
@@ -285,28 +296,6 @@ def prepare_batches(
     y_batched = y_truncated.reshape(num_full_batches, batch_size, num_targets)
 
     return x_batched, y_batched, num_full_batches
-
-
-def infer_grid_params(coords: np.ndarray):
-    origin = np.min(coords, axis=0)
-
-    # Safe spacing: avoid zero-spacing errors
-    spacing = []
-    shape = []
-
-    for i in range(3):
-        unique_vals = np.unique(coords[:, i])
-        if len(unique_vals) > 1:
-            d = np.min(np.diff(unique_vals))
-            spacing.append(d)
-            dim_size = int(np.round((coords[:, i].max() - origin[i]) / d)) + 1
-            shape.append(dim_size)
-        else:
-            # Grid is flat along this axis
-            spacing.append(1.0)  # or a small epsilon
-            shape.append(1)
-
-    return np.array(origin), np.array(spacing), np.array(shape)
 
 
 def as_3d_indices(

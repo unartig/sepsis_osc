@@ -36,47 +36,32 @@ from sepsis_osc.utils.jax_config import setup_jax
 from sepsis_osc.utils.logger import setup_logging
 
 
-def make_objective(train_x_inner, train_y_inner, val_x_inner, val_y_inner, jkey):
+def make_objective(train_x_inner, train_y_inner, val_x_inner, val_y_inner, sofa_dist, jkey):
     def objective(trial: Trial) -> float:
-
         # --- Tune hyperparameters ---
-        sigma_input = trial.suggest_float("sigma_input", 0.1, 5.0)
-        sigma_sofa = trial.suggest_float("sigma_sofa", 0.1, 5.0)
-        w_input = trial.suggest_float("w_input", 0.1, 5.0)
-        w_sofa = trial.suggest_float("w_sofa", 0.1, 5.0)
-        temperature = trial.suggest_float("temperature_locality", 0.01, 50.0)
-        w_recon = trial.suggest_float("w_recon", 1e-2, 1e2, log=True)
-        w_concept = trial.suggest_float("w_concept", 1e-2, 1e3, log=True)
-        w_locality = trial.suggest_float("w_locality", 1e-2, 1e3, log=True)
-        z_alpha= trial.suggest_float("z_alpha", 1e-2, 1e2, log=True)
-        z_beta= trial.suggest_float("z_beta", 1e-2, 1e2, log=True)
-        z_sigma= trial.suggest_float("z_sigma", 1e-2, 1e2, log=True)
-        w_tc = trial.suggest_float("w_tc", 1e-12, 1e1, log=True)
+        locality_alpha = trial.suggest_float("locality_alpha", 0.0, 1.0)
+        local_temp = trial.suggest_float("temperature_locality", 0.1, 50.0)
+        w_concept = trial.suggest_float("w_concept", 0, 100, log=False)
+        w_lookup = trial.suggest_float("w_lookup", 0.01, 1, log=False)
 
         train_conf = TrainingConfig(batch_size=1024, epochs=150, perc_train_set=1.0, validate_every=1)
         loss_conf = LossesConfig(
-            w_recon=w_recon,
             w_concept=w_concept,
-            w_locality=w_locality,
-            w_tc=w_tc,
+            w_lookup=w_lookup,
             concept=ConceptLossConfig(w_sofa=1.0, w_inf=0.0),
             locality=LocalityLossConfig(
-                sigma_input=sigma_input,
-                sigma_sofa=sigma_sofa,
-                w_input=w_input,
-                w_sofa=w_sofa,
-                z_scale=jnp.array([z_alpha, z_beta, z_sigma]),
-                temperature=temperature,
+                alpha=locality_alpha,
+                temperature=local_temp,
             ),
         )
 
         model_conf = ModelConfig(latent_dim=3, input_dim=52, enc_hidden=32, dec_hidden=16)
         key_enc, key_dec = jr.split(jkey)
-        encoder = Encoder(key_enc, model_conf.input_dim, model_conf.latent_dim, model_conf.enc_hidden)
+        encoder = Encoder(key_enc, model_conf.input_dim, model_conf.latent_dim, model_conf.enc_hidden, sofa_dist)
         decoder = Decoder(key_dec, model_conf.input_dim, model_conf.latent_dim, model_conf.dec_hidden)
         params_enc, static_enc = eqx.partition(encoder, eqx.is_inexact_array)
         params_dec, static_dec = eqx.partition(decoder, eqx.is_inexact_array)
-        lr_conf = LRConfig(init=0.0, peak=5e-3, peak_decay=0.9, end=7e-5, warmup_epochs=25, enc_wd=1e-3, grad_norm=0.7)
+        lr_conf = LRConfig(init=0.0, peak=1e-3, peak_decay=0.9, end=7e-5, warmup_epochs=15, enc_wd=1e-3, grad_norm=0.7)
         shuffle_train_key, key = jr.split(jkey, 2)
         steps_per_epoch = (train_x_inner.shape[0] // train_conf.batch_size) * train_conf.batch_size
         shuffle_val_key, key = jr.split(key, 2)
@@ -85,7 +70,7 @@ def make_objective(train_x_inner, train_y_inner, val_x_inner, val_y_inner, jkey)
             init_value=lr_conf.init,
             peak_value=lr_conf.peak,
             warmup_steps=lr_conf.warmup_epochs * steps_per_epoch,
-            steps_per_cycle=[steps_per_epoch * n for n in [50, 50, 25]],  # cycle durations
+            steps_per_cycle=[steps_per_epoch * n for n in [25, 25, 35, 50]],  # cycle durations
             end_value=lr_conf.end,
             peak_decay=lr_conf.peak_decay,
         )
@@ -96,7 +81,6 @@ def make_objective(train_x_inner, train_y_inner, val_x_inner, val_y_inner, jkey)
         opt_dec = optax.adamw(lr_conf.peak)
         opt_state_enc = opt_enc.init(params_enc)
         opt_state_dec = opt_dec.init(params_dec)
-
 
         best_loss_val = float("inf")
         bad_val_epochs = 0
@@ -132,8 +116,10 @@ def make_objective(train_x_inner, train_y_inner, val_x_inner, val_y_inner, jkey)
                 lookup_func=lookup_table.hard_get,
                 loss_params=loss_conf,
             )
-            concept_loss_val = float(val_metrics.losses_concept_loss.mean())
-            logger.info(f"Loss {concept_loss_val:.4f}, epoch {epoch}, bad val epochs {bad_val_epochs}, bad train epochs {bad_train_epochs}")
+            concept_loss_val = float(val_metrics.sofa_lookup.mean())
+            logger.info(
+                f"Loss {concept_loss_val:.4f}, epoch {epoch}, bad val epochs {bad_val_epochs}, bad train epochs {bad_train_epochs}"
+            )
 
             trial.report(concept_loss_val, step=epoch)
 
@@ -181,6 +167,7 @@ if __name__ == "__main__":
     spacing_3d = jnp.array([ALPHA_SPACE[2], BETA_SPACE[2], SIGMA_SPACE[2]])
     params = SystemConfig.batch_as_index(a, b, s, 0.2)
     metrics_3d, _ = sim_storage.read_multiple_results(np.asarray(params))
+    train_sofa_dist, _ = jnp.histogram(train_y, bins=25, density=True)
     lookup_table = JAXLookup(
         metrics=np_metrics.to_jax(),
         indices=jnp.asarray(indices[:, 5:8]),  # since param space only alpha beta sigma
@@ -192,10 +179,10 @@ if __name__ == "__main__":
     study = optuna.create_study(
         direction="minimize",
         storage="sqlite:///data/db.sqlite3",  # Specify the storage URL here.
-        study_name="f1_lookup_local",
+        study_name="s1_mini",
         load_if_exists=True,
         sampler=optuna.samplers.TPESampler(),
-        pruner=optuna.pruners.SuccessiveHalvingPruner()
+        pruner=optuna.pruners.PatientPruner(optuna.pruners.MedianPruner(), patience=25)
     )
     # dataset_fraction_callback = DatasetFractionCallback(total_trials=TOTAL_TRIALS)
-    study.optimize(make_objective(train_x, train_y, val_x, val_y, key), n_trials=TOTAL_TRIALS)
+    study.optimize(make_objective(train_x, train_y, val_x, val_y, train_sofa_dist, key), n_trials=TOTAL_TRIALS)

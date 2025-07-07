@@ -22,7 +22,6 @@ from sepsis_osc.model.model_utils import (
     SaveConfig,
     TrainingConfig,
     as_3d_indices,
-    infer_grid_params,
     load_checkpoint,
     prepare_batches,
     save_checkpoint,
@@ -100,17 +99,25 @@ def calc_locality_loss(
     input: Float[Array, "batch d_in"],
     latent: Float[Array, "batch d_latent"],
     true_sofa: Float[Array, "batch 1"],
+    latent_scale: Float[Array, "3"],
     params: LocalityLossConfig,
 ):
     # Compute distances
     x_dists = jnp.sum((input[:, None, :] - input[None, :, :]) ** 2, axis=-1)
-    z_dists = jnp.sum(((latent[:, None, :] - latent[None, :, :]) * params.z_scale[None, :]) ** 2, axis=-1)
+    x_dists = x_dists/ (jnp.mean(x_dists) + 1e-8)
+
+    latent = latent / (jnp.linalg.norm(latent, axis=-1, keepdims=True) + 1e-8)
+    z_dists = jnp.sum(((latent[:, None, :] - latent[None, :, :])*latent_scale[None, :]) ** 2, axis=-1)
+    z_dists = z_dists / (jnp.mean(z_dists) + 1e-8)
+
     sofa_dists = (true_sofa[:, None] - true_sofa[None, :]) ** 2
+    sofa_dists = sofa_dists / (jnp.mean(sofa_dists) + 1e-8)
 
     # Similarity weights
-    sim_x = jnp.exp(-x_dists / (2.0 * params.sigma_input**2))
-    sim_sofa = jnp.exp(-sofa_dists / (2.0 * params.sigma_sofa**2))
-    sim = (params.w_input * sim_x + params.w_sofa * sim_sofa) / (params.w_input + params.w_sofa)
+    sim_x = jnp.exp(-x_dists / 2.0)
+    sim_sofa = jnp.exp(-sofa_dists / 2.0)
+    # sim = (params.w_input * sim_x + params.w_sofa * sim_sofa) / (params.w_input + params.w_sofa)
+    sim =  params.alpha* sim_x + (1.0 - params.alpha) * sim_sofa
 
     # Positive pairs: pull together
     attract = sim * z_dists
@@ -140,16 +147,17 @@ def loss(
     key, *drop_keys = jr.split(key, x.shape[0] + 1)
     drop_keys = jnp.array(drop_keys)
 
-    alpha, beta, sigma, sofa, infection, lookup_temp, label_temp, ordinal_thresholds = jax.vmap(encoder)(
-        x, key=drop_keys
-    )
+    alpha, beta, sigma, sofa, infection = jax.vmap(encoder)(x, key=drop_keys)
     alpha = alpha * (ALPHA_SPACE[1] - ALPHA_SPACE[0]) + ALPHA_SPACE[0]
     beta = beta * (BETA_SPACE[1] - BETA_SPACE[0]) + BETA_SPACE[0]
     sigma = sigma * (SIGMA_SPACE[1] - SIGMA_SPACE[0]) + SIGMA_SPACE[0]
-    aux_losses.latents_alpha, aux_losses.latents_beta, aux_losses.latents_sigma = (
+    aux_losses.alpha, aux_losses.beta, aux_losses.sigma = (
         alpha.mean(),
         beta.mean(),
         sigma.mean(),
+    )
+    lookup_temp, label_temp, ls_recon, ls_locality, ls_concept, ls_tc, ordinal_thresholds, z_scaling = (
+        encoder.get_parameters()
     )
 
     concepts_direct = jnp.concatenate([sofa, infection], axis=-1)
@@ -160,41 +168,50 @@ def loss(
         temperatures=lookup_temp,
     )
 
-    aux_losses.concepts_sofa_lookup, aux_losses.concepts_infection_lookup, hists_sofa  = calc_concept_loss(
+    aux_losses.sofa_lookup, aux_losses.infection_lookup, hists_sofa = calc_concept_loss(
         concepts_lookup, true_concepts[:, 0], true_concepts[:, 1], ordinal_thresholds, label_temp, params.concept
     )
     (
-        aux_losses.concepts_sofa_direct,
-        aux_losses.concepts_infection_direct,
+        aux_losses.sofa_direct,
+        aux_losses.infection_direct,
         _,
     ) = calc_concept_loss(
         concepts_direct, true_concepts[:, 0], true_concepts[:, 1], ordinal_thresholds, label_temp, params.concept
     )
-    lookup_loss = aux_losses.concepts_sofa_lookup + aux_losses.concepts_infection_lookup
-    direct_loss = aux_losses.concepts_sofa_direct + aux_losses.concepts_infection_direct
-    aux_losses.losses_concept_loss = lookup_loss * 0.7 + direct_loss * 0.3
+    lookup_loss = aux_losses.sofa_lookup + aux_losses.infection_lookup
+    direct_loss = aux_losses.sofa_direct + aux_losses.infection_direct
+    aux_losses.concept_loss = lookup_loss * params.w_lookup + direct_loss * (1 - params.w_lookup)
 
-    # cov = z_lookup.T @ z_lookup / z_lookup.shape[0]
-    # aux_losses["losses"]["tc_loss"] = jnp.sum(jnp.abs(cov - jnp.diag(jnp.diag(cov))) ** 2)
+    z_centered = z_lookup - jnp.mean(z_lookup, axis=0, keepdims=True)
+    cov = z_centered.T @ z_centered / z_lookup.shape[0]
+    aux_losses.tc_loss = jnp.sum(jnp.abs(cov - jnp.diag(jnp.diag(cov))) ** 2)
 
-    # aux_losses.losses_locality_loss = calc_locality_loss(x, concepts_direct, true_concepts[:, 0], params.locality)
-    aux_losses.losses_locality_loss = calc_locality_loss(x, z_lookup, true_concepts[:, 0], params.locality)
+    aux_losses.locality_loss = calc_locality_loss(x, z_lookup, true_concepts[:, 0], z_scaling, params.locality)
 
     x_recon = jax.vmap(decoder)(z_lookup)
-    aux_losses.losses_recon_loss = jnp.mean((x - x_recon) ** 2, axis=-1)
+    aux_losses.recon_loss = jnp.mean((x - x_recon) ** 2, axis=-1)
 
-    aux_losses.losses_total_loss = (
-        params.w_recon * aux_losses.losses_recon_loss
-        + params.w_concept * aux_losses.losses_concept_loss
-        + params.w_locality * aux_losses.losses_locality_loss
-        # + params.w_tc * aux_losses.losses_tc_loss  # https://github.com/YannDubs/disentangling-vae
+    aux_losses.total_loss = (
+        0.5 * jnp.exp(-ls_recon) * aux_losses.recon_loss / 0.8
+        + ls_recon
+        + 0.5 * jnp.exp(-ls_locality) * aux_losses.locality_loss / 0.7
+        + ls_locality
+        # + aux_losses.concept_loss * params.w_concept
+        + 0.5 * jnp.exp(-ls_concept) * params.w_concept * aux_losses.concept_loss / 0.4
+        + ls_concept
+        + 0.5 * jnp.exp(-ls_tc) * aux_losses.tc_loss / 0.1
+        + ls_tc  # https://github.com/YannDubs/disentangling-vae
     )
 
-    aux_losses.concepts_lookup_temperature = lookup_temp.mean(axis=-1)
-    aux_losses.concepts_label_temperature = label_temp.mean(axis=-1)
+    aux_losses.lookup_temperature = lookup_temp.mean(axis=-1)
+    aux_losses.label_temperature = label_temp.mean(axis=-1)
+    aux_losses.sigma_recon = ls_recon
+    aux_losses.sigma_locality = ls_locality
+    aux_losses.sigma_concept = ls_concept
+    aux_losses.sigma_tc = ls_tc
     aux_losses = jax.tree_util.tree_map(jnp.mean, aux_losses)
     aux_losses.hists_sofa_score = hists_sofa
-    return aux_losses.losses_total_loss, aux_losses
+    return aux_losses.total_loss, aux_losses
 
 
 @eqx.filter_jit
@@ -395,23 +412,21 @@ if __name__ == "__main__":
     setup_logging("info")
     logger = logging.getLogger(__name__)
 
-    model_conf = ModelConfig(latent_dim=3, input_dim=52, enc_hidden=32, dec_hidden=32)
+    model_conf = ModelConfig(latent_dim=3, input_dim=52, enc_hidden=128, dec_hidden=32)
     train_conf = TrainingConfig(batch_size=1024, epochs=5000, perc_train_set=1.0, validate_every=2.0)
     load_conf = LoadingConfig(from_dir="", epoch=0)
     save_conf = SaveConfig(save_every=10, perform=True)
     lr_conf = LRConfig(init=0.0, peak=5e-3, peak_decay=0.9, end=5e-5, warmup_epochs=75, enc_wd=1e-3, grad_norm=0.7)
     loss_conf = LossesConfig(
-        w_recon=0.2,
-        w_concept=1e1,
-        w_locality=0.0,
-        w_tc=0.0,
+        w_concept=8,
+        w_lookup=0.8,
+        w_locality=1,
         concept=ConceptLossConfig(w_sofa=1.0, w_inf=0.0),
         locality=LocalityLossConfig(
             sigma_input=1.0,
             sigma_sofa=2.0,
             w_input=1.0,
             w_sofa=2.0,
-            z_scale=jnp.array([1.0, 1.0, 1.0]),
             temperature=2.0,
         ),
     )
@@ -454,13 +469,14 @@ if __name__ == "__main__":
         metrics_3d=metrics_3d,
         indices_3d=indices_3d,
         grid_spacing=spacing_3d,
-        dtype=jnp.bfloat16
     )
 
     # === Initialization ===
     key = jr.PRNGKey(jax_random_seed)
     key_enc, key_dec = jr.split(key)
-    encoder = Encoder(key_enc, model_conf.input_dim, model_conf.latent_dim, model_conf.enc_hidden)
+    train_sofa_dist, _ = jnp.histogram(train_y, bins=25, density=True)
+    print(train_sofa_dist, train_sofa_dist.sum())
+    encoder = Encoder(key_enc, model_conf.input_dim, model_conf.latent_dim, model_conf.enc_hidden, train_sofa_dist[:-1])
     decoder = Decoder(key_dec, model_conf.input_dim, model_conf.latent_dim, model_conf.dec_hidden)
 
     steps_per_epoch = (train_x.shape[0] // train_conf.batch_size) * train_conf.batch_size
@@ -530,7 +546,7 @@ if __name__ == "__main__":
             update_enc=opt_enc.update,
             update_dec=opt_dec.update,
             key=key,
-            lookup_func=lookup_table.soft_get_full,
+            lookup_func=lookup_table.soft_get_local,
             loss_params=loss_conf,
         )
         encoder = eqx.combine(params_enc, static_enc)
@@ -592,7 +608,9 @@ if __name__ == "__main__":
                         val_metrics["hists"]["sofa_score"].flatten().min(),
                         val_metrics["hists"]["sofa_score"].flatten().max(),
                     )
-                    writer.add_histogram("SOFA Score", np.asarray(val_metrics["hists"]["sofa_score"].flatten()), epoch)
+                    writer.add_histogram(
+                        "SOFA Score", np.asarray(val_metrics["hists"]["sofa_score"].flatten()), epoch, bins=24
+                    )
                 else:
                     for metric_name, metric_values in val_metrics[k].items():
                         log_msg += (
