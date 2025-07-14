@@ -14,7 +14,7 @@ import numpy as np
 from jaxtyping import Array, Float, PyTree
 from optax import GradientTransformation, OptState
 
-from sepsis_osc.model.vae import make_decoder, make_encoder
+from sepsis_osc.model.ae import make_decoder, make_encoder
 
 logger = logging.getLogger(__name__)
 
@@ -38,10 +38,8 @@ class AuxLosses:
     beta: Array
     sigma: Array
 
-    infection_direct: Array
-    sofa_direct: Array
-    infection_lookup: Array
-    sofa_lookup: Array
+    infection: Array
+    sofa: Array
     lookup_temperature: Array
     label_temperature: Array
 
@@ -63,10 +61,8 @@ class AuxLosses:
             alpha=jnp.zeros(()),
             beta=jnp.zeros(()),
             sigma=jnp.zeros(()),
-            infection_direct=jnp.zeros(()),
-            sofa_direct=jnp.zeros(()),
-            infection_lookup=jnp.zeros(()),
-            sofa_lookup=jnp.zeros(()),
+            infection=jnp.zeros(()),
+            sofa=jnp.zeros(()),
             lookup_temperature=jnp.zeros(()),
             label_temperature=jnp.zeros(()),
             sigma_recon=jnp.zeros(()),
@@ -95,10 +91,8 @@ class AuxLosses:
                 "s_tc": self.sigma_tc,
             },
             "concepts": {
-                "infection_direct": self.infection_direct,
-                "sofa_direct": self.sofa_direct,
-                "infection_lookup": self.infection_lookup,
-                "sofa_lookup": self.sofa_lookup,
+                "infection_lookup": self.infection,
+                "sofa_lookup": self.sofa,
                 "lookup_temperature": self.lookup_temperature,
                 "label_temperature": self.label_temperature,
             },
@@ -125,6 +119,7 @@ class ModelConfig:
 @dataclass
 class TrainingConfig:
     batch_size: int
+    window_len: int
     epochs: int
     perc_train_set: float = 1.0
     validate_every: float = 1.0
@@ -166,7 +161,6 @@ class LossesConfig:
     w_concept: float
     w_recon: float
     w_tc:float
-    lookup_vs_direct: float
     concept: ConceptLossConfig
 
 
@@ -256,43 +250,6 @@ def load_checkpoint(
         full_model_state["opt_state_dec"],
     )
 
-
-def prepare_batches(
-    x_data: Float[Array, "nsamples dim"],
-    y_data: Float[Array, "nsamples dim"],
-    batch_size: int,
-    key: jnp.ndarray,
-    perc: float = 1.0,
-    shuffle=True,
-) -> tuple[Float[Array, "nbatches batch dim"], Float[Array, "nbatches batch dim"], int]:
-    # TODO balance classes for training?
-
-    num_samples = int(perc * x_data.shape[0])
-    num_features = x_data.shape[1]
-    num_targets = y_data.shape[1]
-    x_data = x_data[:num_samples]
-    y_data = y_data[:num_samples]
-
-    # Shuffle data
-    if shuffle:
-        perm = jr.permutation(key, num_samples)
-        x_shuffled = x_data[perm]
-        y_shuffled = y_data[perm]
-    else:
-        x_shuffled = x_data
-        y_shuffled = y_data
-        
-
-    # Ensure full batches only
-    num_full_batches = num_samples // batch_size
-    x_truncated = x_shuffled[: num_full_batches * batch_size]
-    y_truncated = y_shuffled[: num_full_batches * batch_size]
-
-    # Reshape into batches
-    x_batched = x_truncated.reshape(num_full_batches, batch_size, num_features)
-    y_batched = y_truncated.reshape(num_full_batches, batch_size, num_targets)
-
-    return x_batched, y_batched, num_full_batches
 
 
 def as_3d_indices(
