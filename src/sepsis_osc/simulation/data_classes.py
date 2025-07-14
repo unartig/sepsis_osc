@@ -380,6 +380,7 @@ class JAXLookup:
         query_vectors: Float[Array, "batch 3"],
         temperatures: Float[Array, "batch 1"],
     ) -> Float[Array, "batch 2"]:
+        print(query_vectors.shape, temperatures.shape)
         orig_dtype = query_vectors.dtype
         q = query_vectors.astype(self.dtype)
         temp = temperatures.astype(self.dtype)
