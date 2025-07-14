@@ -52,7 +52,6 @@ class AuxLosses:
 
     total_loss: Array
     recon_loss: Array
-    locality_loss: Array
     concept_loss: Array
     tc_loss: Array
 
@@ -76,7 +75,6 @@ class AuxLosses:
             sigma_tc=jnp.zeros(()),
             total_loss=jnp.zeros(()),
             recon_loss=jnp.zeros(()),
-            locality_loss=jnp.zeros(()),
             concept_loss=jnp.zeros(()),
             tc_loss=jnp.zeros(()),
             hists_sofa_score=jnp.ones(()),
@@ -107,7 +105,6 @@ class AuxLosses:
             "losses": {
                 "total_loss": self.total_loss,
                 "recon_loss": self.recon_loss,
-                "locality_loss": self.locality_loss,
                 "concept_loss": self.concept_loss,
                 "tc_loss": self.tc_loss,
             },
@@ -165,19 +162,12 @@ class ConceptLossConfig:
 
 @register_dataclass
 @dataclass
-class LocalityLossConfig:
-    input_vs_label: float
-    temperature: float
-
-
-@register_dataclass
-@dataclass
 class LossesConfig:
     w_concept: float
-    w_locality: float
+    w_recon: float
+    w_tc:float
     lookup_vs_direct: float
     concept: ConceptLossConfig
-    locality: LocalityLossConfig
 
 
 def save_checkpoint(
@@ -273,6 +263,7 @@ def prepare_batches(
     batch_size: int,
     key: jnp.ndarray,
     perc: float = 1.0,
+    shuffle=True,
 ) -> tuple[Float[Array, "nbatches batch dim"], Float[Array, "nbatches batch dim"], int]:
     # TODO balance classes for training?
 
@@ -283,9 +274,14 @@ def prepare_batches(
     y_data = y_data[:num_samples]
 
     # Shuffle data
-    perm = jr.permutation(key, num_samples)
-    x_shuffled = x_data[perm]
-    y_shuffled = y_data[perm]
+    if shuffle:
+        perm = jr.permutation(key, num_samples)
+        x_shuffled = x_data[perm]
+        y_shuffled = y_data[perm]
+    else:
+        x_shuffled = x_data
+        y_shuffled = y_data
+        
 
     # Ensure full batches only
     num_full_batches = num_samples // batch_size
@@ -304,10 +300,10 @@ def as_3d_indices(
     beta_space: tuple[float, float, float],
     sigma_space: tuple[float, float, float],
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    alphas = np.arange(*alpha_space)
     betas = np.arange(*beta_space)
     sigmas = np.arange(*sigma_space)
-    alphas = np.arange(*alpha_space)
-    beta_grid, sigma_grid, alpha_grid = np.meshgrid(betas, sigmas, alphas, indexing="ij")
+    alpha_grid, beta_grid, sigma_grid = np.meshgrid(alphas, betas, sigmas, indexing="ij")
     permutations = np.stack([alpha_grid, beta_grid, sigma_grid], axis=-1)
     a, b, s = permutations[:, :, :, 0:1], permutations[:, :, :, 1:2], permutations[:, :, :, 2:3]
     return a, b, s

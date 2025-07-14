@@ -1,11 +1,10 @@
 from dataclasses import dataclass, fields
-from typing import Optional, Annotated
+from typing import Optional
 
 import jax
 import jax.numpy as jnp
 import jax.tree_util as jtu
 import numpy as np
-from numpy.typing import NDArray
 from equinox import filter_jit, static_field
 from jaxtyping import Array, Float
 from numpy.typing import DTypeLike
@@ -74,9 +73,9 @@ class SystemConfig:
 
     @staticmethod
     def batch_as_index(
-        alpha: Float[Array, "... 1"]| np.ndarray,
-        beta: Float[Array, "... 1"]| np.ndarray,
-        sigma: Float[Array, "... 1"]| np.ndarray,
+        alpha: Float[Array, "... 1"] | np.ndarray,
+        beta: Float[Array, "... 1"] | np.ndarray,
+        sigma: Float[Array, "... 1"] | np.ndarray,
         C: float,
     ) -> jnp.ndarray:
         batch_shape = alpha.shape
@@ -123,6 +122,10 @@ class SystemState:
     # Required for JAX to recognize it as a PyTree
     def tree_flatten(self):
         return (self.phi_1, self.phi_2, self.kappa_1, self.kappa_2), None
+
+    @property
+    def shape(self):
+        return jax.tree.map(lambda x: x.shape if x is not None else None, self.__dict__)
 
     @classmethod
     def tree_unflatten(cls, aux_data, children):
@@ -252,6 +255,9 @@ class SystemMetrics:
     def to_jax(self) -> "SystemMetrics":
         return jax.tree.map(lambda x: jnp.asarray(x) if x is not None else None, self)
 
+    def reshape(self, shape: tuple[int, ...]) -> "SystemMetrics":
+        return jax.tree.map(lambda x: jnp.reshape(x, shape) if x is not None else None, self)
+
     def astype(self, dtype: jnp.dtype = jnp.float32) -> "SystemMetrics":
         return jax.tree.map(lambda x: x.astype(dtype) if x is not None else None, self)
 
@@ -297,8 +303,9 @@ class JAXLookup:
         i_norm = jnp.sum(indices**2, axis=-1, keepdims=True).T
         object.__setattr__(self, "i_norm", i_norm)
 
-        object.__setattr__(self, "grid_shape", indices_3d.shape[:-1])
-        object.__setattr__(self, "grid_origin", indices_3d[0, 0, 0])
+        nx, ny, nz = indices_3d.shape[:-1]
+        object.__setattr__(self, "grid_shape", jnp.array([nx, ny, nz]))
+        object.__setattr__(self, "grid_origin", indices_3d[0, 0, 0].astype(dtype))
         object.__setattr__(self, "grid_spacing", grid_spacing.astype(dtype))
         object.__setattr__(self, "indices_3d", indices_3d.astype(dtype))
         object.__setattr__(self, "metrics_3d", metrics_3d.astype(dtype))
@@ -310,8 +317,9 @@ class JAXLookup:
         sofa_metric = metrics_.s_1
         stacked = jnp.concatenate(
             [
-                (sofa_metric - sofa_metric.min()) / (sofa_metric.max() - sofa_metric.min()) + 1e-8,
-                jnp.clip(metrics_.sr_2 + metrics_.f_2, 0, 1),
+                (sofa_metric - sofa_metric.min()) / (sofa_metric.max() - sofa_metric.min()) + 1e-12,
+                # jnp.clip(metrics_.sr_2 + metrics_.f_2, 0, 1),
+                jnp.zeros_like(sofa_metric, dtype=sofa_metric.dtype)
             ],
             axis=-1,
         )
@@ -344,6 +352,29 @@ class JAXLookup:
         return pred_c.astype(orig_dtype)
 
     @filter_jit
+    def hard_get_local(
+        self,
+        query_vectors: Float[Array, "batch latent"],
+        temperatures,  # placeholder to make compatible with soft get
+    ) -> Float[Array, "batch 2"]:
+        orig_dtype = query_vectors.dtype
+        query_vectors = query_vectors.astype(self.dtype)
+        rel_pos = (query_vectors - self.grid_origin) / self.grid_spacing
+        center_idx = jnp.round(rel_pos).astype(jnp.int32)
+
+        offsets = jnp.array([-1, 0, 1])
+        neighbor_offsets = jnp.stack(jnp.meshgrid(offsets, offsets, offsets, indexing="ij"), axis=-1).reshape(-1, 3)
+        neighbor_coords = center_idx[:, None, :] + neighbor_offsets[None, :, :]
+        neighbor_coords = jnp.clip(neighbor_coords, 0, jnp.array(self.grid_shape) - 1)
+        x, y, z = neighbor_coords[..., 0], neighbor_coords[..., 1], neighbor_coords[..., 2]
+        neighbor_xyz = self.indices_3d[x, y, z]
+        neighbor_metrics = self.relevant_metrics_3d[x, y, z]
+        dists = jnp.sum((query_vectors[:, None, :] - neighbor_xyz) ** 2, axis=-1)
+        best_idx = jnp.argmin(dists, axis=-1)
+        pred_c = jnp.take_along_axis(neighbor_metrics, best_idx[:, None, None], axis=1).squeeze(1)
+        return pred_c.astype(orig_dtype)
+
+    @filter_jit
     def soft_get_local(
         self,
         query_vectors: Float[Array, "batch 3"],
@@ -353,18 +384,13 @@ class JAXLookup:
         q = query_vectors.astype(self.dtype)
         temp = temperatures.astype(self.dtype)
 
-        nx, ny, nz = self.grid_shape
-        shape = jnp.array([nx, ny, nz])
-
         # Convert query points into fractional voxel coordinates
         rel_pos = (q - self.grid_origin) / self.grid_spacing
-        voxel_idx = jnp.floor(rel_pos).astype(jnp.int32)
-        voxel_idx = jnp.clip(voxel_idx, 1, shape - 2)  # Avoid boundary overflow, orig 2
+        voxel_idx = jnp.round(rel_pos).astype(jnp.int32)
+        voxel_idx = jnp.clip(voxel_idx, 3, self.grid_shape - 4)  # orig -2
 
-        offsets = jnp.array([-1, 0, 1])  # orig 1
-        neighbor_offsets = jnp.stack(jnp.meshgrid(offsets, offsets, offsets, indexing="ij"), axis=-1).reshape(
-            -1, 3
-        )
+        offsets = jnp.array([-3, -2, -1, 0, 1, 2, 3])  # orig 1
+        neighbor_offsets = jnp.stack(jnp.meshgrid(offsets, offsets, offsets, indexing="ij"), axis=-1).reshape(-1, 3)
 
         def gather_neighbors(vi, q_point):
             coords = vi[None, :] + neighbor_offsets

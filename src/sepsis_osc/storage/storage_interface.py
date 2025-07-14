@@ -235,25 +235,15 @@ class Storage:
         logger.info(f"Will not use parameter-set with distance {distance[0][0]} <= threshold {threshold}")
         return None
 
-    def get_np_lookup(self) -> tuple[np.ndarray, SystemMetrics]:
-        num_vectors = self.__db_keys.ntotal
-        np_keys = np.zeros((num_vectors, self.__db_keys.d), dtype="float32")
-        self.__db_keys.reconstruct_n(0, num_vectors, np_keys)
-
-        metrics, _ = self.read_multiple_results(np_keys)
-
-        if not metrics:
-            raise ValueError("Could not create numpy lookup")
-        return np_keys, metrics
-
     @timing
     def read_multiple_results(self, params: np.ndarray, threshold: float = 0.0) -> tuple[SystemMetrics, np.ndarray] | tuple[None, None]:
         logger.info(f"Getting Metrics for multiple queries with shape {params.shape}")
 
         original_shape = params.shape[:-1]
         np_params = np.asarray(params, dtype=np.float32).reshape(-1, params.shape[-1])
-        indices, distances = self.find_faiss(np_params)
+        indices, distances = self.find_faiss(np_params, k=1)
         indices = indices.reshape(original_shape)
+        distances = distances.reshape(original_shape)
 
         if np.any(distances.max() > threshold):
             logger.error("Could not match bulk query")
@@ -286,7 +276,6 @@ class Storage:
                     return False
 
                 unpacked = msgpack.unpackb(raw, object_hook=mnp.decode)
-
                 res.r_1[ind] = unpacked["r_1"]
                 res.r_2[ind] = unpacked["r_2"]
                 res.m_1[ind] = unpacked["m_1"]
@@ -315,7 +304,7 @@ class Storage:
             return None, None
 
         logger.info("Successfuly fetched bulk metrics")
-        return res, distances.reshape(original_shape)
+        return res, distances
 
     def write(self):
         logger.info(f"Writing FAISS index to {self.parameter_k_name}")
@@ -359,3 +348,4 @@ class Storage:
                 added += 1 if success else 0
         logger.info(f"Added {added} keys by merging")
         return self
+
