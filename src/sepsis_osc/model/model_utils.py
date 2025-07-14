@@ -38,15 +38,11 @@ class AuxLosses:
     beta: Array
     sigma: Array
 
-    infection: Array
-    sofa: Array
+    infection_loss: Array
+    sofa_loss: Array
     lookup_temperature: Array
     label_temperature: Array
 
-    sigma_recon: Array
-    sigma_locality: Array
-    sigma_concept: Array
-    sigma_tc: Array
 
     total_loss: Array
     recon_loss: Array
@@ -54,6 +50,10 @@ class AuxLosses:
     tc_loss: Array
 
     hists_sofa_score: Array
+    hists_sofa_metric: Array
+
+    infection_t: Array
+    sofa_t: Array
 
     @staticmethod
     def empty() -> "AuxLosses":
@@ -61,19 +61,18 @@ class AuxLosses:
             alpha=jnp.zeros(()),
             beta=jnp.zeros(()),
             sigma=jnp.zeros(()),
-            infection=jnp.zeros(()),
-            sofa=jnp.zeros(()),
+            infection_loss=jnp.zeros(()),
+            sofa_loss=jnp.zeros(()),
+            infection_t=jnp.zeros(()),
+            sofa_t=jnp.zeros(()),
             lookup_temperature=jnp.zeros(()),
             label_temperature=jnp.zeros(()),
-            sigma_recon=jnp.zeros(()),
-            sigma_locality=jnp.zeros(()),
-            sigma_concept=jnp.zeros(()),
-            sigma_tc=jnp.zeros(()),
             total_loss=jnp.zeros(()),
             recon_loss=jnp.zeros(()),
             concept_loss=jnp.zeros(()),
             tc_loss=jnp.zeros(()),
             hists_sofa_score=jnp.ones(()),
+            hists_sofa_metric=jnp.ones(()),
         )
         return empty_losses
 
@@ -84,15 +83,9 @@ class AuxLosses:
                 "beta": self.beta,
                 "sigma": self.sigma,
             },
-            "sigmas": {
-                "s_recon": self.sigma_recon,
-                "s_locality": self.sigma_locality,
-                "s_concept": self.sigma_concept,
-                "s_tc": self.sigma_tc,
-            },
             "concepts": {
-                "infection_lookup": self.infection,
-                "sofa_lookup": self.sofa,
+                "infection": self.infection_loss,
+                "sofa": self.sofa_loss,
                 "lookup_temperature": self.lookup_temperature,
                 "label_temperature": self.label_temperature,
             },
@@ -104,7 +97,12 @@ class AuxLosses:
             },
             "hists": {
                 "sofa_score": self.hists_sofa_score,
+                "sofa_metric": self.hists_sofa_metric
             },
+            "mult": {
+                "infection_t": self.infection_t,
+                "sofa_t": self.sofa_t,
+            }
         }
 
 
