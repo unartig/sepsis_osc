@@ -103,7 +103,6 @@ def loss(
     lookup_func: Callable,
     params: LossesConfig,
 ) -> tuple[Array, AuxLosses]:
-    print(x.shape, "AAA")
     batch_size, T, input_dim = x.shape
     aux_losses = AuxLosses.empty()
 
@@ -123,7 +122,7 @@ def loss(
     z0 = jnp.concatenate([alpha0, beta0, sigma0], axis=-1)
 
     def predict_next(carry, _):
-        z_seq_so_far, mask_so_far, step, key = carry  # [B, max_len, zdim], [B, max_len], int, key
+        z_seq_so_far, mask_so_far, step, key = carry
 
         key, *drop_keys = jr.split(key, batch_size + 1)
         drop_keys = jnp.array(drop_keys)
@@ -131,8 +130,8 @@ def loss(
         z_next = jax.vmap(model.forecaster)(z_seq_so_far, jnp.array(drop_keys), mask=mask_so_far)
 
         # Write next step into padded tensor
-        z_seq_so_far = z_seq_so_far.at[:, step+1].set(z_next)
-        mask_so_far = mask_so_far.at[:, step+1].set(True)
+        z_seq_so_far = z_seq_so_far.at[:, step + 1].set(z_next)
+        mask_so_far = mask_so_far.at[:, step + 1].set(True)
 
         return (z_seq_so_far, mask_so_far, step + 1, key), z_next
 
@@ -150,30 +149,26 @@ def loss(
     (z_seq, mask_final, _, _), z_preds = jax.lax.scan(predict_next, carry_init, xs=None, length=T - 1)
 
     # Recon Loss
-    x_recon = jax.vmap(jax.vmap(model.decoder))(z_seq)  # [B, T, input_dim]
-    aux_losses.recon_loss = jnp.mean((x - x_recon) ** 2, axis=-1)  # [B, T]
+    x_recon = jax.vmap(jax.vmap(model.decoder))(z_seq)
+    aux_losses.recon_loss = jnp.mean((x - x_recon) ** 2, axis=-1)
 
     # Lookup / concept loss
     lookup_temp, label_temp, ordinal_thresholds = model.get_parameters()
-    print(z_seq.shape)
-    concepts_flat = lookup_func(z_seq.reshape(-1, 3), jnp.full((batch_size * T, 1), lookup_temp))  # [B, T, 2]
+    concepts = jax.vmap(lookup_func, in_axes=(1, None))(z_seq, lookup_temp).swapaxes(0, 1)
+    print(concepts.shape)
     sofa_true, infection_true = true_concepts[..., 0], true_concepts[..., 1]
 
-    # Flatten for concept loss calc
-    # lookup_flat = concepts_lookup.reshape(-1, 2)
-    true_sofa_flat = sofa_true.reshape(-1)
-    true_infection_flat = infection_true.reshape(-1)
-
-    sofa_loss, infection_loss, hists = calc_concept_loss(
-        concepts_flat,
-        true_sofa_flat,
-        true_infection_flat,
+    sofa_loss, infection_loss, hists = jax.vmap(calc_concept_loss, in_axes=(1, 1, 1, None, None, None))(
+        concepts,
+        sofa_true,
+        infection_true,
         ordinal_thresholds,
         label_temp,
         params.concept,
     )
-
+    print(sofa_loss.shape, infection_loss.shape, hists.shape)
     aux_losses.concept_loss = sofa_loss + infection_loss
+
 
     # Total correlation loss (one per batch)
     z_flat = z_seq.reshape(-1, z_seq.shape[-1])
@@ -183,14 +178,21 @@ def loss(
 
     aux_losses.total_loss = (
         aux_losses.recon_loss * params.w_recon
-        + aux_losses.sofa_lookup * params.w_concept
+        + aux_losses.concept_loss * params.w_concept
         + aux_losses.tc_loss * params.w_tc
+        + 1 / concepts[..., 0].std()
     )
 
     aux_losses.label_temperature = label_temp.mean(axis=-1)
     aux_losses.lookup_temperature = lookup_temp
+    aux_losses.sofa_loss = sofa_loss
+    aux_losses.infection_loss = infection_loss
     aux_losses = jax.tree_util.tree_map(jnp.mean, aux_losses)
-    aux_losses.hists_sofa_score = hists_sofa
+    aux_losses.hists_sofa_metric = concepts[..., 0].reshape(-1)
+    aux_losses.hists_sofa_score = hists.reshape(-1)
+    print(sofa_loss.shape, infection_loss.shape, hists.shape)
+    aux_losses.sofa_t = sofa_loss
+    aux_losses.infection_t = infection_loss
     return aux_losses.total_loss, aux_losses
 
 
@@ -212,7 +214,7 @@ def step_model(
 
     model_params, model_static = eqx.partition(model, eqx.is_inexact_array)
 
-    updates, opt_state = update_dec(grads, opt_state, model_params)
+    updates, opt_state = update(grads, opt_state, model_params)
     model_params = eqx.apply_updates(model_params, updates)
     model = eqx.combine(model_params, model_static)
 
@@ -314,7 +316,7 @@ def process_val_epoch(
             params=loss_params,
         )
 
-        return (model_f, key), aux_losses
+        return (model_flat, key), aux_losses
 
     carry = (model_params, key)
     batches = (x_data, y_data)
@@ -393,7 +395,6 @@ if __name__ == "__main__":
         for v in inner.values()
     ]
 
-    print(train_y, val_y)
     if (
         os.path.exists(sequence_files + "test_x.npy")
         and os.path.exists(sequence_files + "test_y.npy")
@@ -418,7 +419,6 @@ if __name__ == "__main__":
         np.save(sequence_files + "val_x", val_x)
         np.save(sequence_files + "val_y", val_y)
         logger.info("Data prepared and saved sequences successfully.")
-    print(train_y, val_y.shape)
 
     logger.info(f"Train shape      - X {train_y.shape}, Y {train_x.shape}")
     logger.info(f"Validation shape - X {val_y.shape},  Y {val_x.shape}")
@@ -468,7 +468,11 @@ if __name__ == "__main__":
     encoder = init_encoder_weights(encoder, key_enc_weights)
     decoder = init_decoder_weights(decoder, key_dec_weights)
     transformer = TransformerForecaster(
-         key=key_transformer, dim=model_conf.latent_dim, depth=2, num_heads=3, hidden_dim=32,
+        key=key_transformer,
+        dim=model_conf.latent_dim,
+        depth=2,
+        num_heads=3,
+        hidden_dim=32,
     )
 
     model = LatentDynamicsModel(encoder=encoder, forecaster=transformer, decoder=decoder, sofa_dist=train_sofa_dist)
@@ -540,7 +544,7 @@ if __name__ == "__main__":
         log_msg = f"Epoch {epoch} Training Metrics "
         train_metrics = train_metrics.to_dict()
         for group_key, metrics_group in train_metrics.items():
-            if group_key == "hists":
+            if group_key in ("hists", "mult"):
                 continue
             for metric_name, metric_values in metrics_group.items():
                 metric_values = np.asarray(metric_values)
@@ -585,16 +589,22 @@ if __name__ == "__main__":
             )
             log_msg = f"Epoch {epoch} Valdation Metrics "
             val_metrics = val_metrics.to_dict()
+            print(val_metrics["mult"]["infection_t"].shape)
             for k in val_metrics.keys():
                 if k == "hists":
-                    print(
-                        val_metrics["hists"]["sofa_score"].flatten().mean(),
-                        val_metrics["hists"]["sofa_score"].flatten().min(),
-                        val_metrics["hists"]["sofa_score"].flatten().max(),
-                    )
                     writer.add_histogram(
                         "SOFA Score", np.asarray(val_metrics["hists"]["sofa_score"].flatten()), epoch, bins=24
                     )
+                    writer.add_histogram(
+                        "SOFA metric", np.asarray(val_metrics["hists"]["sofa_metric"].flatten()), epoch, bins=24
+                    )
+                elif k == "mult":
+                    for t, v in enumerate(np.asarray(val_metrics["mult"]["infection_t"]).mean(axis=0)):
+                        writer.add_scalar(f"infection_per_timestep/t{t}", np.asarray(v), epoch)
+                    for t, v in enumerate(np.asarray(val_metrics["mult"]["sofa_t"]).mean(axis=0)):
+                        writer.add_scalar(f"sofa_per_timestep/t{t}", np.asarray(v), epoch)
+                        
+
                 else:
                     for metric_name, metric_values in val_metrics[k].items():
                         log_msg += (
@@ -611,16 +621,16 @@ if __name__ == "__main__":
         )
 
         # --- Save checkpoint ---
-        if (epoch + 1) % save_conf.save_every == 0 and save_conf.perform:
-            save_dir = writer.get_logdir() if not load_conf.from_dir else load_conf.from_dir
-            save_checkpoint(
-                save_dir + "/checkpoints",
-                epoch,
-                params_model,
-                static_model,
-                opt_state,
-                hyper_enc,
-                hyper_dec,
-                hyper_trans,
-            )
+        # if (epoch + 1) % save_conf.save_every == 0 and save_conf.perform:
+        #     save_dir = writer.get_logdir() if not load_conf.from_dir else load_conf.from_dir
+        #     save_checkpoint(
+        #         save_dir + "/checkpoints",
+        #         epoch,
+        #         params_model,
+        #         static_model,
+        #         opt_state,
+        #         hyper_enc,
+        #         hyper_dec,
+        #         hyper_trans,
+        #     )
     writer.close()
