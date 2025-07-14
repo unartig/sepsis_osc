@@ -12,7 +12,6 @@ from optuna.trial import Trial
 from sepsis_osc.model.data_loading import data
 from sepsis_osc.model.model_utils import (
     ConceptLossConfig,
-    LocalityLossConfig,
     LossesConfig,
     LRConfig,
     ModelConfig,
@@ -36,32 +35,38 @@ from sepsis_osc.utils.jax_config import setup_jax
 from sepsis_osc.utils.logger import setup_logging
 
 
-def make_objective(train_x_inner, train_y_inner, val_x_inner, val_y_inner, sofa_dist, jkey):
+def make_objective(train_x_inner, train_y_inner, val_x_inner, val_y_inner, sofa_dist):
     def objective(trial: Trial) -> float:
+        jkey = jr.PRNGKey(jax_random_seed)
         # --- Tune hyperparameters ---
-        locality_alpha = trial.suggest_float("locality_alpha", 0.0, 1.0)
-        local_temp = trial.suggest_float("temperature_locality", 0.1, 50.0)
         w_concept = trial.suggest_float("w_concept", 0, 100, log=False)
-        w_lookup = trial.suggest_float("w_lookup", 0.01, 1, log=False)
+        w_recon = trial.suggest_float("w_recon", 0, 100, log=False)
+        w_tc = trial.suggest_float("w_tc", 0, 100, log=False)
+        lvd = trial.suggest_float("lookup_vs_direct", 0.5, 1.0)
+        enc_hidden = trial.suggest_categorical("enc_hidden", [32, 64, 128, 256])
+        dec_hidden = trial.suggest_categorical("dec_hidden", [32, 64, 128])
+        batch_size = trial.suggest_categorical("batch_size", [32, 64, 128, 256, 512, 1024, 2048])
+        lr_peak = trial.suggest_float("lr_peak", 1e-5, 1e-2, log=True)
+        lr_end = trial.suggest_float("lr_end", 1e-7, 1e-3, log=True)
+        grad_norm = trial.suggest_float("grad_norm", 1e-3, 1, log=True)
+        lr_wd = trial.suggest_float("lr_wd", 1e-7, 1, log=True)
 
-        train_conf = TrainingConfig(batch_size=1024, epochs=150, perc_train_set=1.0, validate_every=1)
+        train_conf = TrainingConfig(batch_size=batch_size, epochs=450, perc_train_set=0.5, validate_every=1)
         loss_conf = LossesConfig(
             w_concept=w_concept,
-            w_lookup=w_lookup,
+            w_recon=w_recon,
+            w_tc=w_tc,
+            lookup_vs_direct=lvd,
             concept=ConceptLossConfig(w_sofa=1.0, w_inf=0.0),
-            locality=LocalityLossConfig(
-                alpha=locality_alpha,
-                temperature=local_temp,
-            ),
         )
+        model_conf = ModelConfig(latent_dim=3, input_dim=52, enc_hidden=enc_hidden, dec_hidden=dec_hidden)
+        lr_conf = LRConfig(init=0.0, peak=lr_peak, peak_decay=0.9, end=lr_end, warmup_epochs=15, enc_wd=lr_wd, grad_norm=grad_norm)
 
-        model_conf = ModelConfig(latent_dim=3, input_dim=52, enc_hidden=32, dec_hidden=16)
         key_enc, key_dec = jr.split(jkey)
-        encoder = Encoder(key_enc, model_conf.input_dim, model_conf.latent_dim, model_conf.enc_hidden, sofa_dist)
-        decoder = Decoder(key_dec, model_conf.input_dim, model_conf.latent_dim, model_conf.dec_hidden)
+        encoder = Encoder(key_enc, model_conf.input_dim, model_conf.latent_dim, model_conf.enc_hidden, sofa_dist, dtype=jnp.float32)
+        decoder = Decoder(key_dec, model_conf.input_dim, model_conf.latent_dim, model_conf.dec_hidden, dtype=jnp.float32)
         params_enc, static_enc = eqx.partition(encoder, eqx.is_inexact_array)
         params_dec, static_dec = eqx.partition(decoder, eqx.is_inexact_array)
-        lr_conf = LRConfig(init=0.0, peak=1e-3, peak_decay=0.9, end=7e-5, warmup_epochs=15, enc_wd=1e-3, grad_norm=0.7)
         shuffle_train_key, key = jr.split(jkey, 2)
         steps_per_epoch = (train_x_inner.shape[0] // train_conf.batch_size) * train_conf.batch_size
         shuffle_val_key, key = jr.split(key, 2)
@@ -113,7 +118,7 @@ def make_objective(train_x_inner, train_y_inner, val_x_inner, val_y_inner, sofa_
                 x_data=val_x,
                 y_data=val_y,
                 key=key,
-                lookup_func=lookup_table.hard_get,
+                lookup_func=lookup_table.hard_get_local,
                 loss_params=loss_conf,
             )
             concept_loss_val = float(val_metrics.sofa_lookup.mean())
@@ -138,8 +143,8 @@ if __name__ == "__main__":
     setup_jax(simulation=False)
     setup_logging("info", console_log=True)
     logger = logging.getLogger(__name__)
-    key = jr.PRNGKey(jax_random_seed)
-    TOTAL_TRIALS = 200
+    dtype=jnp.float32
+    TOTAL_TRIALS = 1000
 
     train_y, train_x, val_y, val_x, test_y, test_x = [
         jnp.array(
@@ -148,7 +153,7 @@ if __name__ == "__main__":
                 for col in v.columns
                 if col.startswith("Missing") or col in {"stay_id", "time", "sep3_alt", "__index_level_0__", "los_icu"}
             ]),
-            dtype=jnp.float32,
+            dtype=dtype,
         )
         for inner in data.values()
         for v in inner.values()
@@ -160,7 +165,6 @@ if __name__ == "__main__":
         parameter_k_name=f"data/{db_str}SepsisParameters_index.bin",
         use_mem_cache=True,
     )
-    indices, np_metrics = sim_storage.get_np_lookup()
 
     a, b, s = as_3d_indices(ALPHA_SPACE, BETA_SPACE, SIGMA_SPACE)
     indices_3d = jnp.concatenate([a, b, s], axis=-1)
@@ -169,20 +173,22 @@ if __name__ == "__main__":
     metrics_3d, _ = sim_storage.read_multiple_results(np.asarray(params))
     train_sofa_dist, _ = jnp.histogram(train_y, bins=25, density=True)
     lookup_table = JAXLookup(
-        metrics=np_metrics.to_jax(),
-        indices=jnp.asarray(indices[:, 5:8]),  # since param space only alpha beta sigma
+        metrics=metrics_3d.copy().reshape((-1, 1)),
+        indices=jnp.asarray(indices_3d.copy().reshape((-1, 3))),  # since param space only alpha beta sigma
         metrics_3d=metrics_3d,
         indices_3d=indices_3d,
         grid_spacing=spacing_3d,
+        dtype=dtype
     )
+    sim_storage.close()
 
     study = optuna.create_study(
         direction="minimize",
         storage="sqlite:///data/db.sqlite3",  # Specify the storage URL here.
-        study_name="s1_mini",
+        study_name="s1_fast_half_alpha",
         load_if_exists=True,
         sampler=optuna.samplers.TPESampler(),
         pruner=optuna.pruners.PatientPruner(optuna.pruners.MedianPruner(), patience=25)
     )
     # dataset_fraction_callback = DatasetFractionCallback(total_trials=TOTAL_TRIALS)
-    study.optimize(make_objective(train_x, train_y, val_x, val_y, train_sofa_dist, key), n_trials=TOTAL_TRIALS)
+    study.optimize(make_objective(train_x, train_y, val_x, val_y, train_sofa_dist), n_trials=TOTAL_TRIALS)
