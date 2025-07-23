@@ -19,7 +19,9 @@ class Encoder(eqx.Module):
     initial_norm2: eqx.nn.LayerNorm
     dropout2: eqx.nn.Dropout
 
-    attention_layer: eqx.nn.Linear
+    key_layer: eqx.nn.Linear
+    query_layer: eqx.nn.Linear
+    value_layer: eqx.nn.Linear
     post_attention_dropout: eqx.nn.Dropout
 
     final_linear1: eqx.nn.Linear
@@ -33,10 +35,7 @@ class Encoder(eqx.Module):
     beta_layer: eqx.nn.Linear
     sigma_layer: eqx.nn.Linear
 
-    # Params
-    alpha_var: Array
-    beta_var: Array
-    sigma_var: Array
+    h_layer: eqx.nn.Linear
 
     # Hyperparams
     input_dim: int
@@ -50,13 +49,15 @@ class Encoder(eqx.Module):
         input_dim: int,
         latent_dim: int,
         enc_hidden: int,
-        dropout_rate: float = 0.5,
+        dropout_rate: float = 0.3,
         dtype=jnp.float32,
     ):
         (
             key_lin1,
             key_lin2,
-            key_lin3,
+            key_key,
+            key_value,
+            key_query,
             key_lin4,
             key_lin5,
             key_alpha,
@@ -64,7 +65,7 @@ class Encoder(eqx.Module):
             key_sigma,
             key_sofa,
             key_inf,
-        ) = jax.random.split(key, 10)
+        ) = jax.random.split(key, 12)
 
         self.input_dim = input_dim
         self.latent_dim = latent_dim
@@ -81,33 +82,27 @@ class Encoder(eqx.Module):
         self.dropout2 = eqx.nn.Dropout(dropout_rate)
 
         # Attention
-        self.attention_layer = eqx.nn.Linear(enc_hidden, input_dim, key=key_lin3, dtype=dtype)
+        self.key_layer = eqx.nn.Linear(enc_hidden, input_dim, key=key_key, dtype=dtype)
+        self.query_layer = eqx.nn.Linear(input_dim, input_dim, key=key_query, dtype=dtype)
+        self.value_layer = eqx.nn.Linear(enc_hidden, input_dim, key=key_value, dtype=dtype)
         self.post_attention_dropout = eqx.nn.Dropout(dropout_rate)
 
         # Final encoder layers
         self.final_linear1 = eqx.nn.Linear(enc_hidden + input_dim, enc_hidden, key=key_lin4, dtype=dtype)
         self.final_norm1 = eqx.nn.LayerNorm(enc_hidden, dtype=dtype)
         self.dropout3 = eqx.nn.Dropout(dropout_rate)
-        self.final_linear2 = eqx.nn.Linear(enc_hidden, latent_dim, key=key_lin5, dtype=dtype)
+        self.final_linear2 = eqx.nn.Linear(enc_hidden, enc_hidden, key=key_lin5, dtype=dtype)
 
         # Output heads
-        self.alpha_layer = eqx.nn.Linear(latent_dim, 2, key=key_alpha, dtype=dtype)
-        self.beta_layer = eqx.nn.Linear(latent_dim, 2, key=key_beta, dtype=dtype)
-        self.sigma_layer = eqx.nn.Linear(latent_dim, 2, key=key_sigma, dtype=dtype)
-
-        self.alpha_var = jnp.ones((1,))
-        self.beta_var = jnp.ones((1,))
-        self.sigma_var = jnp.ones((1,))
+        self.alpha_layer = eqx.nn.Linear(enc_hidden, 1, key=key_alpha, dtype=dtype)
+        self.beta_layer = eqx.nn.Linear(enc_hidden, 1, key=key_beta, dtype=dtype)
+        self.sigma_layer = eqx.nn.Linear(enc_hidden, 1, key=key_sigma, dtype=dtype)
+        self.h_layer = eqx.nn.Linear(enc_hidden, enc_hidden, key=key_sigma, dtype=dtype)
 
     def __call__(
-        self, x: Float[Array, "input_dim"], *, dropout_keys: jnp.ndarray, sampling_keys: jnp.ndarray
-    ) -> tuple[
-        tuple[Float[Array, "1"], Float[Array, "1"], Float[Array, "1"]],
-        tuple[Float[Array, "1"], Float[Array, "1"], Float[Array, "1"]],
-        tuple[Float[Array, "1"], Float[Array, "1"], Float[Array, "1"]],
-    ]:
+        self, x: Float[Array, "input_dim"], *, dropout_keys: jnp.ndarray
+    ) -> tuple[Float[Array, "1"], Float[Array, "1"], Float[Array, "1"], Float[Array, "1"]]:
         k1, k2, k3, k4 = dropout_keys
-        ka, kb, ks = sampling_keys
 
         # === Initial Layers ===
         x_hidden = self.initial_linear1(x)
@@ -121,9 +116,15 @@ class Encoder(eqx.Module):
         x_hidden = self.dropout2(x_hidden, key=k2)
 
         # === Attention Block ===
-        attention_scores = self.attention_layer(x_hidden)
-        attention_weights = jax.nn.softmax(attention_scores, axis=-1)
-        x_attended = x * attention_weights
+        query = self.query_layer(x)
+        key = self.key_layer(x_hidden)
+        value = self.value_layer(x_hidden)
+
+        attn_weights = jax.nn.softmax(query * key, axis=-1)
+        x_attended = attn_weights * value
+        # attention_scores = self.attention_layer(x_hidden)
+        # attention_weights = jax.nn.softmax(attention_scores, axis=-1)
+        # x_attended = x * attention_weights
 
         x_combined = jnp.concatenate([x_hidden, x_attended], axis=-1)
         x_combined = self.post_attention_dropout(x_combined, key=k3)
@@ -138,19 +139,12 @@ class Encoder(eqx.Module):
         x_final_enc = jax.nn.swish(x_final_enc)
 
         return (
-            self.get_sample(ka, self.alpha_layer(x_final_enc)),
-            self.get_sample(kb, self.beta_layer(x_final_enc)),
-            self.get_sample(ks, self.sigma_layer(x_final_enc)),
+            jax.nn.sigmoid(self.alpha_layer(x_final_enc)),
+            jax.nn.sigmoid(self.beta_layer(x_final_enc)),
+            jax.nn.sigmoid(self.sigma_layer(x_final_enc)),
+            jax.nn.tanh(self.h_layer(x_final_enc))
+            # x_final_enc
         )
-
-    def get_sample(self, key, v):
-        mu, logvar = jnp.split(v, 2, axis=-1)
-        std = jnp.exp(0.5 * logvar)
-        sample = jax.nn.sigmoid(mu + jax.random.normal(key, shape=mu.shape) * std)
-        return mu, std, sample
-
-    def get_prior_vars(self):
-        return jnp.exp(jnp.concatenate([self.alpha_var, self.beta_var, self.sigma_var], axis=-1))
 
 
 class Decoder(eqx.Module):
@@ -170,7 +164,7 @@ class Decoder(eqx.Module):
             eqx.nn.Linear(in_features=latent_dim, out_features=dec_hidden, key=key1, dtype=dtype),
             jax.nn.relu,
             eqx.nn.Linear(in_features=dec_hidden, out_features=input_dim, key=key2, dtype=dtype),
-            jax.nn.softplus,
+            jax.nn.tanh,
         ]
 
     def __call__(self, z: Float[Array, "batch latent_dim"]) -> Float[Array, "batch input_dim"]:
@@ -179,7 +173,7 @@ class Decoder(eqx.Module):
         )
         for layer in self.layers:
             z = layer(z)
-        return z
+        return z * 5
 
 
 # He Uniform Initialization for ReLU activation
