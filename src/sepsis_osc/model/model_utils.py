@@ -49,7 +49,6 @@ class AuxLosses:
     recon_loss: Array
     concept_loss: Array
     tc_loss: Array
-    kl_loss: Array
 
     hists_sofa_score: Array
     hists_sofa_metric: Array
@@ -73,7 +72,6 @@ class AuxLosses:
             recon_loss=jnp.zeros(()),
             concept_loss=jnp.zeros(()),
             tc_loss=jnp.zeros(()),
-            kl_loss=jnp.zeros(()),
             hists_sofa_score=jnp.ones(()),
             hists_sofa_metric=jnp.ones(()),
         )
@@ -97,7 +95,6 @@ class AuxLosses:
                 "recon_loss": self.recon_loss,
                 "concept_loss": self.concept_loss,
                 "tc_loss": self.tc_loss,
-                "kl_loss": self.kl_loss,
             },
             "hists": {"sofa_score": self.hists_sofa_score, "sofa_metric": self.hists_sofa_metric},
             "mult": {
@@ -161,10 +158,8 @@ class LossesConfig:
     w_concept: float
     w_recon: float
     w_tc: float
-    w_kl: float
     concept: ConceptLossConfig
     anneal_concept_iter: float
-    anneal_kl_iter: float
     steps_per_epoch: int = 0
 
 
