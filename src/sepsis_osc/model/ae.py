@@ -19,7 +19,9 @@ class Encoder(eqx.Module):
     initial_norm2: eqx.nn.LayerNorm
     dropout2: eqx.nn.Dropout
 
-    attention_layer: eqx.nn.Linear
+    key_layer: eqx.nn.Linear
+    query_layer: eqx.nn.Linear
+    value_layer: eqx.nn.Linear
     post_attention_dropout: eqx.nn.Dropout
 
     final_linear1: eqx.nn.Linear
@@ -32,20 +34,8 @@ class Encoder(eqx.Module):
     alpha_layer: eqx.nn.Linear
     beta_layer: eqx.nn.Linear
     sigma_layer: eqx.nn.Linear
-    sofa_layer: eqx.nn.Linear
-    infection_layer: eqx.nn.Linear
 
-    # Parameter
-    label_temperature: Array
-    lookup_temperature: Array
-    ordinal_deltas: Array
-    z_scaling: Array
-
-    # Loss Unvertainties
-    sigma_recon: Array
-    sigma_locality: Array
-    sigma_concept: Array
-    sigma_tc: Array
+    h_layer: eqx.nn.Linear
 
     # Hyperparams
     input_dim: int
@@ -59,14 +49,15 @@ class Encoder(eqx.Module):
         input_dim: int,
         latent_dim: int,
         enc_hidden: int,
-        sofa_dist: Array,
         dropout_rate: float = 0.3,
         dtype=jnp.float32,
     ):
         (
             key_lin1,
             key_lin2,
-            key_lin3,
+            key_key,
+            key_value,
+            key_query,
             key_lin4,
             key_lin5,
             key_alpha,
@@ -74,7 +65,7 @@ class Encoder(eqx.Module):
             key_sigma,
             key_sofa,
             key_inf,
-        ) = jax.random.split(key, 10)
+        ) = jax.random.split(key, 12)
 
         self.input_dim = input_dim
         self.latent_dim = latent_dim
@@ -91,37 +82,27 @@ class Encoder(eqx.Module):
         self.dropout2 = eqx.nn.Dropout(dropout_rate)
 
         # Attention
-        self.attention_layer = eqx.nn.Linear(enc_hidden, input_dim, key=key_lin3, dtype=dtype)
+        self.key_layer = eqx.nn.Linear(enc_hidden, input_dim, key=key_key, dtype=dtype)
+        self.query_layer = eqx.nn.Linear(input_dim, input_dim, key=key_query, dtype=dtype)
+        self.value_layer = eqx.nn.Linear(enc_hidden, input_dim, key=key_value, dtype=dtype)
         self.post_attention_dropout = eqx.nn.Dropout(dropout_rate)
 
         # Final encoder layers
         self.final_linear1 = eqx.nn.Linear(enc_hidden + input_dim, enc_hidden, key=key_lin4, dtype=dtype)
         self.final_norm1 = eqx.nn.LayerNorm(enc_hidden, dtype=dtype)
         self.dropout3 = eqx.nn.Dropout(dropout_rate)
-        self.final_linear2 = eqx.nn.Linear(enc_hidden, latent_dim, key=key_lin5, dtype=dtype)
+        self.final_linear2 = eqx.nn.Linear(enc_hidden, enc_hidden, key=key_lin5, dtype=dtype)
 
         # Output heads
-        self.alpha_layer = eqx.nn.Linear(latent_dim, 1, key=key_alpha, dtype=dtype)
-        self.beta_layer = eqx.nn.Linear(latent_dim, 1, key=key_beta, dtype=dtype)
-        self.sigma_layer = eqx.nn.Linear(latent_dim, 1, key=key_sigma, dtype=dtype)
-        self.sofa_layer = eqx.nn.Linear(latent_dim, 1, key=key_sofa, dtype=dtype)
-        self.infection_layer = eqx.nn.Linear(latent_dim, 1, key=key_inf, dtype=dtype)
+        self.alpha_layer = eqx.nn.Linear(enc_hidden, 1, key=key_alpha, dtype=dtype)
+        self.beta_layer = eqx.nn.Linear(enc_hidden, 1, key=key_beta, dtype=dtype)
+        self.sigma_layer = eqx.nn.Linear(enc_hidden, 1, key=key_sigma, dtype=dtype)
+        self.h_layer = eqx.nn.Linear(enc_hidden, enc_hidden, key=key_sigma, dtype=dtype)
 
-        # Parameter
-        self.label_temperature = jnp.log(jnp.ones((1,)) * 0.1)
-        self.lookup_temperature = jnp.log(jnp.ones((1,)) * 0.5)
-
-        self.sigma_recon = jnp.ones((1,)) * 0.1
-        self.sigma_locality = jnp.ones((1,)) * 0.1
-        self.sigma_concept = jnp.ones((1,)) * 0.1
-        self.sigma_tc = jnp.ones((1,)) * 0.1
-
-        self.ordinal_deltas = sofa_dist
-        self.z_scaling = jnp.ones((3,))
-
-    def __call__(self, x: Float[Array, "input_dim"], *, key):
-        # Split keys for dropout layers
-        k1, k2, k3, k4 = jax.random.split(key, 4)
+    def __call__(
+        self, x: Float[Array, "input_dim"], *, dropout_keys: jnp.ndarray
+    ) -> tuple[Float[Array, "1"], Float[Array, "1"], Float[Array, "1"], Float[Array, "1"]]:
+        k1, k2, k3, k4 = dropout_keys
 
         # === Initial Layers ===
         x_hidden = self.initial_linear1(x)
@@ -135,9 +116,15 @@ class Encoder(eqx.Module):
         x_hidden = self.dropout2(x_hidden, key=k2)
 
         # === Attention Block ===
-        attention_scores = self.attention_layer(x_hidden)
-        attention_weights = jax.nn.softmax(attention_scores, axis=-1)
-        x_attended = x * attention_weights
+        query = self.query_layer(x)
+        key = self.key_layer(x_hidden)
+        value = self.value_layer(x_hidden)
+
+        attn_weights = jax.nn.softmax(query * key, axis=-1)
+        x_attended = attn_weights * value
+        # attention_scores = self.attention_layer(x_hidden)
+        # attention_weights = jax.nn.softmax(attention_scores, axis=-1)
+        # x_attended = x * attention_weights
 
         x_combined = jnp.concatenate([x_hidden, x_attended], axis=-1)
         x_combined = self.post_attention_dropout(x_combined, key=k3)
@@ -151,34 +138,12 @@ class Encoder(eqx.Module):
         x_final_enc = self.final_linear2(x_final_enc)
         x_final_enc = jax.nn.swish(x_final_enc)
 
-        # === Outputs ===
-        alpha_raw = jax.nn.sigmoid(self.alpha_layer(x_final_enc))
-        beta_raw = jax.nn.sigmoid(self.beta_layer(x_final_enc))
-        sigma_raw = jax.nn.sigmoid(self.sigma_layer(x_final_enc))
-
-        sofa_raw = jax.nn.sigmoid(self.sofa_layer(x_final_enc))
-        infection_raw = jax.nn.sigmoid(self.infection_layer(x_final_enc))
-
         return (
-            alpha_raw,
-            beta_raw,
-            sigma_raw,
-            sofa_raw,
-            infection_raw,
-        )
-
-    def get_parameters(self) -> tuple[Array, Array, Array, Array, Array, Array, Array, Array]:
-        ordinal_thresholds = jnp.cumsum(jax.nn.softmax(self.ordinal_deltas))  # monotonicity
-        z_scaling = jax.nn.softplus(self.z_scaling) + 0.1
-        return (
-            jnp.exp(self.lookup_temperature),
-            jnp.exp(self.label_temperature),
-            self.sigma_recon,
-            self.sigma_locality,
-            self.sigma_concept,
-            self.sigma_tc,
-            ordinal_thresholds,
-            z_scaling,
+            jax.nn.sigmoid(self.alpha_layer(x_final_enc)),
+            jax.nn.sigmoid(self.beta_layer(x_final_enc)),
+            jax.nn.sigmoid(self.sigma_layer(x_final_enc)),
+            jax.nn.tanh(self.h_layer(x_final_enc))
+            # x_final_enc
         )
 
 
@@ -189,17 +154,17 @@ class Decoder(eqx.Module):
     latent_dim: int
     dec_hidden: int
 
-    def __init__(self, key, input_dim: int, latent_dim: int, dec_hidden: int):
+    def __init__(self, key, input_dim: int, latent_dim: int, dec_hidden: int, dtype: jnp.dtype = jnp.float32):
         key1, key2 = jax.random.split(key, 2)
 
         self.input_dim = input_dim
         self.latent_dim = latent_dim
         self.dec_hidden = dec_hidden
         self.layers = [
-            eqx.nn.Linear(in_features=latent_dim, out_features=dec_hidden, key=key1),
+            eqx.nn.Linear(in_features=latent_dim, out_features=dec_hidden, key=key1, dtype=dtype),
             jax.nn.relu,
-            eqx.nn.Linear(in_features=dec_hidden, out_features=input_dim, key=key2),
-            jax.nn.softplus,
+            eqx.nn.Linear(in_features=dec_hidden, out_features=input_dim, key=key2, dtype=dtype),
+            jax.nn.tanh,
         ]
 
     def __call__(self, z: Float[Array, "batch latent_dim"]) -> Float[Array, "batch input_dim"]:
@@ -208,7 +173,7 @@ class Decoder(eqx.Module):
         )
         for layer in self.layers:
             z = layer(z)
-        return z
+        return z * 5
 
 
 # He Uniform Initialization for ReLU activation
@@ -261,18 +226,24 @@ def apply_initialization(model, init_fn_weight, init_fn_bias, key):
     return model
 
 
-def init_encoder_weights(encoder: Encoder, key: jnp.ndarray):
+def init_encoder_weights(encoder: Encoder, key: jnp.ndarray, dtype=jnp.float32):
     encoder = apply_initialization(encoder, he_uniform_init, zero_bias_init, key)
 
     key_alpha_b, key_beta_b, key_sigma_b, _ = jax.random.split(key, 4)
     encoder = eqx.tree_at(
-        lambda e: e.alpha_layer.bias, encoder, softplus_bias_init(jnp.asarray(encoder.alpha_layer.bias), key_alpha_b)
+        lambda e: e.alpha_layer.bias,
+        encoder,
+        softplus_bias_init(jnp.asarray(encoder.alpha_layer.bias), key_alpha_b, dtype=dtype),
     )
     encoder = eqx.tree_at(
-        lambda e: e.beta_layer.bias, encoder, softplus_bias_init(jnp.asarray(encoder.beta_layer.bias), key_beta_b)
+        lambda e: e.beta_layer.bias,
+        encoder,
+        softplus_bias_init(jnp.asarray(encoder.beta_layer.bias), key_beta_b, dtype=dtype),
     )
     encoder = eqx.tree_at(
-        lambda e: e.sigma_layer.bias, encoder, softplus_bias_init(jnp.asarray(encoder.sigma_layer.bias), key_sigma_b)
+        lambda e: e.sigma_layer.bias,
+        encoder,
+        softplus_bias_init(jnp.asarray(encoder.sigma_layer.bias), key_sigma_b, dtype=dtype),
     )
 
     return encoder
