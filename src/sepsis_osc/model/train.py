@@ -8,7 +8,7 @@ import jax.numpy as jnp
 import jax.random as jr
 import numpy as np
 import optax
-from jaxtyping import Array, Float, PyTree
+from jaxtyping import Array, Float, PyTree, Int
 from torch.utils.tensorboard.writer import SummaryWriter
 
 from sepsis_osc.model.ae import Decoder, Encoder, init_decoder_weights, init_encoder_weights
@@ -54,6 +54,7 @@ def ordinal_loss(
     true_sofa: Float[Array, "batch 1"],
     thresholds: Float[Array, "n_classes_minus_1"],
     label_temperature: Float[Array, "batch 1"],
+    sofa_dist: Float[Array, "24"],
 ) -> tuple[Float[Array, "batch 1"], Float[Array, "batch 1"]]:
     # https://arxiv.org/abs/1901.07884
     # CORN (Cumulative Ordinal Regression)
@@ -66,7 +67,15 @@ def ordinal_loss(
     targets = jnp.arange(n_classes - 1)  # [0, 1, ..., 22]
     true_sofa = true_sofa.squeeze()
     true_ord_targets = true_sofa[:, None] > targets[None, :]  # [B, 23]
-    return jnp.mean(optax.sigmoid_binary_cross_entropy(logits, true_ord_targets)), pred_sofa
+    loss_per_sample = jnp.mean(optax.sigmoid_binary_cross_entropy(logits, true_ord_targets), axis=-1)
+
+    class_weights = jnp.log(1.0 + 1.0 / (sofa_dist + 1e-6))
+
+    weights_per_sample = class_weights[true_sofa.astype(jnp.int32)]  # [B]
+    weighted_loss = jnp.mean(weights_per_sample * loss_per_sample)
+
+    return weighted_loss, pred_sofa
+    # return jnp.mean(optax.sigmoid_binary_cross_entropy(logits, true_ord_targets)), pred_sofa
 
 
 def binary_logits(probs: Float[Array, "batch 1"], eps: float = 1e-6) -> Float[Array, "batch 1"]:
@@ -87,9 +96,10 @@ def calc_concept_loss(
     true_infection: Float[Array, "batch 1"],
     thresholds: Float[Array, "batch n_classes_minus_1"],
     label_temp: Float[Array, "batch 1"],
+    sofa_dist: Float[Array, "24"],
     params: ConceptLossConfig,
 ) -> tuple[Float[Array, "batch 1"], Float[Array, "batch 1"], Float[Array, "batch 1"]]:
-    loss_sofa, pred_sofa = ordinal_loss(prediction[:, 0], true_sofa, thresholds, label_temp)
+    loss_sofa, pred_sofa = ordinal_loss(prediction[:, 0], true_sofa, thresholds, label_temp, sofa_dist)
     loss_infection = binary_loss(prediction[:, 1], true_infection)
 
     return params.w_sofa * loss_sofa, params.w_inf * loss_infection, pred_sofa
@@ -132,7 +142,6 @@ def cosine_annealing(base_val: float, num_steps: int, current_step: jnp.int32) -
     cosine = 0.5 * (1 + jnp.cos(jnp.pi * step / num_steps))
     return base_val + (1.0 - base_val) * (1.0 - cosine)
 
-
 # === Loss Function ===
 @eqx.filter_jit  # (donate="all")
 def loss(
@@ -147,19 +156,16 @@ def loss(
 ) -> tuple[Array, AuxLosses]:
     batch_size, T, input_dim = x.shape
     aux_losses = AuxLosses.empty()
+    lookup_temp, label_temp, ordinal_thresholds = model.get_parameters()
+
+    def make_keys(base_key):
+        return jr.split(base_key, 4)
 
     sample_keys = jax.vmap(lambda i: jr.fold_in(key, i))(jnp.arange(batch_size))
-    def make_keys(base_key):
-        all_keys = jr.split(base_key, 7)
-        return {
-            "dropout": all_keys[:4],
-            "sampling": all_keys[4:],
-        }
+    drop_keys = jax.vmap(make_keys)(sample_keys)
 
-    keys = jax.vmap(make_keys)(sample_keys)
-
-    (amu, astd, alpha0), (bmu, bstd, beta0), (smu, sstd, sigma0) = jax.vmap(model.encoder)(
-        x[:, 0], dropout_keys=keys["dropout"], sampling_keys=keys["sampling"]
+    alpha0, beta0, sigma0, h_init = jax.vmap(model.encoder)(
+        x[:, 0], dropout_keys=drop_keys
     )
     aux_losses.alpha, aux_losses.beta, aux_losses.sigma = (
         alpha0.mean(),
@@ -167,33 +173,23 @@ def loss(
         sigma0.mean(),
     )
 
-    z0 = constrain_z(jnp.concatenate([amu, bmu, smu], axis=-1))
-    # mu = jnp.concatenate([amu, bmu, smu], axis=-1)
-    stds = jnp.concatenate([astd, bstd, sstd], axis=-1)
-    # sigma_q2 = stds**2
-    # sigma_p2 = model.encoder.get_prior_vars()
-    # aux_losses.kl_loss = jnp.mean(
-    #     0.5 * jnp.sum(jnp.log(sigma_p2) - jnp.log(sigma_q2) + (sigma_q2 + mu**2) / sigma_p2 - 1, axis=-1)
-    # )
-
-    mapped_pred = jax.vmap(model.predictor)
+    z0 = constrain_z(jnp.concatenate([alpha0, beta0, sigma0], axis=-1))
 
     def predict_next(carry, _):
         z_prev, h_prev = carry
 
-        z_next, h_next = (z_prev, h_prev)
-        z_next = bound_z(z_next)
 
-        new_carry = mapped_pred(z_next, h_next)
+        z_next, h_next = jax.vmap(model.predictor)(z_prev, h_prev)
+        z_next = bound_z(z_next)
+        new_carry = (z_next, h_next)
         return new_carry, z_next  # collect z_next over time instead
 
-    h_init = jnp.zeros((batch_size, model.predictor.hidden_dim))
-    carry_init = (jnp.concatenate([z0, stds], axis=-1), h_init)  # z0 = (batch, z_dim*2)
+    # h_init = jnp.zeros((batch_size, model.predictor.hidden_dim))
+    carry_init = (z0, h_init)  # z0 = (batch, z_dim)
 
     (carry_final, h_final), z_preds = jax.lax.scan(predict_next, carry_init, xs=None, length=T - 1)
 
-    z0 = z0[None, ...]  # (1, batch, z_dim*2)
-    z_seq = jnp.concatenate([z0, z_preds[..., :3]], axis=0)  # (T, batch, z_dim) trimmed stds
+    z_seq = jnp.concatenate([z0[None, ...], z_preds], axis=0)  # (T, batch, z_dim) trimmed stds
     z_seq = jnp.transpose(z_seq, (1, 0, 2))  # (batch, T, z_dim)
 
     # Recon Loss
@@ -204,37 +200,31 @@ def loss(
     aux_losses.tc_loss = calc_tc_loss(z_seq)
 
     # Lookup / concept loss
-    lookup_temp, label_temp, ordinal_thresholds = model.get_parameters()
     concept_metrics = jax.vmap(lookup_func, in_axes=(1, None))(z_seq, lookup_temp).swapaxes(
         0, 1
     )  # (T, batch, z_dim) -> (batch, T, z_dim)
     sofa_true, infection_true = true_concepts[..., 0], true_concepts[..., 1]
 
-    sofa_loss, infection_loss, hists = jax.vmap(calc_concept_loss, in_axes=(1, 1, 1, None, None, None))(
+    sofa_loss, infection_loss, hists = jax.vmap(calc_concept_loss, in_axes=(1, 1, 1, None, None, None, None))(
         concept_metrics,
         sofa_true,
         infection_true,
         ordinal_thresholds,
         label_temp,
+        model.sofa_dist,
         params.concept,
     )
     hists = jax.lax.stop_gradient(hists)
     aux_losses.concept_loss = jnp.mean(sofa_loss + infection_loss)
-    aux_losses.kl_loss = -concept_metrics.std
 
     aux_losses.total_loss = (
         aux_losses.recon_loss * params.w_recon
         + (
             aux_losses.concept_loss
             * params.w_concept
-            * cosine_annealing(0.0, int(params.anneal_concept_iter * params.steps_per_epoch), step)
+            * cosine_annealing(0.2, int(params.anneal_concept_iter * params.steps_per_epoch), step)
         )
         + aux_losses.tc_loss * params.w_tc
-        + (
-            aux_losses.kl_loss
-            * params.w_kl
-            * cosine_annealing(0.1, int(params.anneal_kl_iter * params.steps_per_epoch), step)
-        )
     )
 
     aux_losses.label_temperature = label_temp.mean(axis=-1)
@@ -424,24 +414,22 @@ if __name__ == "__main__":
     setup_logging("info")
     dtype = jnp.float32
     logger = logging.getLogger(__name__)
-    
-    model_conf = ModelConfig(latent_dim=3, input_dim=52, enc_hidden=256, dec_hidden=128, predictor_hidden=64)
+
+    model_conf = ModelConfig(latent_dim=3, input_dim=52, enc_hidden=64, dec_hidden=32, predictor_hidden=64)
     train_conf = TrainingConfig(batch_size=32, window_len=6, epochs=3000, perc_train_set=0.1, validate_every=5)
-    lr_conf = LRConfig(init=0.0, peak=0.0028, peak_decay=0.9, end=9e-6, warmup_epochs=15, enc_wd=1e-3, grad_norm=0.1)
+    lr_conf = LRConfig(init=0.0, peak=3e-2, peak_decay=0.9, end=1e-12, warmup_epochs=15, enc_wd=1e-3, grad_norm=0.01)
     loss_conf = LossesConfig(
-        w_concept=85,
-        w_recon=10,
+        w_concept=200,
+        w_recon=15,
         w_tc=80,
-        w_kl=0.0,
-        anneal_concept_iter=3.5 * 1/train_conf.perc_train_set,
-        anneal_kl_iter=30 * 1/train_conf.perc_train_set,
+        anneal_concept_iter=3.5 * 1 / train_conf.perc_train_set,
         concept=ConceptLossConfig(w_sofa=1.0, w_inf=0.0),
     )
     load_conf = LoadingConfig(from_dir="", epoch=0)
     save_conf = SaveConfig(save_every=10, perform=True)
 
     # === Data ===
-    train_x, train_y, val_x, val_y, test_x, test_y = get_data_sets(window_len=6, dtype=jnp.float32)
+    train_x, train_y, val_x, val_y, test_x, test_y = get_data_sets(window_len=train_conf.window_len, dtype=jnp.float32)
     logger.info(f"Train shape      - Y {train_y.shape}, X {train_x.shape}")
     logger.info(f"Validation shape - Y {val_y.shape},  X {val_x.shape}")
     logger.info(f"Test shape       - Y {test_y.shape},  X {test_x.shape}")
@@ -473,7 +461,7 @@ if __name__ == "__main__":
         init_value=lr_conf.init,
         peak_value=lr_conf.peak,
         warmup_steps=lr_conf.warmup_epochs * steps_per_epoch,
-        steps_per_cycle=[steps_per_epoch * n for n in [25, 25, 35, 50, 50]],  # cycle durations
+        steps_per_cycle=[steps_per_epoch * n for n in [25, 15, 100, 200]],  # cycle durations
         end_value=lr_conf.end,
         peak_decay=lr_conf.peak_decay,
     )
@@ -484,20 +472,24 @@ if __name__ == "__main__":
     metrics = jnp.sort(lookup_table.relevant_metrics[..., 0])
     sofa_dist, _ = jnp.histogram(train_y[..., 0], bins=25, density=False)
     sofa_dist = sofa_dist / jnp.sum(sofa_dist)
-    train_sofa_dist = jnp.asarray(sofa_dist)
-    # train_sofa_dist = metrics[jnp.round(jnp.cumsum(sofa_dist) * len(metrics)).astype(dtype=jnp.int32)]
+    deltas = metrics[jnp.round(jnp.cumsum(sofa_dist) * len(metrics)).astype(dtype=jnp.int32)]
+    deltas = deltas / jnp.sum(deltas)
+    deltas = jnp.asarray(deltas)
+
     encoder = Encoder(key_enc, model_conf.input_dim, model_conf.latent_dim, model_conf.enc_hidden, dtype=dtype)
     decoder = Decoder(key_dec, model_conf.input_dim, model_conf.latent_dim, model_conf.dec_hidden, dtype=dtype)
     key_enc_weights, key_dec_weights = jr.split(key, 2)
     encoder = init_encoder_weights(encoder, key_enc_weights)
     decoder = init_decoder_weights(decoder, key_dec_weights)
-    gru = GRUPredictor(key=key_predictor, dim=model_conf.latent_dim * 2, hidden_dim=model_conf.predictor_hidden)
+    gru = GRUPredictor(key=key_predictor, dim=model_conf.latent_dim, hidden_dim=model_conf.predictor_hidden)
 
-    model = LatentDynamicsModel(encoder=encoder, predictor=gru, decoder=decoder, sofa_dist=train_sofa_dist)
+    model = LatentDynamicsModel(
+        encoder=encoder, predictor=gru, decoder=decoder, ordinal_deltas=deltas, sofa_dist=sofa_dist[:-1]
+    )
 
     optimizer = optax.chain(
         optax.clip_by_global_norm(lr_conf.grad_norm),
-        optax.adamw(learning_rate=schedule, weight_decay=lr_conf.enc_wd),
+        optax.adabelief(learning_rate=schedule),
     )
 
     hyper_enc = {
@@ -511,7 +503,7 @@ if __name__ == "__main__":
         "latent_dim": decoder.latent_dim,
         "dec_hidden": decoder.dec_hidden,
     }
-    hyper_pred = {"dim": model_conf.latent_dim * 2, "hidden_dim": gru.hidden_dim}
+    hyper_pred = {"dim": model_conf.latent_dim, "hidden_dim": gru.hidden_dim}
     params_model, static_model = eqx.partition(model, eqx.is_inexact_array)
     opt_state = optimizer.init(params_model)
     if load_conf.from_dir:
@@ -526,9 +518,14 @@ if __name__ == "__main__":
 
     # === Training Loop ===
     writer = SummaryWriter()
-    hyper_params = flatten_dict({"model": asdict(model_conf), "losses": asdict(loss_conf), "train": asdict(train_conf)})
+    hyper_params = flatten_dict({
+        "model": asdict(model_conf),
+        "losses": asdict(loss_conf),
+        "train": asdict(train_conf),
+        "lr": asdict(lr_conf),
+    })
     writer.add_hparams(hyper_params, metric_dict={}, run_name=".")
-    
+
     shuffle_val_key, key = jr.split(key, 2)
     val_x, val_y, nval_batches = prepare_batches(val_x, val_y, train_conf.batch_size, key=shuffle_val_key)
     for epoch in range(load_conf.epoch, train_conf.epochs):
@@ -557,10 +554,11 @@ if __name__ == "__main__":
         log_msg = log_train_metrics(train_metrics, epoch, writer)
         logger.info(log_msg)
 
+        val_model = eqx.nn.inference_mode(model, value=True)
         if epoch % train_conf.validate_every == 0:
             key, _ = jr.split(key)
             key, val_metrics = process_val_epoch(
-                model,
+                val_model,
                 x_data=val_x,
                 y_data=val_y,
                 key=key,
@@ -569,6 +567,7 @@ if __name__ == "__main__":
             )
             log_msg = log_val_metrics(val_metrics, epoch, writer)
             logger.warning(log_msg)
+        model = eqx.nn.inference_mode(val_model, value=False)
 
         writer.add_scalar(
             "lr/learning_rate", np.asarray(schedule(np.float64(epoch) * np.float64(train_x.shape[0]))), epoch
