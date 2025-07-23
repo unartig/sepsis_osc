@@ -10,7 +10,7 @@ import os
 import optuna
 from optuna.trial import Trial
 
-from sepsis_osc.model.data_loading import prepare_batches, prepare_sequences
+from sepsis_osc.model.data_loading import prepare_batches, get_data_sets
 from sepsis_osc.model.model_utils import (
     ConceptLossConfig,
     LossesConfig,
@@ -29,53 +29,60 @@ from sepsis_osc.model.train import (
 )
 from sepsis_osc.model.ae import Decoder, Encoder, init_decoder_weights, init_encoder_weights
 from sepsis_osc.model.gru import GRUPredictor
-from sepsis_osc.model.latent_dynamics  import LatentDynamicsModel
+from sepsis_osc.model.latent_dynamics import LatentDynamicsModel
 from sepsis_osc.simulation.data_classes import JAXLookup, SystemConfig
 from sepsis_osc.storage.storage_interface import Storage
-from sepsis_osc.utils.config import jax_random_seed, sequence_files
+from sepsis_osc.utils.config import jax_random_seed
 from sepsis_osc.utils.jax_config import setup_jax
 from sepsis_osc.utils.logger import setup_logging
 
 
-def make_objective(train_x_inner, train_y_inner, val_x_inner, val_y_inner, sofa_dist):
+def make_objective(train_x_inner, train_y_inner, val_x_inner, val_y_inner, sofa_dist, deltas):
     def objective(trial: Trial) -> float:
         jkey = jr.PRNGKey(jax_random_seed)
         # --- Tune hyperparameters ---
         w_concept = trial.suggest_float("w_concept", 0, 200, log=False)
         w_recon = trial.suggest_float("w_recon", 0, 50, log=False)
-        w_tc = trial.suggest_float("w_tc", 0, 100, log=False)
-        w_kl = trial.suggest_float("w_kl", 1e-4, 1e1, log=True)
+        w_tc = trial.suggest_float("w_tc", 0, 200, log=False)
         enc_hidden = trial.suggest_categorical("enc_hidden", [32, 64, 128, 256])
         pred_hidden = trial.suggest_categorical("pred_hidden", [32, 64, 128, 256])
-        dec_hidden = trial.suggest_categorical("dec_hidden", [32, 64, 128])
-        batch_size = trial.suggest_categorical("batch_size", [32, 64, 128, 256])
-        lr_peak = trial.suggest_float("lr_peak", 1e-5, 1e-2, log=True)
-        lr_end = trial.suggest_float("lr_end", 1e-7, 1e-3, log=True)
-        anneal_kl = trial.suggest_float("anneal_kl", 20, 100, log=False)
+        dec_hidden = trial.suggest_categorical("dec_hidden", [32, 64, 128, 256])
+        # batch_size = trial.suggest_categorical("batch_size", [32, 64, 128, 256])
+        # lr_peak = trial.suggest_float("lr_peak", 1e-5, 1e-1, log=True)
+        # lr_end = trial.suggest_float("lr_end", 1e-7, 1e-3, log=True)
         anneal_concept = trial.suggest_float("anneal_concept", 1, 5, log=False)
 
-        train_conf = TrainingConfig(batch_size=batch_size, epochs=200, window_len=6, perc_train_set=0.2, validate_every=1)
+        train_conf = TrainingConfig(
+            batch_size=512, epochs=150, window_len=6, perc_train_set=0.1, validate_every=1
+        )
         loss_conf = LossesConfig(
             w_concept=w_concept,
             w_recon=w_recon,
             w_tc=w_tc,
-            w_kl=w_kl,
-            anneal_kl_iter=anneal_kl * 1/train_conf.perc_train_set,
-            anneal_concept_iter=anneal_concept * 1/train_conf.perc_train_set,
-
+            anneal_concept_iter=anneal_concept * 1 / train_conf.perc_train_set,
             concept=ConceptLossConfig(w_sofa=1.0, w_inf=0.0),
         )
 
-        model_conf = ModelConfig(latent_dim=3, input_dim=52, enc_hidden=enc_hidden, dec_hidden=dec_hidden, predictor_hidden=pred_hidden)
-        lr_conf = LRConfig(init=0.0, peak=lr_peak, peak_decay=0.9, end=lr_end, warmup_epochs=15, enc_wd=1e-3, grad_norm=0.1)
+        model_conf = ModelConfig(
+            latent_dim=3, input_dim=52, enc_hidden=enc_hidden, dec_hidden=dec_hidden, predictor_hidden=pred_hidden
+        )
+        lr_conf = LRConfig(
+            init=0.0, peak=1e-2, peak_decay=0.9, end=1e-10, warmup_epochs=15, enc_wd=1e-3, grad_norm=0.1
+        )
 
         key_enc, key_dec, key_predictor = jr.split(jkey, 3)
-        encoder = Encoder(key_enc, model_conf.input_dim, model_conf.latent_dim, model_conf.enc_hidden, dtype=jnp.float32)
-        decoder = Decoder(key_dec, model_conf.input_dim, model_conf.latent_dim, model_conf.dec_hidden, dtype=jnp.float32)
+        encoder = Encoder(
+            key_enc, model_conf.input_dim, model_conf.latent_dim, model_conf.enc_hidden, dtype=jnp.float32
+        )
+        decoder = Decoder(
+            key_dec, model_conf.input_dim, model_conf.latent_dim, model_conf.dec_hidden, dtype=jnp.float32
+        )
         encoder = init_encoder_weights(encoder, key_enc)
         decoder = init_decoder_weights(decoder, key_dec)
-        gru = GRUPredictor(key=key_predictor, dim=model_conf.latent_dim * 2, hidden_dim=model_conf.predictor_hidden)
-        model = LatentDynamicsModel(encoder=encoder, predictor=gru, decoder=decoder, sofa_dist=sofa_dist)
+        gru = GRUPredictor(key=key_predictor, dim=model_conf.latent_dim, hidden_dim=model_conf.predictor_hidden)
+        model = LatentDynamicsModel(
+            encoder=encoder, predictor=gru, decoder=decoder, ordinal_deltas=deltas, sofa_dist=sofa_dist
+        )
         params_model, static_model = eqx.partition(model, eqx.is_inexact_array)
 
         shuffle_train_key, key = jr.split(jkey, 2)
@@ -119,8 +126,9 @@ def make_objective(train_x_inner, train_y_inner, val_x_inner, val_y_inner, sofa_
             )
             model = eqx.combine(params_model, static_model)
 
-            key, val_metrics = process_val_epoch(
-                model,
+            val_model = eqx.nn.inference_mode(model, value=True)
+            _, val_metrics = process_val_epoch(
+                val_model,
                 x_data=val_x,
                 y_data=val_y,
                 key=key,
@@ -128,6 +136,7 @@ def make_objective(train_x_inner, train_y_inner, val_x_inner, val_y_inner, sofa_
                 loss_params=loss_conf,
             )
             concept_loss_val = float(val_metrics.sofa_loss.mean())
+            model = eqx.nn.inference_mode(val_model, value=False)
             logger.info(
                 f"Loss {concept_loss_val:.4f}, epoch {epoch}, bad val epochs {bad_val_epochs}, bad train epochs {bad_train_epochs}"
             )
@@ -149,7 +158,7 @@ if __name__ == "__main__":
     setup_jax(simulation=False)
     setup_logging("info", console_log=True)
     logger = logging.getLogger(__name__)
-    dtype=jnp.float32
+    dtype = jnp.float32
     TOTAL_TRIALS = 1000
 
     db_str = "Daisy"
@@ -160,52 +169,36 @@ if __name__ == "__main__":
         use_mem_cache=True,
     )
 
-    if (
-        os.path.exists(sequence_files + "test_x.npy")
-        and os.path.exists(sequence_files + "test_y.npy")
-        and os.path.exists(sequence_files + "val_x.npy")
-        and os.path.exists(sequence_files + "val_y.npy")
-    ):
-        logger.info("Processed sequence files found. Loading data from disk...")
-        train_x = np.load(sequence_files + "test_x.npy")
-        train_y = np.load(sequence_files + "test_y.npy")
-        val_x = np.load(sequence_files + "val_x.npy")
-        val_y = np.load(sequence_files + "val_y.npy")
-        logger.info("Data loaded successfully.")
-    else:
-        logger.error("No Sequence Files found")
-        exit(0)
-    train_x, train_y, val_x, val_y = (
-        train_x.astype(jnp.bfloat16),
-        train_y.astype(jnp.bfloat16),
-        val_x.astype(jnp.bfloat16),
-        val_y.astype(jnp.bfloat16),
-    )
     a, b, s = as_3d_indices(ALPHA_SPACE, BETA_SPACE, SIGMA_SPACE)
     indices_3d = jnp.concatenate([a, b, s], axis=-1)
     spacing_3d = jnp.array([ALPHA_SPACE[2], BETA_SPACE[2], SIGMA_SPACE[2]])
     params = SystemConfig.batch_as_index(a, b, s, 0.2)
     metrics_3d, _ = sim_storage.read_multiple_results(np.asarray(params))
-    sofa_dist, _ = jnp.histogram(train_y[..., 0], bins=25, density=False)
-    sofa_dist = sofa_dist / jnp.sum(sofa_dist)
-    train_sofa_dist = jnp.asarray(sofa_dist)
+    sim_storage.close()
     lookup_table = JAXLookup(
         metrics=metrics_3d.copy().reshape((-1, 1)),
         indices=jnp.asarray(indices_3d.copy().reshape((-1, 3))),  # since param space only alpha beta sigma
         metrics_3d=metrics_3d,
         indices_3d=indices_3d,
         grid_spacing=spacing_3d,
-        dtype=dtype
+        dtype=dtype,
     )
-    sim_storage.close()
+
+    train_x, train_y, val_x, val_y, test_x, test_y = get_data_sets(window_len=6, dtype=jnp.float32)
+    metrics = jnp.sort(lookup_table.relevant_metrics[..., 0])
+    sofa_dist, _ = jnp.histogram(train_y[..., 0], bins=25, density=False)
+    sofa_dist = sofa_dist/jnp.sum(sofa_dist)
+    deltas= metrics[jnp.round(jnp.cumsum(sofa_dist) * len(metrics)).astype(dtype=jnp.int32)]
+    deltas = deltas/ jnp.sum(deltas)
+    deltas= jnp.asarray(deltas)
 
     study = optuna.create_study(
         direction="minimize",
         storage="sqlite:///data/db.sqlite3",  # Specify the storage URL here.
-        study_name="latent_dynamics_stat_delta",
+        study_name="der_wahre",
         load_if_exists=True,
         sampler=optuna.samplers.TPESampler(),
-        pruner=optuna.pruners.PatientPruner(optuna.pruners.MedianPruner(), patience=25)
+        pruner=optuna.pruners.PatientPruner(optuna.pruners.MedianPruner(), patience=25),
     )
     # dataset_fraction_callback = DatasetFractionCallback(total_trials=TOTAL_TRIALS)
-    study.optimize(make_objective(train_x, train_y, val_x, val_y, train_sofa_dist), n_trials=TOTAL_TRIALS)
+    study.optimize(make_objective(train_x, train_y, val_x, val_y, sofa_dist[:-1], deltas), n_trials=TOTAL_TRIALS)
