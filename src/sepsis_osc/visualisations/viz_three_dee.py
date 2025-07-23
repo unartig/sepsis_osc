@@ -23,16 +23,16 @@ def three_dee(
 ):
     indices_flat = param_inds.reshape(-1, 9)
     parenchymal = metric.reshape(-1, 1)
-    data_parenchymal = []
-    for i in range(indices_flat.shape[0]):
-        data_parenchymal.append({
-            "alpha": indices_flat[i, 5],
-            "beta": indices_flat[i, 6],
-            "sigma": indices_flat[i, 7],
-            "value": parenchymal[i],
-            "size": parenchymal[i] + 1,
-        })
-    df_parenchymal = pl.DataFrame(data_parenchymal)
+    df_parenchymal = pl.DataFrame({
+    "alpha": np.asarray(indices_flat[:, 5])*np.pi,
+    "beta": np.asarray(indices_flat[:, 6])*np.pi,
+    "sigma": np.asarray(indices_flat[:, 7])*2,
+    "value": np.asarray(parenchymal[:, 0]),
+    })
+
+    df_parenchymal = df_parenchymal.with_columns([
+        (pl.col("value") + 1).alias("size")
+    ])
 
     # Sort and get unique grid values
     x_vals = np.sort(df_parenchymal.select("sigma").unique().to_numpy().flatten())
@@ -47,22 +47,47 @@ def three_dee(
     # Create meshgrid for plotting
     X, Y, Z = np.meshgrid(x_vals, y_vals, z_vals, indexing="ij")
 
+    # fig = go.Figure(
+    #     data=go.Volume(
+    #         x=X.flatten(),
+    #         y=Y.flatten(),
+    #         z=Z.flatten(),
+    #         value=values_3d.flatten(),
+    #         isomin=np.min(values_3d),
+    #         isomax=np.max(values_3d),
+    #         surface_count=20,
+    #         caps=dict(x_show=False, y_show=False, z_show=False),
+    #         colorscale="Viridis",
+    #         opacity=0.3,
+    #     )
+    # )
+    # Apply log transform safely (avoid log(0))
+    log_values = np.log10(values_3d + 1e-6)  # Adjust epsilon as needed
+
     fig = go.Figure(
         data=go.Volume(
             x=X.flatten(),
             y=Y.flatten(),
             z=Z.flatten(),
-            value=values_3d.flatten(),
-            isomin=np.min(values_3d),
-            isomax=np.max(values_3d),
+            value=log_values.flatten(),  # Use log-transformed values
+            isomin=np.min(log_values),
+            isomax=np.max(log_values),
             surface_count=20,
             caps=dict(x_show=False, y_show=False, z_show=False),
             colorscale="Viridis",
-            opacity=0.3,
+            opacity=0.1,
+            colorbar=dict(title=r"$s^{\mu}$ Space", x=0.9)
         )
     )
 
-    fig.update_layout(scene=dict(xaxis_title="Sigma", yaxis_title="Beta", zaxis_title="Alpha"), title=title)
+    fig.update_layout(
+    scene=dict(
+        xaxis=dict(showgrid=False),
+        yaxis=dict(showgrid=False),
+        zaxis=dict(showgrid=False)
+    )
+    )
+    # fig.update_layout(scene=dict(xaxis_title="$\\sigma$", yaxis_title="$\\beta$", zaxis_title="$\\alpha$"), title=title)
     if show:
         fig.show()
     if filename:

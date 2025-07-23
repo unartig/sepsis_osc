@@ -15,7 +15,15 @@ from tqdm import tqdm
 
 from sepsis_osc.model.data_loading import get_raw_data, prepare_batches
 from sepsis_osc.model.model_utils import as_3d_indices, load_checkpoint, LoadingConfig
-from sepsis_osc.model.train import ALPHA_SPACE, BETA_SPACE, SIGMA_SPACE, binary_logits, ordinal_logits, constrain_z
+from sepsis_osc.model.train import (
+    ALPHA_SPACE,
+    BETA_SPACE,
+    SIGMA_SPACE,
+    binary_logits,
+    ordinal_logits,
+    constrain_z,
+    bound_z,
+)
 from sepsis_osc.model.ae import (
     Decoder,
     Encoder,
@@ -27,27 +35,38 @@ from sepsis_osc.utils.logger import setup_logging
 from sepsis_osc.visualisations.viz_param_space import space_plot
 from sepsis_osc.visualisations.viz_three_dee import three_dee
 
-LOAD_FROM_CHECKPOINT = "runs/optune_15"
-LOAD_EPOCH = 29
+LOAD_FROM_CHECKPOINT = "runs/Jul22_13-41-57_tinkpad"
+LOAD_EPOCH = 69
+
+SMALL_SIZE = 12
+MEDIUM_SIZE = 14
+BIGGER_SIZE = 14
+
+plt.rc("font", size=SMALL_SIZE)  # controls default text sizes
+plt.rc("axes", titlesize=SMALL_SIZE)  # fontsize of the axes title
+plt.rc("axes", labelsize=MEDIUM_SIZE)  # fontsize of the x and y labels
+plt.rc("xtick", labelsize=SMALL_SIZE)  # fontsize of the tick labels
+plt.rc("ytick", labelsize=SMALL_SIZE)  # fontsize of the tick labels
+plt.rc("legend", fontsize=SMALL_SIZE)  # legend fontsize
+plt.rc("figure", titlesize=BIGGER_SIZE)  # fontsize of the figure title
 
 
-def viz_latent(params, model, p_x, p_y, metrics, indices, key, filename, figure_dir):
-    df = do_inference(p_x, p_y, model, key)
+def viz_latent(df, params, p_y, metrics, indices, key, filename, figure_dir):
     print(metrics.shape)
     print(indices.shape)
     mask = (
-        (indices[..., 0] >= df["alpha"].min() * 1.5)
-        & (indices[..., 0] <= df["alpha"].max() * 0.5)
-        & (indices[..., 1] >= df["beta"].min() * 0.5)
+        (indices[..., 0] >= df["alpha"].min() * 0.5)
+        & (indices[..., 0] <= df["alpha"].max() * 1.5) &
+         (indices[..., 1] >= df["beta"].min() * 0.5)
         & (indices[..., 1] <= df["beta"].max() * 1.5)
         & (indices[..., 2] >= df["sigma"].min() * 0.5)
         & (indices[..., 2] <= df["sigma"].max() * 1.5)
     )
-    # print(mask.shape)
 
     # metrics = metrics[indices[indices[]]]
     fig = three_dee(
         params[mask],
+        # params,
         # np.asarray(metrics.s_1),
         np.asarray(metrics.s_1[mask]),
         "Parameter Space Cluster Ratio 1 + SOFA prediction",
@@ -78,7 +97,6 @@ def viz_latent(params, model, p_x, p_y, metrics, indices, key, filename, figure_
         fig.write_html(f"{figure_dir}/both_{filename}.html")
 
 
-# ALPHA_SPACE, BETA_SPACE, SIGMA_SPACE = (-1.0, 1.0, 0.04), (0.2, 1.5, 0.02), (0.0, 1.5, 0.04)
 def viz_plane(params, model, p_x, p_y, lookup, key, filename, figure_dir):
     filename = filename + "_plane"
     df = do_inference(p_x, p_y, model.encoder, key)
@@ -117,7 +135,15 @@ def viz_plane(params, model, p_x, p_y, lookup, key, filename, figure_dir):
         plt.savefig(f"{figure_dir}/{filename}.svg", format="svg")
 
 
-def scatter_concepts(true_sofa, true_infs, pred_sofa: jnp.ndarray, pred_infs: jnp.ndarray, ax=None):
+def scatter_concepts(
+    true_sofa,
+    true_infs,
+    pred_sofa: jnp.ndarray,
+    pred_infs: jnp.ndarray,
+    ax=None,
+    figure_dir="figures",
+    file_name="sofa.png",
+):
     # if ax is None:
     #     fig, ax = plt.subplots(1, 2, figsize=(14, 4))
     # ax[0].plot(range(0, 24), range(0, 24), color="tab:red", label="optimum")
@@ -126,10 +152,12 @@ def scatter_concepts(true_sofa, true_infs, pred_sofa: jnp.ndarray, pred_infs: jn
     if ax is None:
         fig, ax = plt.subplots(1, 1)
     ax.plot(range(0, 24), range(0, 24), color="tab:red", label="optimum")
-    ax.scatter(true_sofa, pred_sofa, alpha=0.005)
+    # ax.scatter(true_sofa, pred_sofa, alpha=1)
+    ax.scatter(true_sofa, pred_sofa, alpha=0.05, color="tab:orange")
     ax.set_ylabel("Predicted SOFA-score")
     ax.set_xlabel("Actual SOFA-score")
 
+    plt.savefig(f"{figure_dir}/{file_name}", transparent=True, dpi=800)
     return ax
 
 
@@ -149,11 +177,9 @@ def to_input(df):
 @eqx.filter_jit
 def process_batch(x_batch, y_batch, model, enc_keys, direct=False):
     temp_lookup, temp_label, thresholds = model.get_parameters()
-    (amu, astd, alpha0), (bmu, bstd, beta0), (smu, sstd, sigma0) = jax.vmap(model.encoder)(
-        x_batch, dropout_keys=enc_keys["dropout"], sampling_keys=enc_keys["sampling"]
-    )
+    alpha0, beta0, sigma0, _ = jax.vmap(model.encoder)(x_batch, dropout_keys=enc_keys)
 
-    z0 = constrain_z(jnp.concatenate([amu, bmu, smu], axis=-1))
+    z0 = constrain_z(jnp.concatenate([alpha0, beta0, sigma0], axis=-1))
 
     pred_concepts = lookup_table.hard_get_local(z0, jnp.full((z0.shape[0], 1), temp_lookup))
 
@@ -167,9 +193,9 @@ def process_batch(x_batch, y_batch, model, enc_keys, direct=False):
     return {
         "pred_sofa": pred_sofa,
         "pred_infs": pred_infs,
-        "alpha": amu.squeeze(),
-        "beta": bmu.squeeze(),
-        "sigma": smu.squeeze(),
+        "alpha": z0[..., 0].squeeze(),
+        "beta": z0[..., 1],
+        "sigma": z0[..., 2],
         "true_sofa": true_sofa,
         "true_infs": true_infs,
     }
@@ -193,11 +219,7 @@ def do_inference(x, y, model, key):
     sample_keys = jax.vmap(lambda i: jr.fold_in(key, i))(jnp.arange(BATCH_SIZE))
 
     def make_keys(base_key):
-        all_keys = jr.split(base_key, 7)
-        return {
-            "dropout": all_keys[:4],
-            "sampling": all_keys[4:],
-        }
+        return jr.split(base_key, 4)
 
     keys = jax.vmap(make_keys)(sample_keys)
 
@@ -226,6 +248,54 @@ def do_inference(x, y, model, key):
             output_buffers[k] = output_buffers[k][:x_len]
 
     df = pl.DataFrame(output_buffers)
+    print(df)
+    return df
+
+
+def process_sequence(x, y, model, key):
+    preds = []
+    temp_lookup, temp_label, thresholds, = model.get_parameters()
+
+    alpha0, beta0, sigma0, h_next = model.encoder(x[0], dropout_keys=jnp.array(jr.split(key, 4)))
+    z0 = constrain_z(jnp.concatenate([alpha0, beta0, sigma0], axis=-1))
+
+    pred_concepts = lookup_table.hard_get_local(z0[None, :], jnp.asarray(temp_lookup))
+    pred_sofa_logits = (pred_concepts[..., 0, None] - thresholds) / temp_lookup
+    pred_sofa = jnp.abs(jnp.argmin(jnp.abs(pred_sofa_logits), axis=1))
+    pred_infs = pred_concepts[:, 1]
+
+    preds.append({
+        "pred_sofa": np.asarray(pred_sofa),
+        "pred_infs": np.asarray(pred_infs),
+        "alpha": alpha0.squeeze(),
+        "beta": beta0.squeeze(),
+        "sigma": sigma0.squeeze(),
+        "true_sofa": y[0, 0],
+        "true_infs": y[0, 1],
+    })
+
+    # h_next = jnp.zeros((model.predictor.hidden_dim))
+    z_next = z0
+    for t in range(1, x.shape[0]):
+        z_prev = z_next
+        h_prev = h_next
+        z_next, h_next = model.predictor(z_prev, h_prev)
+        z_next = bound_z(z_next)
+
+        pred_concepts = lookup_table.hard_get_local(z_next[None, :], jnp.asarray(temp_lookup))
+        pred_sofa_logits = (pred_concepts[..., 0, None]- thresholds) / temp_lookup
+        pred_sofa = jnp.abs(jnp.argmin(jnp.abs(pred_sofa_logits), axis=1))
+        pred_infs = pred_concepts[:, 1]
+        preds.append({
+            "pred_sofa": np.asarray(pred_sofa),
+            "pred_infs": np.asarray(pred_infs),
+            "alpha": z_next[..., 0].squeeze(),
+            "beta": z_next[..., 1].squeeze(),
+            "sigma": z_next[..., 2].squeeze(),
+            "true_sofa": y[t, 0],
+            "true_infs": y[t, 1],
+        })
+    df = pl.DataFrame(preds)
     return df
 
 
@@ -291,32 +361,52 @@ if __name__ == "__main__":
         for v in inner.values()
     ]
 
-    results = do_inference(to_input(test_x), to_input(test_y), model, key)
-    print(results.min())
-    print(results.max())
-    scatter_concepts(results["true_sofa"], results["true_infs"], results["pred_sofa"], results["pred_infs"])
+    # results = do_inference(to_input(test_x), to_input(test_y), model, key)
+    # scatter_concepts(results["true_sofa"], results["true_infs"], results["pred_sofa"], results["pred_infs"], figure_dir="figures/poster")
+    # print(results.min())
+    # print(results.max())
 
     stay_counts = test_x.group_by("stay_id").len()
     sofa_std = test_y.group_by("stay_id").agg([pl.col("sofa").std().alias("sofa_std")])
     valid_stays = stay_counts.filter(pl.col("len") <= 15).get_column("stay_id")
-    valid_sofas = sofa_std.filter(pl.col("sofa_std") > 2).get_column("stay_id")
+    valid_sofas = sofa_std.filter(pl.col("sofa_std") > 1.5).get_column("stay_id")
     valids = np.intersect1d(valid_stays.to_numpy(), valid_sofas.to_numpy())
+    for sid in valids:
+        print(sid)
+        p_x = to_input(test_x.filter(pl.col("stay_id").is_in(sid)).sort("time"))
+        p_y = to_input(test_y.filter(pl.col("stay_id").is_in(sid)).sort("time"))
+        df = process_sequence(p_x, p_y, model, key)
+        print(df)
+    
     sid = np.random.choice(valids, 1)
-    sid = [244038]
-    # p_x = to_input(test_x.filter(pl.col("stay_id").is_in(sid)).sort("time"))
-    # p_y = to_input(test_y.filter(pl.col("stay_id").is_in(sid)).sort("time"))
-    # print(test_y.filter(pl.col("stay_id").is_in(sid)).sort("time"))
-    # viz_latent(
-    #     params=params,
-    #     model=model,
-    #     p_x=p_x,
-    #     p_y=p_y,
-    #     metrics=metrics_3d,
-    #     indices=indices_3d,
-    #     key=key,
-    #     filename="latent_z",
-    #     figure_dir="figures/model",
-    # )
+    # sid = [244038]
+    # sid = [260152]
+    sid = [205200]
+    # sid = [294100]
+    # sid = [209826]
+    # sid = [226863]
+    sid =  [227512]
+    p_x = to_input(test_x.filter(pl.col("stay_id").is_in(sid)).sort("time"))
+    p_y = to_input(test_y.filter(pl.col("stay_id").is_in(sid)).sort("time"))
+    print(p_x.shape)
+
+    print(test_y.filter(pl.col("stay_id").is_in(sid)).sort("time"))
+    # df = do_inference(p_x, p_y, model, key)
+    # p_x = p_x[1:]
+    # p_y =  p_y[1:]
+    df = process_sequence(p_x, p_y, model, key)
+    p_y = p_y[3:]
+    df = df[3:, :]
+    viz_latent(
+        params=params,
+        df=df,
+        p_y=p_y,
+        metrics=metrics_3d,
+        indices=indices_3d,
+        key=key,
+        filename="latent_z",
+        figure_dir="figures/model",
+    )
 
     # valids = np.intersect1d(valid_stays.to_numpy(), valid_sofas.to_numpy())
     # for sid in valids:
