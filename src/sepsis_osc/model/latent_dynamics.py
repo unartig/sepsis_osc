@@ -17,12 +17,15 @@ class LatentDynamicsModel(eqx.Module):
     lookup_temperature: Array
     ordinal_deltas: Array = eqx.static_field()
 
+    sofa_dist: Array = eqx.static_field()
+
     def __init__(
         self,
         encoder: Encoder,
         predictor: GRUPredictor,
         decoder: Decoder,
-        sofa_dist: Float[Array, "25 1"] = jnp.ones((25)),
+        ordinal_deltas: Float[Array, "25"] = jnp.ones((25)),
+        sofa_dist: Float[Array, "24"] = jnp.ones((24)),
     ):
         self.encoder = encoder
         self.predictor = predictor
@@ -31,7 +34,9 @@ class LatentDynamicsModel(eqx.Module):
         # Parameter
         self.label_temperature = jnp.log(jnp.ones((1,)) * 0.05)
         self.lookup_temperature = jnp.log(jnp.ones((1,)) * 0.5)
-        self.ordinal_deltas = sofa_dist
+        self.ordinal_deltas = ordinal_deltas
+
+        self.sofa_dist = sofa_dist
 
 
     def get_parameters(self) -> tuple[Array, Array, Array]:
