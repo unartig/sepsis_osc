@@ -1,18 +1,22 @@
 from dataclasses import dataclass, fields
-from typing import Optional
+from typing import Optional, Union
 
 import jax
 import jax.numpy as jnp
 import jax.tree_util as jtu
+from equinox._tree import _LeafWrapper
+from equinox.internal._loop.common import _Buffer
 import numpy as np
 from beartype import beartype as typechecker
 from equinox import filter_jit, static_field
+from jax.tree_util import register_dataclass
 from jaxtyping import Array, Float, jaxtyped
 from numpy.typing import DTypeLike
 from scipy.ndimage import uniform_filter1d
 
 
 @jaxtyped(typechecker=typechecker)
+@register_dataclass
 @dataclass
 class SystemConfig:
     N: int  # number of oscillators per layer
@@ -116,24 +120,26 @@ class SystemConfig:
 
 
 @jaxtyped(typechecker=typechecker)
+@register_dataclass
 @dataclass
 class SystemState:
-    phi_1: Float[Array, "t ensemble N"] | np.ndarray
-    phi_2: Float[Array, "t ensemble N"] | np.ndarray
-    kappa_1: Float[Array, "t ensemble N N"] | np.ndarray
-    kappa_2: Float[Array, "t ensemble N N"] | np.ndarray
+    # NOTE shapes: Ensemble Simulation | Single Simulation | Visualisations
+    phi_1: Float[Array, "*t ensemble N"] | Float[Array, " N"] | np.ndarray | object
+    phi_2: Float[Array, "*t ensemble N"] | Float[Array, " N"] | np.ndarray | object
+    kappa_1: Float[Array, "*t ensemble N N"] | Float[Array, "N N"] | np.ndarray | object
+    kappa_2: Float[Array, "*t ensemble N N"] | Float[Array, "N N"] | np.ndarray | object
 
     # Required for JAX to recognize it as a PyTree
-    def tree_flatten(self):
-        return (self.phi_1, self.phi_2, self.kappa_1, self.kappa_2), None
+    # def tree_flatten(self):
+    #     return (self.phi_1, self.phi_2, self.kappa_1, self.kappa_2), None
 
     @property
     def shape(self):
         return jax.tree.map(lambda x: x.shape if x is not None else None, self.__dict__)
 
-    @classmethod
-    def tree_unflatten(cls, aux_data, children):
-        return cls(*children)
+    # @classmethod
+    # def tree_unflatten(cls, aux_data, children):
+    #     return cls(*children)
 
     def enforce_bounds(self) -> "SystemState":
         self.phi_1 = self.phi_1 % (2 * jnp.pi)
@@ -170,49 +176,50 @@ class SystemState:
 
 
 # Register SystemState as a JAX PyTree
-jtu.register_pytree_node(SystemState, SystemState.tree_flatten, SystemState.tree_unflatten)
+# jtu.register_pytree_node(SystemState, SystemState.tree_flatten, SystemState.tree_unflatten)
 
-
+_emptySM = Union[bool, None, jax.ShapeDtypeStruct, _LeafWrapper, _Buffer, jax.stages.OutInfo, jax.core.ShapedArray]
 @jaxtyped(typechecker=typechecker)
+@register_dataclass
 @dataclass
 class SystemMetrics:
-    # NOTE shapes: Simulation | DB/Lookup Query | visualisations
+    # NOTE shapes: Simulation | DB/Lookup Query | Visualisations | 
     
     # Kuramoto Order Parameter
-    r_1: Float[Array, "t ensemble 1"] | Float[Array, "... 1"] | np.ndarray
-    r_2: Float[Array, "t ensemble 1"] | Float[Array, "... 1"] | np.ndarray
+    r_1: Float[Array, "*t ensemble"] | Float[Array, "... 1"] | np.ndarray | _emptySM
+    r_2: Float[Array, "*t ensemble"] | Float[Array, "... 1"] | np.ndarray | _emptySM
     # Ensemble average velocity
-    m_1: Float[Array, "t 1"] | Float[Array, "... 1"] | np.ndarray
-    m_2: Float[Array, "t 1"] | Float[Array, "... 1"] | np.ndarray
+    m_1: Float[Array, "*t"] | Float[Array, "... 1"] | np.ndarray | _emptySM
+    m_2: Float[Array, "*t"] | Float[Array, "... 1"] | np.ndarray | _emptySM
     # Ensemble average std
-    s_1: Float[Array, "t 1"] | Float[Array, "... 1"] | np.ndarray
-    s_2: Float[Array, "t 1"] | Float[Array, "... 1"] | np.ndarray
+    s_1: Float[Array, "*t"] | Float[Array, "... 1"] | np.ndarray | _emptySM
+    s_2: Float[Array, "*t"] | Float[Array, "... 1"] | np.ndarray | _emptySM
     # Ensemble phase entropy
-    q_1: Float[Array, "t 1"] | Float[Array, "... 1"] | np.ndarray
-    q_2: Float[Array, "t 1"] | Float[Array, "... 1"] | np.ndarray
+    q_1: Float[Array, "*t"] | Float[Array, "... 1"] | np.ndarray | _emptySM
+    q_2: Float[Array, "*t"] | Float[Array, "... 1"] | np.ndarray | _emptySM
     # Frequency cluster ratio
-    f_1: Float[Array, "t 1"] | Float[Array, "... 1"] | np.ndarray
-    f_2: Float[Array, "t 1"] | Float[Array, "... 1"] | np.ndarray
+    f_1: Float[Array, "*t"] | Float[Array, "... 1"] | np.ndarray | _emptySM
+    f_2: Float[Array, "*t"] | Float[Array, "... 1"] | np.ndarray | _emptySM
     # Splay State Ratio
-    sr_1: Optional[Float[Array, "t 1"] | Float[Array, "... 1"] | np.ndarray] = None
-    sr_2: Optional[Float[Array, "t 1"] | Float[Array, "... 1"] | np.ndarray] = None
+    sr_1: Optional[Float[Array, "*t"] | Float[Array, "... 1"] | np.ndarray | _emptySM] = None
+    sr_2: Optional[Float[Array, "*t"] | Float[Array, "... 1"] | np.ndarray | _emptySM] = None
     # Measured mean transient time
-    tt: Optional[Float[Array, "t 1"] | Float[Array, "... 1"] | np.ndarray] = None
+    tt: Optional[Float[Array, "*t"] | Float[Array, "... 1"] | np.ndarray | _emptySM] = None
 
     @property
     def shape(self):
         return jax.tree.map(lambda x: x.shape if x is not None else None, self.__dict__)
 
-    def tree_flatten(self):
-        flat_children = []
-        for field_name in [f.name for f in fields(self)]:
-            value = getattr(self, field_name)
-            flat_children.append(value)
-        return flat_children, None
+    # def tree_flatten(self):
+    #     flat_children = []
+    #     for field_name in [f.name for f in fields(self)]:
+    #         value = getattr(self, field_name)
+    #         flat_children.append(value)
+    #     return flat_children, None
 
-    @classmethod
-    def tree_unflatten(cls, aux_data, children):
-        return cls(*children)
+    # @classmethod
+    # def tree_unflatten(cls, aux_data, children):
+    #     return cls(*children)
 
     def copy(self) -> "SystemMetrics":
         return SystemMetrics(**{f.name: getattr(self, f.name) for f in fields(self)})
@@ -241,8 +248,8 @@ class SystemMetrics:
             r_2=jnp.mean(jnp.asarray(self.r_2)[..., -1, :], axis=(-1,)),
             s_1=jnp.mean(jnp.asarray(self.s_1)),
             s_2=jnp.mean(jnp.asarray(self.s_2)),
-            m_1=jnp.mean(jnp.asarray(self.m_1)[-1, :], axis=-1),
-            m_2=jnp.mean(jnp.asarray(self.m_2)[-1, :], axis=-1),
+            m_1=jnp.mean(jnp.asarray(self.m_1)[..., -1], axis=-1),
+            m_2=jnp.mean(jnp.asarray(self.m_2)[..., -1], axis=-1),
             q_1=jnp.mean(jnp.asarray(self.q_1), axis=-1),
             q_2=jnp.mean(jnp.asarray(self.q_2), axis=-1),
             f_1=jnp.mean(jnp.asarray(self.f_1), axis=-1),
@@ -269,10 +276,11 @@ class SystemMetrics:
         return jax.tree.map(lambda x: x.astype(dtype) if x is not None else None, self)
 
 
-jtu.register_pytree_node(SystemMetrics, SystemMetrics.tree_flatten, SystemMetrics.tree_unflatten)
+# jtu.register_pytree_node(SystemMetrics, SystemMetrics.tree_flatten, SystemMetrics.tree_unflatten)
 
 
 @jaxtyped(typechecker=typechecker)
+@register_dataclass
 @dataclass(frozen=True)
 class LatentLookup:
     metrics: SystemMetrics = static_field()
@@ -332,12 +340,12 @@ class LatentLookup:
         )
         return stacked
 
-    def tree_flatten(self):
-        return (self.metrics, self.indices_T.T, self.metrics_3d, self.indices_3d, self.grid_spacing), None
+    # def tree_flatten(self):
+    #     return (self.metrics, self.indices_T.T, self.metrics_3d, self.indices_3d, self.grid_spacing), None
 
-    @classmethod
-    def tree_unflatten(cls, aux_data, children):
-        return cls(*children)
+    # @classmethod
+    # def tree_unflatten(cls, aux_data, children):
+    #     return cls(*children)
 
     @jaxtyped(typechecker=typechecker)
     @filter_jit
@@ -421,4 +429,4 @@ class LatentLookup:
         return pred_c.astype(orig_dtype)
 
 
-jtu.register_pytree_node(LatentLookup, LatentLookup.tree_flatten, LatentLookup.tree_unflatten)
+# jtu.register_pytree_node(LatentLookup, LatentLookup.tree_flatten, LatentLookup.tree_unflatten)
