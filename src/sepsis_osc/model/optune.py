@@ -30,7 +30,7 @@ from sepsis_osc.model.train import (
 from sepsis_osc.model.ae import Decoder, Encoder, init_decoder_weights, init_encoder_weights
 from sepsis_osc.model.gru import GRUPredictor
 from sepsis_osc.model.latent_dynamics import LatentDynamicsModel
-from sepsis_osc.simulation.data_classes import JAXLookup, SystemConfig
+from sepsis_osc.dnm.data_classes import JAXLookup, SystemConfig
 from sepsis_osc.storage.storage_interface import Storage
 from sepsis_osc.utils.config import jax_random_seed
 from sepsis_osc.utils.jax_config import setup_jax

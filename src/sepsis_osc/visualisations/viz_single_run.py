@@ -1,12 +1,25 @@
+from matplotlib.image import pil_to_array
 import numpy as np
 from matplotlib.animation import FuncAnimation, PillowWriter
 import matplotlib.pyplot as plt
 
-from sepsis_osc.simulation.data_classes import SystemConfig, SystemState
+from sepsis_osc.dnm.data_classes import SystemConfig, SystemState
 
 # import fastplotlib as fpl
 # from PIL import Image
 # import time
+
+SMALL_SIZE = 12
+MEDIUM_SIZE = 14
+BIGGER_SIZE = 14
+
+plt.rc('font', size=SMALL_SIZE)          # controls default text sizes
+plt.rc('axes', titlesize=SMALL_SIZE)     # fontsize of the axes title
+plt.rc('axes', labelsize=MEDIUM_SIZE)    # fontsize of the x and y labels
+plt.rc('xtick', labelsize=SMALL_SIZE)    # fontsize of the tick labels
+plt.rc('ytick', labelsize=SMALL_SIZE)    # fontsize of the tick labels
+plt.rc('legend', fontsize=SMALL_SIZE)    # legend fontsize
+plt.rc('figure', titlesize=BIGGER_SIZE)  # fontsize of the figure title
 
 
 def get_grid(n: int) -> tuple[int, int]:
@@ -27,8 +40,9 @@ def plot_phase_snapshot(phis_1: np.ndarray, phis_2: np.ndarray, t: int = -1, der
         _, ax = plt.subplots(1, 1)
     n = phis_1.shape[-1]
 
+    print(np.arange(n).shape, np.sort(phis_1[t, :] / np.pi).shape)    
     ax.scatter(np.arange(n), np.sort(phis_1[t, :] / np.pi), s=5, label="Parenchymal Cells")
-    ax.scatter(np.arange(n) + n, np.sort(phis_2[t, :] / np.pi), s=5, label="Immune Cells")
+    ax.scatter(np.arange(n) + n, np.sort(phis_2[t, :] / np.pi), s=5, label="Immune Cells", c="tab:red")
 
     if deriv:
         ax.plot([0, n * 2], [0, 0], color="black", ls=":", lw=0.5)
@@ -54,12 +68,12 @@ def plot_snapshot(ys: SystemState, dys: SystemState, t: int = -1):
     plot_phase_snapshot(np.asarray(ys.phi_1), np.asarray(ys.phi_2), t, False, axes[0])
     plot_phase_snapshot(np.asarray(dys.phi_1), np.asarray(dys.phi_2), t, True, axes[1])
 
-    axes[0].set_title("Snapshot of Phases")
+    axes[0].set_title("Phases")
     axes[0].set_xlim(0, 2 * N)
     axes[0].set_xlabel("Index j")
-    axes[0].legend()
+    # axes[0].legend(fontsize="small")
     axes[0].set_ylabel("Phase / π")
-    axes[1].set_title("Snapshot of Phase-Velocities")
+    axes[1].set_title("Phase-Velocities")
     axes[1].set_xlim(0, 2 * N)
     axes[1].set_xlabel("Index j")
     fig.tight_layout()
@@ -185,23 +199,26 @@ if __name__ == "__main__":
     from jax import vmap
 
     from sepsis_osc.utils.run_simulation import solve
-    from sepsis_osc.simulation.simulation import (
+    from sepsis_osc.dnm.simulation import (
         generate_init_conditions_fixed,
         make_full_compressed_save,
         system_deriv,
     )
     from sepsis_osc.utils.config import jax_random_seed
 
-    rand_key = jr.key(jax_random_seed + 0)
+    rand_key = jr.key(jax_random_seed + 1)
     num_parallel_runs = 1
     rand_keys = jr.split(rand_key, num_parallel_runs)
     full_save = make_full_compressed_save(system_deriv, jnp.float32)
     term = ODETerm(system_deriv)
-    solver = Tsit5()
+    solver = Dopri8()
     stepsize_controller = PIDController(rtol=1e-3, atol=1e-6)
 
     #### Parameters
-    N = 120
+    N = 200
+    # sync -0.28, 0.46, 1
+    # desync -0.28, 0.666, 0.42
+    # splay -0.28, 1, 1
     run_conf = SystemConfig(
         N=N,
         C=int(0.2 * N),  # local infection
@@ -210,10 +227,10 @@ if __name__ == "__main__":
         a_1=1.0,
         epsilon_1=0.03,  # adaption rate
         epsilon_2=0.3,  # adaption rate
-        alpha=0.0,  # -0.28,  # phase lage
-        beta=0.2,  # 0.5,  # age parameter
-        sigma=0.0,
-    )  # b 0.83, s 0.25, rseed + 0
+        alpha=-0.28,  # -0.28,  # phase lage
+        beta=0.666,  # 0.5,  # age parameter
+        sigma=42,
+    )
     T_init, T_trans, T_max = 0, 0, 1500
     T_step = 10
     generate_init_conditions = generate_init_conditions_fixed(run_conf.N, run_conf.beta, run_conf.C)
@@ -234,7 +251,8 @@ if __name__ == "__main__":
     if not sol.ys:
         exit(0)
     ys, dys = sol.ys
-    ys, dys = ys.squeeze().remove_infs().enforce_bounds(), dys.squeeze().remove_infs()
+    print(ys.shape, dys.shape)
+    ys, dys = ys.remove_infs().squeeze().enforce_bounds(), dys.remove_infs().squeeze()
     ts = np.asarray(sol.ts).squeeze()
     ts = ts[~jnp.isinf(ts)]
     print(dys.kappa_1.shape)
@@ -250,7 +268,8 @@ if __name__ == "__main__":
     # plot_phase_snapshot(ys.phi_1, ys.phi_2, -1)
     # plot_phase_progression(ys.phi_1, ys.phi_2, range(-21, -1))
     # plot_phase_snapshot(np.asarray(dys.phi_1), np.asarray(dys.phi_2), -1)
-    plot_snapshot(ys, dys)
+    t = -5
+    plot_snapshot(ys, dys, t)
 
     # plot_kappa(ys.kappa_1, ys.kappa_2, 0)
     # plot_kappa(ys.kappa_1, ys.kappa_2, -1)
@@ -258,7 +277,7 @@ if __name__ == "__main__":
     # plot_phase_space_time(ys.phi_1, ys.phi_2)
 
     # plot_kuramoto(ys.phi_1, 0)
-    # plot_kuramoto(ys.phi_1)
+    # plot_kuramoto(ys.phi_1, t)
 
     # gif_phase_plt(ys.phi_1, ys.phi_2, ts, False)
     # gif_phase_plt(dys.phi_1, dys.phi_2, ts, True, filename="figures/dphis.gif")

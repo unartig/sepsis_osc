@@ -33,7 +33,7 @@ from sepsis_osc.model.model_utils import (
     save_checkpoint,
     timing,
 )
-from sepsis_osc.simulation.data_classes import LatentLookup, SystemConfig
+from sepsis_osc.dnm.data_classes import LatentLookup, SystemConfig
 from sepsis_osc.storage.storage_interface import Storage
 from sepsis_osc.utils.config import jax_random_seed
 from sepsis_osc.utils.jax_config import setup_jax

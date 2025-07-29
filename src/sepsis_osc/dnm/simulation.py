@@ -6,7 +6,7 @@ import jax.random as jr
 from equinox.debug import assert_max_traces
 from jaxtyping import ScalarLike
 
-from sepsis_osc.simulation.data_classes import SystemMetrics, SystemState
+from sepsis_osc.dnm.data_classes import SystemMetrics, SystemState
 from sepsis_osc.utils.jax_config import setup_jax
 
 setup_jax()
