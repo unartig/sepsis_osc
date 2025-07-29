@@ -10,8 +10,8 @@ import os
 import optuna
 from optuna.trial import Trial
 
-from sepsis_osc.model.data_loading import prepare_batches, get_data_sets
-from sepsis_osc.model.model_utils import (
+from sepsis_osc.ldm.data_loading import prepare_batches, get_data_sets
+from sepsis_osc.ldm.model_utils import (
     ConceptLossConfig,
     LossesConfig,
     LRConfig,
@@ -19,7 +19,7 @@ from sepsis_osc.model.model_utils import (
     TrainingConfig,
     as_3d_indices,
 )
-from sepsis_osc.model.train import (
+from sepsis_osc.ldm.train import (
     ALPHA_SPACE,
     BETA_SPACE,
     SIGMA_SPACE,
@@ -27,10 +27,10 @@ from sepsis_osc.model.train import (
     process_train_epoch,
     process_val_epoch,
 )
-from sepsis_osc.model.ae import Decoder, Encoder, init_decoder_weights, init_encoder_weights
-from sepsis_osc.model.gru import GRUPredictor
-from sepsis_osc.model.latent_dynamics import LatentDynamicsModel
-from sepsis_osc.dnm.data_classes import JAXLookup, SystemConfig
+from sepsis_osc.ldm.ae import Decoder, Encoder, init_decoder_weights, init_encoder_weights
+from sepsis_osc.ldm.gru import GRUPredictor
+from sepsis_osc.ldm.latent_dynamics import LatentDynamicsModel
+from sepsis_osc.dnm.data_classes import LatentLookup, SystemConfig
 from sepsis_osc.storage.storage_interface import Storage
 from sepsis_osc.utils.config import jax_random_seed
 from sepsis_osc.utils.jax_config import setup_jax
@@ -175,7 +175,7 @@ if __name__ == "__main__":
     params = SystemConfig.batch_as_index(a, b, s, 0.2)
     metrics_3d, _ = sim_storage.read_multiple_results(np.asarray(params))
     sim_storage.close()
-    lookup_table = JAXLookup(
+    lookup_table = LatentLookup(
         metrics=metrics_3d.copy().reshape((-1, 1)),
         indices=jnp.asarray(indices_3d.copy().reshape((-1, 3))),  # since param space only alpha beta sigma
         metrics_3d=metrics_3d,

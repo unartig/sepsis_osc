@@ -8,15 +8,14 @@ from time import time
 import equinox as eqx
 import jax.numpy as jnp
 import jax.random as jr
-from numpy.typing import DTypeLike
 from jax.tree_util import register_dataclass
 import numpy as np
-from jaxtyping import Array, Float, PyTree
+from jaxtyping import Array, PyTree
 from optax import GradientTransformation, OptState
 
-from sepsis_osc.model.ae import make_decoder, make_encoder
-from sepsis_osc.model.gru import make_predictor
-from sepsis_osc.model.latent_dynamics import LatentDynamicsModel
+from sepsis_osc.ldm.ae import make_decoder, make_encoder
+from sepsis_osc.ldm.gru import make_predictor
+from sepsis_osc.ldm.latent_dynamics import LatentDynamicsModel
 
 logger = logging.getLogger(__name__)
 
