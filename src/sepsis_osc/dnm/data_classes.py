@@ -30,7 +30,7 @@ class SystemConfig:
     T_init: Optional[int] = None
     T_trans: Optional[int] = None
     T_max: Optional[int] = None
-    T_step: Optional[float] = None
+    T_step: Optional[int] = None
 
     @property
     def as_args(self) -> tuple[jnp.ndarray, ...]:
