@@ -21,8 +21,8 @@ from diffrax import (
     Ralston,
 )
 
-from sepsis_osc.simulation.data_classes import SystemConfig
-from sepsis_osc.simulation.simulation import (
+from sepsis_osc.dnm.data_classes import SystemConfig
+from sepsis_osc.dnm.simulation import (
     generate_init_conditions_fixed,
     make_full_compressed_save,
     make_metric_save,

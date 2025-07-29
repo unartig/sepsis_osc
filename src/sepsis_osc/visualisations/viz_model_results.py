@@ -28,7 +28,7 @@ from sepsis_osc.model.ae import (
     Decoder,
     Encoder,
 )
-from sepsis_osc.simulation.data_classes import JAXLookup, SystemConfig
+from sepsis_osc.dnm.data_classes import JAXLookup, SystemConfig
 from sepsis_osc.storage.storage_interface import Storage
 from sepsis_osc.utils.config import jax_random_seed
 from sepsis_osc.utils.logger import setup_logging

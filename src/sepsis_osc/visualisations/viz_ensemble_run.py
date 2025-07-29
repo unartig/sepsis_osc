@@ -2,7 +2,7 @@ import numpy as np
 from matplotlib.animation import FuncAnimation, PillowWriter
 import matplotlib.pyplot as plt
 
-from sepsis_osc.simulation.data_classes import SystemConfig, SystemMetrics
+from sepsis_osc.dnm.data_classes import SystemConfig, SystemMetrics
 
 
 def plot_metric_t(var_1: np.ndarray, var_2: np.ndarray, ax=None):
@@ -22,7 +22,7 @@ if __name__ == "__main__":
     from jax import vmap
 
     from sepsis_osc.utils.run_simulation import solve
-    from sepsis_osc.simulation.simulation import (
+    from sepsis_osc.dnm.simulation import (
         generate_init_conditions_fixed,
         make_metric_save,
         system_deriv,
@@ -86,12 +86,12 @@ if __name__ == "__main__":
     print(tt)
     # tt = int(tt[-1] / metrics.r_1.shape[0] * run_conf.T_max)
 
-    ax = plot_metric_t(metrics.r_1, metrics.r_2)
+    ax = plot_metric_t(metrics.s_1, metrics.s_2)
     ax[0].set_ylim([0, 1])
     ax[1].set_ylim([0, 1])
     ax[0].vlines(tt, 0, 1, color="tab:red", ls=":")
     ax[1].vlines(tt, 0, 1, color="tab:red", ls=":")
-    ax[0].set_title("Kuramoto Order Parameter\nParenchymal Layer")
+    ax[0].set_title("Average Standard Deviation\nParenchymal Layer")
     ax[1].set_title("Immune Layer")
 
     # ax = plot_metric_t(metrics.s_1, metrics.s_2)

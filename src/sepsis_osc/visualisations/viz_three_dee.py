@@ -5,7 +5,7 @@ import plotly.graph_objects as go
 import numpy as np
 import polars as pl
 
-from sepsis_osc.simulation.data_classes import SystemConfig, SystemMetrics
+from sepsis_osc.dnm.data_classes import SystemConfig, SystemMetrics
 from sepsis_osc.storage.storage_interface import Storage
 from sepsis_osc.utils.logger import setup_logging
 
