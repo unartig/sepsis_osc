@@ -13,9 +13,9 @@ from matplotlib.cm import ScalarMappable
 from matplotlib.colors import Normalize
 from tqdm import tqdm
 
-from sepsis_osc.model.data_loading import get_raw_data, prepare_batches
-from sepsis_osc.model.model_utils import as_3d_indices, load_checkpoint, LoadingConfig
-from sepsis_osc.model.train import (
+from sepsis_osc.ldm.data_loading import get_raw_data, prepare_batches
+from sepsis_osc.ldm.model_utils import as_3d_indices, load_checkpoint, LoadingConfig
+from sepsis_osc.ldm.train import (
     ALPHA_SPACE,
     BETA_SPACE,
     SIGMA_SPACE,
@@ -24,11 +24,11 @@ from sepsis_osc.model.train import (
     constrain_z,
     bound_z,
 )
-from sepsis_osc.model.ae import (
+from sepsis_osc.ldm.ae import (
     Decoder,
     Encoder,
 )
-from sepsis_osc.dnm.data_classes import JAXLookup, SystemConfig
+from sepsis_osc.dnm.data_classes import LatentLookup, SystemConfig
 from sepsis_osc.storage.storage_interface import Storage
 from sepsis_osc.utils.config import jax_random_seed
 from sepsis_osc.utils.logger import setup_logging
@@ -325,7 +325,7 @@ if __name__ == "__main__":
     metrics_3d, _ = storage.read_multiple_results(np.asarray(params))
 
     print(indices_3d.shape, metrics_3d.shape)
-    lookup_table = JAXLookup(
+    lookup_table = LatentLookup(
         metrics=metrics_3d.copy().reshape((-1, 1)),
         indices=indices_3d.copy().reshape((-1, 3)),  # since param space only alpha beta sigma
         metrics_3d=metrics_3d,

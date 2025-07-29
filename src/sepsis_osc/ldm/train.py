@@ -12,11 +12,11 @@ from beartype import beartype as typechecker
 from jaxtyping import Array, Float, Int, PyTree, jaxtyped
 from torch.utils.tensorboard.writer import SummaryWriter
 
-from sepsis_osc.model.ae import Decoder, Encoder, init_decoder_weights, init_encoder_weights
-from sepsis_osc.model.data_loading import get_data_sets, prepare_batches
-from sepsis_osc.model.gru import GRUPredictor
-from sepsis_osc.model.latent_dynamics import LatentDynamicsModel
-from sepsis_osc.model.model_utils import (
+from sepsis_osc.ldm.ae import Decoder, Encoder, init_decoder_weights, init_encoder_weights
+from sepsis_osc.ldm.data_loading import get_data_sets, prepare_batches
+from sepsis_osc.ldm.gru import GRUPredictor
+from sepsis_osc.ldm.latent_dynamics import LatentDynamicsModel
+from sepsis_osc.ldm.model_utils import (
     AuxLosses,
     ConceptLossConfig,
     LoadingConfig,

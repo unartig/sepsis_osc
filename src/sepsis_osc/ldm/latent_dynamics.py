@@ -3,8 +3,8 @@ import jax.numpy as jnp
 import jax
 from jaxtyping import Array, Float
 
-from sepsis_osc.model.ae import Decoder, Encoder
-from sepsis_osc.model.gru import GRUPredictor
+from sepsis_osc.ldm.ae import Decoder, Encoder
+from sepsis_osc.ldm.gru import GRUPredictor
 
 
 class LatentDynamicsModel(eqx.Module):

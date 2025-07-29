@@ -12,7 +12,7 @@ import jax.random as jr
 
 from sepsis_osc.utils.logger import setup_logging
 from sepsis_osc.utils.config import yaib_data_dir, sequence_files
-from sepsis_osc.model.gin_configs import file_names, vars, modality_mapping
+from sepsis_osc.ldm.gin_configs import file_names, vars, modality_mapping
 import os
 
 logger = logging.getLogger(__name__)

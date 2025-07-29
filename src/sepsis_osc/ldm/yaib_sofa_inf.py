@@ -180,7 +180,7 @@ def create_sofa_task(args):
         InputStep(dynamic),
         CustomStep(lambda x: x.set_index(["stay_id", "time"])),  # Set MultiIndex
         CustomStep(lambda x: x.loc[sofa_index]),  # Filter using the MultiIndex
-        CustomStep(lambda x: x.reset_index()),
+        # CustomStep(lambda x: x.reset_index()),
         DropStep("__index_level_0__"),
         CustomStep(make_grid_mapper(patients, step_size=1)),
     ])
