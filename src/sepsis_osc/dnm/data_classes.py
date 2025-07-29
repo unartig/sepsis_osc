@@ -9,14 +9,12 @@ from equinox.internal._loop.common import _Buffer
 import numpy as np
 from beartype import beartype as typechecker
 from equinox import filter_jit, static_field
-from jax.tree_util import register_dataclass
 from jaxtyping import Array, Float, jaxtyped
 from numpy.typing import DTypeLike
 from scipy.ndimage import uniform_filter1d
 
 
 @jaxtyped(typechecker=typechecker)
-@register_dataclass
 @dataclass
 class SystemConfig:
     N: int  # number of oscillators per layer
@@ -120,7 +118,6 @@ class SystemConfig:
 
 
 @jaxtyped(typechecker=typechecker)
-@register_dataclass
 @dataclass
 class SystemState:
     # NOTE shapes: Ensemble Simulation | Single Simulation | Visualisations
@@ -130,16 +127,17 @@ class SystemState:
     kappa_2: Float[Array, "*t ensemble N N"] | Float[Array, "N N"] | np.ndarray | object
 
     # Required for JAX to recognize it as a PyTree
-    # def tree_flatten(self):
-    #     return (self.phi_1, self.phi_2, self.kappa_1, self.kappa_2), None
+    def tree_flatten(self):
+        return (self.phi_1, self.phi_2, self.kappa_1, self.kappa_2), None
+
+    @classmethod
+    def tree_unflatten(cls, aux_data, children):
+        return cls(*children)
 
     @property
     def shape(self):
         return jax.tree.map(lambda x: x.shape if x is not None else None, self.__dict__)
 
-    # @classmethod
-    # def tree_unflatten(cls, aux_data, children):
-    #     return cls(*children)
 
     def enforce_bounds(self) -> "SystemState":
         self.phi_1 = self.phi_1 % (2 * jnp.pi)
@@ -176,14 +174,13 @@ class SystemState:
 
 
 # Register SystemState as a JAX PyTree
-# jtu.register_pytree_node(SystemState, SystemState.tree_flatten, SystemState.tree_unflatten)
+jtu.register_pytree_node(SystemState, SystemState.tree_flatten, SystemState.tree_unflatten)
 
 _emptySM = Union[bool, None, jax.ShapeDtypeStruct, _LeafWrapper, _Buffer, jax.stages.OutInfo, jax.core.ShapedArray]
 @jaxtyped(typechecker=typechecker)
-@register_dataclass
 @dataclass
 class SystemMetrics:
-    # NOTE shapes: Simulation | DB/Lookup Query | Visualisations | 
+    # NOTE shapes: Simulation | DB/Lookup Query | Visualisations | Integration
     
     # Kuramoto Order Parameter
     r_1: Float[Array, "*t ensemble"] | Float[Array, "... 1"] | np.ndarray | _emptySM
@@ -210,16 +207,16 @@ class SystemMetrics:
     def shape(self):
         return jax.tree.map(lambda x: x.shape if x is not None else None, self.__dict__)
 
-    # def tree_flatten(self):
-    #     flat_children = []
-    #     for field_name in [f.name for f in fields(self)]:
-    #         value = getattr(self, field_name)
-    #         flat_children.append(value)
-    #     return flat_children, None
+    def tree_flatten(self):
+        flat_children = []
+        for field_name in [f.name for f in fields(self)]:
+            value = getattr(self, field_name)
+            flat_children.append(value)
+        return flat_children, None
 
-    # @classmethod
-    # def tree_unflatten(cls, aux_data, children):
-    #     return cls(*children)
+    @classmethod
+    def tree_unflatten(cls, aux_data, children):
+        return cls(*children)
 
     def copy(self) -> "SystemMetrics":
         return SystemMetrics(**{f.name: getattr(self, f.name) for f in fields(self)})
@@ -276,11 +273,11 @@ class SystemMetrics:
         return jax.tree.map(lambda x: x.astype(dtype) if x is not None else None, self)
 
 
-# jtu.register_pytree_node(SystemMetrics, SystemMetrics.tree_flatten, SystemMetrics.tree_unflatten)
+jtu.register_pytree_node(SystemMetrics, SystemMetrics.tree_flatten, SystemMetrics.tree_unflatten)
 
 
 @jaxtyped(typechecker=typechecker)
-@register_dataclass
+# @register_dataclass
 @dataclass(frozen=True)
 class LatentLookup:
     metrics: SystemMetrics = static_field()
@@ -340,12 +337,12 @@ class LatentLookup:
         )
         return stacked
 
-    # def tree_flatten(self):
-    #     return (self.metrics, self.indices_T.T, self.metrics_3d, self.indices_3d, self.grid_spacing), None
+    def tree_flatten(self):
+        return (self.metrics, self.indices_T.T, self.metrics_3d, self.indices_3d, self.grid_spacing), None
 
-    # @classmethod
-    # def tree_unflatten(cls, aux_data, children):
-    #     return cls(*children)
+    @classmethod
+    def tree_unflatten(cls, aux_data, children):
+        return cls(*children)
 
     @jaxtyped(typechecker=typechecker)
     @filter_jit
@@ -429,4 +426,4 @@ class LatentLookup:
         return pred_c.astype(orig_dtype)
 
 
-# jtu.register_pytree_node(LatentLookup, LatentLookup.tree_flatten, LatentLookup.tree_unflatten)
+jtu.register_pytree_node(LatentLookup, LatentLookup.tree_flatten, LatentLookup.tree_unflatten)
