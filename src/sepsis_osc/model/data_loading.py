@@ -5,7 +5,7 @@ from icu_benchmarks.data.split_process_data import preprocess_data
 from icu_benchmarks.constants import RunMode
 from icu_benchmarks.data.preprocessor import PolarsRegressionPreprocessor
 import polars as pl
-from jaxtyping import Array, Float, PyTree
+from jaxtyping import Array, Float
 import jax.numpy as jnp
 import numpy as np
 import jax.random as jr
@@ -112,8 +112,9 @@ def prepare_sequences(
     return x_out, y_out
 
 
-def get_data_sets(window_len = 6, dtype = jnp.float32):
-
+def get_data_sets(
+    window_len=6, dtype=jnp.float32
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     if os.path.exists(sequence_files + f"len_{window_len}.npz"):
         logger.info("Processed sequence files found. Loading data from disk...")
         loaded = np.load(sequence_files + f"len_{window_len}.npz")
@@ -125,7 +126,9 @@ def get_data_sets(window_len = 6, dtype = jnp.float32):
         logger.warning("Processed sequence files not found. Preparing sequences and saving data...")
         train_y, train_x, val_y, val_x, test_y, test_x = [
             v.drop([
-                col for col in v.columns if col.startswith("Missing") or col in {"sep3_alt", "__index_level_0__", "los_icu"}
+                col
+                for col in v.columns
+                if col.startswith("Missing") or col in {"sep3_alt", "__index_level_0__", "los_icu"}
             ])
             for inner in get_raw_data().values()
             for v in inner.values()

@@ -1,6 +1,6 @@
 import logging
-from typing import Callable
 from dataclasses import asdict
+from typing import Callable
 
 import equinox as eqx
 import jax
@@ -8,7 +8,8 @@ import jax.numpy as jnp
 import jax.random as jr
 import numpy as np
 import optax
-from jaxtyping import Array, Float, PyTree, Int
+from beartype import beartype as typechecker
+from jaxtyping import Array, Float, Int, PyTree, jaxtyped
 from torch.utils.tensorboard.writer import SummaryWriter
 
 from sepsis_osc.model.ae import Decoder, Encoder, init_decoder_weights, init_encoder_weights
@@ -27,12 +28,12 @@ from sepsis_osc.model.model_utils import (
     as_3d_indices,
     flatten_dict,
     load_checkpoint,
+    log_train_metrics,
+    log_val_metrics,
     save_checkpoint,
     timing,
-    log_val_metrics,
-    log_train_metrics,
 )
-from sepsis_osc.simulation.data_classes import JAXLookup, SystemConfig
+from sepsis_osc.simulation.data_classes import LatentLookup, SystemConfig
 from sepsis_osc.storage.storage_interface import Storage
 from sepsis_osc.utils.config import jax_random_seed
 from sepsis_osc.utils.jax_config import setup_jax
@@ -42,20 +43,22 @@ from sepsis_osc.utils.logger import setup_logging
 ALPHA_SPACE, BETA_SPACE, SIGMA_SPACE = (-1.0, 1.0, 0.04), (0.2, 1.5, 0.02), (0.0, 1.5, 0.04)
 
 
+@jaxtyped(typechecker=typechecker)
 def ordinal_logits(
-    z: Float[Array, "batch 1"], thresholds: Float[Array, "n_classes_minus_1"], temperature: Float[Array, "batch 1"]
+    z: Float[Array, " batch"], thresholds: Float[Array, " n_classes_minus_1"], temperature: Float[Array, "1"]
 ) -> Float[Array, "batch n_classes_minus_1"]:
     logits = (z.squeeze()[:, None] - thresholds) / temperature
     return logits
 
 
+@jaxtyped(typechecker=typechecker)
 def ordinal_loss(
-    predicted_sofa: Float[Array, "batch 1"],
-    true_sofa: Float[Array, "batch 1"],
-    thresholds: Float[Array, "n_classes_minus_1"],
-    label_temperature: Float[Array, "batch 1"],
+    predicted_sofa: Float[Array, " batch"],
+    true_sofa: Float[Array, " batch"],
+    thresholds: Float[Array, " n_classes_minus_1"],
+    label_temperature: Float[Array, "1"],
     sofa_dist: Float[Array, "24"],
-) -> tuple[Float[Array, "batch 1"], Float[Array, "batch 1"]]:
+) -> tuple[Float[Array, ""], Int[Array, " batch"]]:
     # https://arxiv.org/abs/1901.07884
     # CORN (Cumulative Ordinal Regression)
     n_classes = thresholds.shape[-1] + 1
@@ -75,36 +78,35 @@ def ordinal_loss(
     weighted_loss = jnp.mean(weights_per_sample * loss_per_sample)
 
     return weighted_loss, pred_sofa
-    # return jnp.mean(optax.sigmoid_binary_cross_entropy(logits, true_ord_targets)), pred_sofa
 
-
-def binary_logits(probs: Float[Array, "batch 1"], eps: float = 1e-6) -> Float[Array, "batch 1"]:
+@jaxtyped(typechecker=typechecker)
+def binary_logits(probs: Float[Array, " batch"], eps: float = 1e-6) -> Float[Array, " batch"]:
     probs = jnp.clip(probs, eps, 1 - eps)
     return jnp.log(probs) - jnp.log1p(-probs)
 
-
+@jaxtyped(typechecker=typechecker)
 def binary_loss(
-    predicted_infection: Float[Array, "batch 1"], true_infection: Float[Array, "batch 1"]
-) -> Float[Array, "batch 1"]:
+    predicted_infection: Float[Array, " batch"], true_infection: Float[Array, " batch"]
+) -> Float[Array, ""]:
     logits = binary_logits(predicted_infection)
     return jnp.mean(optax.sigmoid_binary_cross_entropy(logits, true_infection))
 
-
+@jaxtyped(typechecker=typechecker)
 def calc_concept_loss(
     prediction: Float[Array, "batch 2"],
-    true_sofa: Float[Array, "batch 1"],
-    true_infection: Float[Array, "batch 1"],
-    thresholds: Float[Array, "batch n_classes_minus_1"],
-    label_temp: Float[Array, "batch 1"],
+    true_sofa: Float[Array, " batch"],
+    true_infection: Float[Array, " batch"],
+    thresholds: Float[Array, " n_classes_minus_1"],
+    label_temp: Float[Array, "1"],
     sofa_dist: Float[Array, "24"],
     params: ConceptLossConfig,
-) -> tuple[Float[Array, "batch 1"], Float[Array, "batch 1"], Float[Array, "batch 1"]]:
+) -> tuple[Float[Array, ""], Float[Array, ""], Int[Array, " batch"]]:
     loss_sofa, pred_sofa = ordinal_loss(prediction[:, 0], true_sofa, thresholds, label_temp, sofa_dist)
     loss_infection = binary_loss(prediction[:, 1], true_infection)
 
     return params.w_sofa * loss_sofa, params.w_inf * loss_infection, pred_sofa
 
-
+@jaxtyped(typechecker=typechecker)
 def calc_tc_loss(z_seq: Float[Array, "batch t latent_dim"]):
     z_flat = z_seq.reshape(-1, z_seq.shape[-1])
     z_centered = z_flat - jnp.mean(z_flat, axis=0, keepdims=True)
@@ -119,7 +121,6 @@ def calc_tc_loss(z_seq: Float[Array, "batch t latent_dim"]):
     tc_loss = jnp.sum(off_diag**2) / (z_flat.shape[-1] * (z_flat.shape[-1] - 1))
 
     return tc_loss
-
 
 def constrain_z(z):
     alpha, beta, sigma = jnp.split(z, 3, axis=-1)
@@ -143,12 +144,13 @@ def cosine_annealing(base_val: float, num_steps: int, current_step: jnp.int32) -
     return base_val + (1.0 - base_val) * (1.0 - cosine)
 
 # === Loss Function ===
+@jaxtyped(typechecker=typechecker)
 @eqx.filter_jit  # (donate="all")
 def loss(
     model: LatentDynamicsModel,
     x: Float[Array, "batch time input_dim"],
     true_concepts: Float[Array, "batch time 2"],
-    step: jnp.int32 = jnp.astype(jnp.inf, jnp.int32),
+    step: Int[Array, ""] = jnp.astype(jnp.inf, jnp.int32),
     *,
     key: jnp.ndarray,
     lookup_func: Callable,
@@ -178,13 +180,11 @@ def loss(
     def predict_next(carry, _):
         z_prev, h_prev = carry
 
-
         z_next, h_next = jax.vmap(model.predictor)(z_prev, h_prev)
         z_next = bound_z(z_next)
         new_carry = (z_next, h_next)
-        return new_carry, z_next  # collect z_next over time instead
+        return new_carry, z_next
 
-    # h_init = jnp.zeros((batch_size, model.predictor.hidden_dim))
     carry_init = (z0, h_init)  # z0 = (batch, z_dim)
 
     (carry_final, h_final), z_preds = jax.lax.scan(predict_next, carry_init, xs=None, length=T - 1)
@@ -269,8 +269,8 @@ def step_model(
 def process_train_epoch(
     model: LatentDynamicsModel,
     opt_state: optax.OptState,
-    x_data: Float[Array, "num_samples input_dim"],
-    y_data: Float[Array, "num_samples 2"],
+    x_data: Float[Array, "ntbatches batch time input_dim"],
+    y_data: Float[Array, "ntbatches batch time 2"],
     update: Callable,
     *,
     key: jnp.ndarray,
@@ -328,8 +328,8 @@ def process_train_epoch(
 @eqx.filter_jit
 def process_val_epoch(
     model: LatentDynamicsModel,
-    x_data: Float[Array, "num_samples input_dim"],
-    y_data: Float[Array, "num_samples 2"],
+    x_data: Float[Array, "nvbatches batch t input_dim"],
+    y_data: Float[Array, "nvbatches batch t 2"],
     *,
     key: jnp.ndarray,
     lookup_func: Callable,
@@ -448,9 +448,10 @@ if __name__ == "__main__":
     spacing_3d = jnp.array([ALPHA_SPACE[2], BETA_SPACE[2], SIGMA_SPACE[2]])
     params = SystemConfig.batch_as_index(a, b, s, 0.2)
     metrics_3d, _ = sim_storage.read_multiple_results(np.asarray(params))
-    lookup_table = JAXLookup(
-        metrics=metrics_3d.copy().reshape((-1, 1)),
-        indices=indices_3d.copy().reshape((-1, 3)),  # since param space only alpha beta sigma
+    metrics_3d = metrics_3d.to_jax()
+    lookup_table = LatentLookup(
+        metrics=metrics_3d.reshape((-1, 1)),
+        indices=indices_3d.reshape((-1, 3)),  # since param space only alpha beta sigma
         metrics_3d=metrics_3d,
         indices_3d=indices_3d,
         grid_spacing=spacing_3d,
@@ -489,7 +490,7 @@ if __name__ == "__main__":
 
     optimizer = optax.chain(
         optax.clip_by_global_norm(lr_conf.grad_norm),
-        optax.adabelief(learning_rate=schedule),
+        optax.adamw(learning_rate=schedule, weight_decay=lr_conf.enc_wd),
     )
 
     hyper_enc = {

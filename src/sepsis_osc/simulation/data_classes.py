@@ -5,12 +5,14 @@ import jax
 import jax.numpy as jnp
 import jax.tree_util as jtu
 import numpy as np
+from beartype import beartype as typechecker
 from equinox import filter_jit, static_field
-from jaxtyping import Array, Float
+from jaxtyping import Array, Float, jaxtyped
 from numpy.typing import DTypeLike
 from scipy.ndimage import uniform_filter1d
 
 
+@jaxtyped(typechecker=typechecker)
 @dataclass
 class SystemConfig:
     N: int  # number of oscillators per layer
@@ -72,6 +74,7 @@ class SystemConfig:
         )
 
     @staticmethod
+    @jaxtyped(typechecker=typechecker)
     def batch_as_index(
         alpha: Float[Array, "... 1"] | np.ndarray,
         beta: Float[Array, "... 1"] | np.ndarray,
@@ -112,6 +115,7 @@ class SystemConfig:
         return batch_indices.squeeze()
 
 
+@jaxtyped(typechecker=typechecker)
 @dataclass
 class SystemState:
     phi_1: Float[Array, "t ensemble N"] | np.ndarray
@@ -169,28 +173,31 @@ class SystemState:
 jtu.register_pytree_node(SystemState, SystemState.tree_flatten, SystemState.tree_unflatten)
 
 
+@jaxtyped(typechecker=typechecker)
 @dataclass
 class SystemMetrics:
+    # NOTE shapes: Simulation | DB/Lookup Query | visualisations
+    
     # Kuramoto Order Parameter
-    r_1: Float[Array, "t ensemble 1"] | np.ndarray
-    r_2: Float[Array, "t ensemble 1"] | np.ndarray
+    r_1: Float[Array, "t ensemble 1"] | Float[Array, "... 1"] | np.ndarray
+    r_2: Float[Array, "t ensemble 1"] | Float[Array, "... 1"] | np.ndarray
     # Ensemble average velocity
-    m_1: Float[Array, "t 1"] | np.ndarray
-    m_2: Float[Array, "t 1"] | np.ndarray
+    m_1: Float[Array, "t 1"] | Float[Array, "... 1"] | np.ndarray
+    m_2: Float[Array, "t 1"] | Float[Array, "... 1"] | np.ndarray
     # Ensemble average std
-    s_1: Float[Array, "t 1"] | np.ndarray
-    s_2: Float[Array, "t 1"] | np.ndarray
+    s_1: Float[Array, "t 1"] | Float[Array, "... 1"] | np.ndarray
+    s_2: Float[Array, "t 1"] | Float[Array, "... 1"] | np.ndarray
     # Ensemble phase entropy
-    q_1: Float[Array, "t 1"] | np.ndarray
-    q_2: Float[Array, "t 1"] | np.ndarray
+    q_1: Float[Array, "t 1"] | Float[Array, "... 1"] | np.ndarray
+    q_2: Float[Array, "t 1"] | Float[Array, "... 1"] | np.ndarray
     # Frequency cluster ratio
-    f_1: Float[Array, "t 1"] | np.ndarray
-    f_2: Float[Array, "t 1"] | np.ndarray
+    f_1: Float[Array, "t 1"] | Float[Array, "... 1"] | np.ndarray
+    f_2: Float[Array, "t 1"] | Float[Array, "... 1"] | np.ndarray
     # Splay State Ratio
-    sr_1: Optional[Float[Array, "t 1"] | np.ndarray] = None
-    sr_2: Optional[Float[Array, "t 1"] | np.ndarray] = None
+    sr_1: Optional[Float[Array, "t 1"] | Float[Array, "... 1"] | np.ndarray] = None
+    sr_2: Optional[Float[Array, "t 1"] | Float[Array, "... 1"] | np.ndarray] = None
     # Measured mean transient time
-    tt: Optional[Float[Array, "t 1"] | np.ndarray] = None
+    tt: Optional[Float[Array, "t 1"] | Float[Array, "... 1"] | np.ndarray] = None
 
     @property
     def shape(self):
@@ -265,10 +272,9 @@ class SystemMetrics:
 jtu.register_pytree_node(SystemMetrics, SystemMetrics.tree_flatten, SystemMetrics.tree_unflatten)
 
 
+@jaxtyped(typechecker=typechecker)
 @dataclass(frozen=True)
-class JAXLookup:
-    from sepsis_osc.storage.storage_interface import Storage
-
+class LatentLookup:
     metrics: SystemMetrics = static_field()
     indices_T: Float[Array, "db_size 3"] = static_field()
     relevant_metrics: Float[Array, "db_size 2"] = static_field()
@@ -284,7 +290,7 @@ class JAXLookup:
     relevant_metrics_3d: Float[Array, "na nb ns 2"] = static_field()
     metrics_3d: SystemMetrics = static_field()
 
-    dtype: jnp.dtype = jnp.float32
+    dtype: DTypeLike = jnp.float32
 
     def __init__(
         self,
@@ -293,7 +299,7 @@ class JAXLookup:
         metrics_3d,
         indices_3d,
         grid_spacing,
-        dtype: jnp.dtype = jnp.float32,
+        dtype: DTypeLike = jnp.float32,
     ):
         object.__setattr__(self, "metrics", metrics.astype(dtype))
         object.__setattr__(self, "indices_T", indices.T.astype(dtype))
@@ -312,14 +318,15 @@ class JAXLookup:
         relevant_metrics_3d = self.extract_relevant(metrics_3d)
         object.__setattr__(self, "relevant_metrics_3d", relevant_metrics_3d)
 
+    @jaxtyped(typechecker=typechecker)
     @staticmethod
-    def extract_relevant(metrics_: SystemMetrics) -> Float[Array, "na nb ns 2"] | Float[Array, "na*nb*ns 2"]:
+    def extract_relevant(metrics_: SystemMetrics) -> Float[Array, "na nb ns 2"] | Float[Array, "naxnbxns 2"]:
         sofa_metric = metrics_.s_1
         stacked = jnp.concatenate(
             [
                 (sofa_metric - sofa_metric.min()) / (sofa_metric.max() - sofa_metric.min()) + 1e-12,
                 # jnp.clip(metrics_.sr_2 + metrics_.f_2, 0, 1),
-                jnp.zeros_like(sofa_metric, dtype=sofa_metric.dtype)
+                jnp.zeros_like(sofa_metric, dtype=sofa_metric.dtype),
             ],
             axis=-1,
         )
@@ -332,6 +339,7 @@ class JAXLookup:
     def tree_unflatten(cls, aux_data, children):
         return cls(*children)
 
+    @jaxtyped(typechecker=typechecker)
     @filter_jit
     def hard_get(
         self,
@@ -351,6 +359,7 @@ class JAXLookup:
 
         return pred_c.astype(orig_dtype)
 
+    @jaxtyped(typechecker=typechecker)
     @filter_jit
     def hard_get_local(
         self,
@@ -374,11 +383,12 @@ class JAXLookup:
         pred_c = jnp.take_along_axis(neighbor_metrics, best_idx[:, None, None], axis=1).squeeze(1)
         return pred_c.astype(orig_dtype)
 
+    @jaxtyped(typechecker=typechecker)
     @filter_jit
     def soft_get_local(
         self,
         query_vectors: Float[Array, "batch 3"],
-        temperatures: Float[Array, "batch 1"],
+        temperatures: Float[Array, "1"],
     ) -> Float[Array, "batch 2"]:
         orig_dtype = query_vectors.dtype
         q = query_vectors.astype(self.dtype)
@@ -411,4 +421,4 @@ class JAXLookup:
         return pred_c.astype(orig_dtype)
 
 
-jtu.register_pytree_node(JAXLookup, JAXLookup.tree_flatten, JAXLookup.tree_unflatten)
+jtu.register_pytree_node(LatentLookup, LatentLookup.tree_flatten, LatentLookup.tree_unflatten)
