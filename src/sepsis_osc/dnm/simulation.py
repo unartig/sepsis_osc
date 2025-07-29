@@ -150,6 +150,10 @@ def make_metric_save(deriv) -> Callable:
         s_1 = jnp.mean(std_angle(dy.phi_1, axis=-1))
         s_2 = jnp.mean(std_angle(dy.phi_2, axis=-1))
 
+        # redce ensemble dim
+        m_1 = jnp.mean(mean_1, axis=-1)
+        m_2 = jnp.mean(mean_2, axis=-1)
+
         ###### Frequency cluster ratio
         # check for desynchronized nodes
         eps = 10 / 360  # TODO what is the value here?
@@ -166,7 +170,7 @@ def make_metric_save(deriv) -> Callable:
         f_2 = n_f_2 / N_E
 
         return SystemMetrics(
-            r_1=r_1, r_2=r_2, m_1=mean_1, m_2=mean_2, s_1=s_1, s_2=s_2, q_1=q_1, q_2=q_2, f_1=f_1, f_2=f_2
+            r_1=r_1, r_2=r_2, m_1=m_1, m_2=m_2, s_1=s_1, s_2=s_2, q_1=q_1, q_2=q_2, f_1=f_1, f_2=f_2
         )
 
     return metric_save
