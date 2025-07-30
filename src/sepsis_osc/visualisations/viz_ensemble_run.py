@@ -30,15 +30,15 @@ if __name__ == "__main__":
     from sepsis_osc.utils.config import jax_random_seed
 
     rand_key = jr.key(jax_random_seed + 123)
-    num_parallel_runs = 10
+    num_parallel_runs = 100
     rand_keys = jr.split(rand_key, num_parallel_runs)
     metric_save = make_metric_save(system_deriv)
     term = ODETerm(system_deriv)
-    solver = Tsit5()
-    stepsize_controller = PIDController(dcoeff=0, rtol=1e-3, atol=1e-6)
+    solver = Dopri8()
+    stepsize_controller = PIDController(dcoeff=0, rtol=1e-6, atol=1e-9)
 
     #### Parameters
-    N = 100
+    N = 200
     run_conf = SystemConfig(
         N=N,
         C=int(0.2 * N),  # local infection
@@ -47,9 +47,9 @@ if __name__ == "__main__":
         a_1=1.0,
         epsilon_1=0.03,  # adaption rate
         epsilon_2=0.3,  # adaption rate
-        alpha=0.52,  # phase lage
-        beta=0.63,  # age parameter
-        sigma=0.20,
+        alpha=-0.28,  # phase lage
+        beta=0.666,  # age parameter
+        sigma=0.42,
         T_init=0,
         T_trans=0,
         T_max=1000,
@@ -94,13 +94,13 @@ if __name__ == "__main__":
     ax[0].set_title("Average Standard Deviation\nParenchymal Layer")
     ax[1].set_title("Immune Layer")
 
-    # ax = plot_metric_t(metrics.s_1, metrics.s_2)
-    # ax[0].vlines(tt, 0, 1, color="tab:red", ls=":")
-    # ax[1].vlines(tt, 0, 1, color="tab:red", ls=":")
-    # ax[0].set_ylim([0, 1])
-    # ax[1].set_ylim([0, 1])
-    # ax[0].set_title("Mean Phase Velocity Std\nParenchymal Layer")
-    # ax[1].set_title("Immune Layer")
+    ax = plot_metric_t(metrics.r_1, metrics.r_2)
+    ax[0].vlines(tt, 0, 1, color="tab:red", ls=":")
+    ax[1].vlines(tt, 0, 1, color="tab:red", ls=":")
+    ax[0].set_ylim([0, 1])
+    ax[1].set_ylim([0, 1])
+    ax[0].set_title("Kuramoto Order Parameter\nParenchymal Layer")
+    ax[1].set_title("Immune Layer")
 
     plt.tight_layout()
     plt.show()

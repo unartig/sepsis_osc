@@ -8,7 +8,7 @@ from equinox._tree import _LeafWrapper
 from equinox.internal._loop.common import _Buffer
 import numpy as np
 from beartype import beartype as typechecker
-from equinox import filter_jit, static_field
+from equinox import filter_jit, field
 from jaxtyping import Array, Float, jaxtyped
 from numpy.typing import DTypeLike
 from scipy.ndimage import uniform_filter1d
@@ -176,32 +176,32 @@ class SystemState:
 # Register SystemState as a JAX PyTree
 jtu.register_pytree_node(SystemState, SystemState.tree_flatten, SystemState.tree_unflatten)
 
-_emptySM = Union[bool, None, jax.ShapeDtypeStruct, _LeafWrapper, _Buffer, jax.stages.OutInfo, jax.core.ShapedArray]
-@jaxtyped(typechecker=typechecker)
+_emptySM = Union[bool, None, jax.ShapeDtypeStruct, _LeafWrapper, _Buffer, jax.core.ShapedArray]
+# @jaxtyped(typechecker=typechecker)
 @dataclass
 class SystemMetrics:
-    # NOTE shapes: Simulation | DB/Lookup Query | Visualisations | Integration
+    # NOTE shapes: Simulation | DB/Lookup Query | Visualisations | Solving
     
     # Kuramoto Order Parameter
-    r_1: Float[Array, "*t ensemble"] | Float[Array, "... 1"] | np.ndarray | _emptySM
-    r_2: Float[Array, "*t ensemble"] | Float[Array, "... 1"] | np.ndarray | _emptySM
+    r_1: Float[Array, "*t ensemble"] | Float[Array, "... 1"] | np.ndarray
+    r_2: Float[Array, "*t ensemble"] | Float[Array, "... 1"] | np.ndarray
     # Ensemble average velocity
-    m_1: Float[Array, "*t"] | Float[Array, "... 1"] | np.ndarray | _emptySM
-    m_2: Float[Array, "*t"] | Float[Array, "... 1"] | np.ndarray | _emptySM
+    m_1: Float[Array, "*t"] | Float[Array, "... 1"] | np.ndarray
+    m_2: Float[Array, "*t"] | Float[Array, "... 1"] | np.ndarray
     # Ensemble average std
-    s_1: Float[Array, "*t"] | Float[Array, "... 1"] | np.ndarray | _emptySM
-    s_2: Float[Array, "*t"] | Float[Array, "... 1"] | np.ndarray | _emptySM
+    s_1: Float[Array, "*t"] | Float[Array, "... 1"] | np.ndarray
+    s_2: Float[Array, "*t"] | Float[Array, "... 1"] | np.ndarray
     # Ensemble phase entropy
-    q_1: Float[Array, "*t"] | Float[Array, "... 1"] | np.ndarray | _emptySM
-    q_2: Float[Array, "*t"] | Float[Array, "... 1"] | np.ndarray | _emptySM
+    q_1: Float[Array, "*t"] | Float[Array, "... 1"] | np.ndarray
+    q_2: Float[Array, "*t"] | Float[Array, "... 1"] | np.ndarray
     # Frequency cluster ratio
-    f_1: Float[Array, "*t"] | Float[Array, "... 1"] | np.ndarray | _emptySM
-    f_2: Float[Array, "*t"] | Float[Array, "... 1"] | np.ndarray | _emptySM
+    f_1: Float[Array, "*t"] | Float[Array, "... 1"] | np.ndarray
+    f_2: Float[Array, "*t"] | Float[Array, "... 1"] | np.ndarray
     # Splay State Ratio
-    sr_1: Optional[Float[Array, "*t"] | Float[Array, "... 1"] | np.ndarray | _emptySM] = None
-    sr_2: Optional[Float[Array, "*t"] | Float[Array, "... 1"] | np.ndarray | _emptySM] = None
+    sr_1: Optional[Float[Array, "*t"] | Float[Array, "... 1"] | np.ndarray] = None
+    sr_2: Optional[Float[Array, "*t"] | Float[Array, "... 1"] | np.ndarray] = None
     # Measured mean transient time
-    tt: Optional[Float[Array, "*t"] | Float[Array, "... 1"] | np.ndarray | _emptySM] = None
+    tt: Optional[Float[Array, "*t"] | Float[Array, "... 1"] | np.ndarray] = None
 
     @property
     def shape(self):
@@ -280,20 +280,20 @@ jtu.register_pytree_node(SystemMetrics, SystemMetrics.tree_flatten, SystemMetric
 # @register_dataclass
 @dataclass(frozen=True)
 class LatentLookup:
-    metrics: SystemMetrics = static_field()
-    indices_T: Float[Array, "db_size 3"] = static_field()
-    relevant_metrics: Float[Array, "db_size 2"] = static_field()
+    metrics: SystemMetrics = field(static=True)
+    indices_T: Float[Array, "db_size 3"] = field(static=True)
+    relevant_metrics: Float[Array, "db_size 2"] = field(static=True)
 
     # Precomputations
     # norm for faster distance calculation
-    i_norm: Float[Array, "db_size 3"] = static_field()
+    i_norm: Float[Array, "db_size 3"] = field(static=True)
 
-    grid_shape: tuple[int, int, int] = static_field()
-    grid_origin: Float[Array, "3"] = static_field()
-    grid_spacing: Float[Array, "3"] = static_field()
-    indices_3d: Float[Array, "na nb ns 3"] = static_field()
-    relevant_metrics_3d: Float[Array, "na nb ns 2"] = static_field()
-    metrics_3d: SystemMetrics = static_field()
+    grid_shape: tuple[int, int, int] = field(static=True)
+    grid_origin: Float[Array, "3"] = field(static=True)
+    grid_spacing: Float[Array, "3"] = field(static=True)
+    indices_3d: Float[Array, "na nb ns 3"] = field(static=True)
+    relevant_metrics_3d: Float[Array, "na nb ns 2"] = field(static=True)
+    metrics_3d: SystemMetrics = field(static=True)
 
     dtype: DTypeLike = jnp.float32
 
