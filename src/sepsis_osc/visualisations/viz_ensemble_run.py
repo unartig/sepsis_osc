@@ -30,12 +30,12 @@ if __name__ == "__main__":
     from sepsis_osc.utils.config import jax_random_seed
 
     rand_key = jr.key(jax_random_seed + 123)
-    num_parallel_runs = 100
+    num_parallel_runs = 50
     rand_keys = jr.split(rand_key, num_parallel_runs)
     metric_save = make_metric_save(system_deriv)
     term = ODETerm(system_deriv)
-    solver = Dopri8()
-    stepsize_controller = PIDController(dcoeff=0, rtol=1e-6, atol=1e-9)
+    solver = Tsit5()
+    stepsize_controller = PIDController(dcoeff=0, rtol=1e-3, atol=1e-6)
 
     #### Parameters
     N = 200
@@ -48,8 +48,8 @@ if __name__ == "__main__":
         epsilon_1=0.03,  # adaption rate
         epsilon_2=0.3,  # adaption rate
         alpha=-0.28,  # phase lage
-        beta=0.666,  # age parameter
-        sigma=0.42,
+        beta=1.0,  # age parameter
+        sigma=1.0,
         T_init=0,
         T_trans=0,
         T_max=1000,
