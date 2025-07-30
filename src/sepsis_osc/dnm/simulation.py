@@ -46,20 +46,13 @@ def stack_system_state(states: tuple[SystemState]) -> SystemState:
     return tree_map(lambda *xs: jnp.stack(xs), *states)
 
 
-def unstack_system_state(state: SystemState) -> tuple[SystemState, ...]:
-    ensemble_size = state.phi_1.shape[0]
-    return tuple(
-        SystemState(*vals) for vals in zip(*asdict(tree_map(lambda x: jnp.split(x, ensemble_size, axis=0), state)).values())
-    )
-
 @jit
 # @assert_max_traces(max_traces=20)  # TODO: why is it traced that often?
-def single_system_deriv(
+def system_deriv(
     t: ScalarLike,
     y: SystemState,
     args: tuple[jnp.ndarray, ...],
-) -> SystemState:
-    print(len(y))
+):
     (
         ja_1_ij,
         sin_alpha,
@@ -73,46 +66,50 @@ def single_system_deriv(
         jomega_1_i,
         jomega_2_i,
     ) = args
-    # sin/cos in radians
-    # https://mediatum.ub.tum.de/doc/1638503/1638503.pdf
-    sin_phi_1, cos_phi_1 = jnp.sin(y.phi_1), jnp.cos(y.phi_1)
-    sin_phi_2, cos_phi_2 = jnp.sin(y.phi_2), jnp.cos(y.phi_2)
 
-    # expand dims to broadcast outer product [i:]*[:j]->[ij]
-    sin_diff_phi_1 = jnp.einsum("i,j->ij", sin_phi_1, cos_phi_1) - jnp.einsum("i,j->ij", cos_phi_1, sin_phi_1)
-    cos_diff_phi_1 = jnp.einsum("i,j->ij", cos_phi_1, cos_phi_1) + jnp.einsum("i,j->ij", sin_phi_1, sin_phi_1)
+    def single_system_deriv(
+        phi_1,
+        phi_2,
+        kappa_1,
+        kappa_2,
+    ) -> SystemState:
+        print(phi_1.shape)
+        # sin/cos in radians
+        # https://mediatum.ub.tum.de/doc/1638503/1638503.pdf
+        sin_phi_1, cos_phi_1 = jnp.sin(phi_1), jnp.cos(phi_1)
+        sin_phi_2, cos_phi_2 = jnp.sin(phi_2), jnp.cos(phi_2)
 
-    sin_diff_phi_2 = jnp.einsum("i,j->ij", sin_phi_2, cos_phi_2) - jnp.einsum("i,j->ij", cos_phi_2, sin_phi_2)
-    cos_diff_phi_2 = jnp.einsum("i,j->ij", cos_phi_2, cos_phi_2) + jnp.einsum("i,j->ij", sin_phi_2, sin_phi_2)
-    sin_phi_1_diff_alpha = sin_diff_phi_1 * cos_alpha + cos_diff_phi_1 * sin_alpha
-    sin_phi_2_diff_alpha = sin_diff_phi_2 * cos_alpha + cos_diff_phi_2 * sin_alpha
+        # expand dims to broadcast outer product [i:]*[:j]->[ij]
+        sin_diff_phi_1 = jnp.einsum("i,j->ij", sin_phi_1, cos_phi_1) - jnp.einsum("i,j->ij", cos_phi_1, sin_phi_1)
+        cos_diff_phi_1 = jnp.einsum("i,j->ij", cos_phi_1, cos_phi_1) + jnp.einsum("i,j->ij", sin_phi_1, sin_phi_1)
 
-    # (phi1 (bxN), phi2 (bxN), k1 (bxNxN), k2 (bxNxN)))
-    phi_1 = (
-        jomega_1_i
-        - adj * jnp.einsum("ij,ij->i", (ja_1_ij + y.kappa_1), sin_phi_1_diff_alpha)
-        - jsigma * (sin_phi_1 * cos_phi_2 - cos_phi_1 * sin_phi_2)
-    )
-    phi_2 = (
-        jomega_2_i
-        - adj * jnp.einsum("ij,ij->i", y.kappa_2, sin_phi_2_diff_alpha)
-        - jsigma * (sin_phi_2 * cos_phi_1 - cos_phi_2 * sin_phi_1)
-    )
-    kappa_1 = -jepsilon_1 * (y.kappa_1 + (sin_diff_phi_1 * cos_beta - cos_diff_phi_1 * sin_beta))
-    kappa_2 = -jepsilon_2 * (y.kappa_2 + (sin_diff_phi_2 * cos_beta - cos_diff_phi_2 * sin_beta))
+        sin_diff_phi_2 = jnp.einsum("i,j->ij", sin_phi_2, cos_phi_2) - jnp.einsum("i,j->ij", cos_phi_2, sin_phi_2)
+        cos_diff_phi_2 = jnp.einsum("i,j->ij", cos_phi_2, cos_phi_2) + jnp.einsum("i,j->ij", sin_phi_2, sin_phi_2)
+        sin_phi_1_diff_alpha = sin_diff_phi_1 * cos_alpha + cos_diff_phi_1 * sin_alpha
+        sin_phi_2_diff_alpha = sin_diff_phi_2 * cos_alpha + cos_diff_phi_2 * sin_alpha
 
-    return SystemState(phi_1=phi_1, phi_2=phi_2, kappa_1=kappa_1, kappa_2=kappa_2)
+        # (phi1 (bxN), phi2 (bxN), k1 (bxNxN), k2 (bxNxN)))
+        phi_1 = (
+            jomega_1_i
+            - adj * jnp.einsum("ij,ij->i", (ja_1_ij + kappa_1), sin_phi_1_diff_alpha)
+            - jsigma * (sin_phi_1 * cos_phi_2 - cos_phi_1 * sin_phi_2)
+        )
+        phi_2 = (
+            jomega_2_i
+            - adj * jnp.einsum("ij,ij->i", kappa_2, sin_phi_2_diff_alpha)
+            - jsigma * (sin_phi_2 * cos_phi_1 - cos_phi_2 * sin_phi_1)
+        )
+        kappa_1 = -jepsilon_1 * (kappa_1 + (sin_diff_phi_1 * cos_beta - cos_diff_phi_1 * sin_beta))
+        kappa_2 = -jepsilon_2 * (kappa_2 + (sin_diff_phi_2 * cos_beta - cos_diff_phi_2 * sin_beta))
 
-def system_deriv(
-    t: ScalarLike,
-    y: SystemState,
-    args: tuple[jnp.ndarray, ...],
-    
-):
-    batched_y = unstack_system_state(y)
-    # print(batched_y)
-    batched_results = vmap(single_system_deriv, in_axes=(None, 0, None))(t, batched_y, args)
-    return stack_system_state(batched_results)
+        return SystemState(phi_1=phi_1, phi_2=phi_2, kappa_1=kappa_1.squeeze(), kappa_2=kappa_2.squeeze())
+
+
+    print(y.shape)
+    p1, p2, k1, k2 = y.tree_flatten()[0]
+    print(p1.shape, p1)
+    batched_results = vmap(single_system_deriv)(p1, p2, k1, k2)
+    return batched_results
 
 
 def make_full_compressed_save(
@@ -199,4 +196,3 @@ def make_metric_save(deriv) -> Callable:
         return SystemMetrics(r_1=r_1, r_2=r_2, m_1=m_1, m_2=m_2, s_1=s_1, s_2=s_2, q_1=q_1, q_2=q_2, f_1=f_1, f_2=f_2)
 
     return metric_save
-
