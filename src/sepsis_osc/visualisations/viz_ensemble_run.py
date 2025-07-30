@@ -30,15 +30,15 @@ if __name__ == "__main__":
     from sepsis_osc.utils.config import jax_random_seed
 
     rand_key = jr.key(jax_random_seed + 123)
-    num_parallel_runs = 10
+    num_parallel_runs = 100
     rand_keys = jr.split(rand_key, num_parallel_runs)
     metric_save = make_metric_save(system_deriv)
     term = ODETerm(system_deriv)
     solver = Tsit5()
-    stepsize_controller = PIDController(dcoeff=0, rtol=1e-3, atol=1e-6)
+    stepsize_controller = PIDController(rtol=1e-3, atol=1e-6)
 
     #### Parameters
-    N = 100
+    N = 200
     run_conf = SystemConfig(
         N=N,
         C=int(0.2 * N),  # local infection
@@ -47,13 +47,14 @@ if __name__ == "__main__":
         a_1=1.0,
         epsilon_1=0.03,  # adaption rate
         epsilon_2=0.3,  # adaption rate
-        alpha=0.52,  # phase lage
-        beta=0.63,  # age parameter
-        sigma=0.20,
+        alpha=-0.28,  # phase lage
+        beta=0.666,  # age parameter
+        sigma=0.42,
         T_init=0,
         T_trans=0,
         T_max=1000,
         T_step=10,
+        steady_state_check=True
     )
     generate_init_conditions = generate_init_conditions_fixed(run_conf.N, run_conf.beta, run_conf.C)
 
@@ -77,6 +78,7 @@ if __name__ == "__main__":
     ts = np.asarray(sol.ts).squeeze()
     ts = ts[~jnp.isinf(ts)]
     print(metrics.shape)
+    print(metrics.r_1)
     # exit(0)
 
     # calculate transient time

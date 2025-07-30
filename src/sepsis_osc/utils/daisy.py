@@ -86,82 +86,17 @@ if __name__ == "__main__":
     )
 
     overwrite = False
-    # db_str = "Daisy"
-    # storage = Storage(
-    #     key_dim=9,
-    #     metrics_kv_name=f"data/{db_str}SepsisMetrics.db/",
-    #     parameter_k_name=f"data/{db_str}SepsisParameters_index.bin",
-    #     use_mem_cache=True,
-    # )
-    # for alpha in alphas:
-    #     for beta in betas:
-    #         for sigma in sigmas:
-    #             N = 100
-    #             C = int(N * 0.2)
-    #             run_conf = SystemConfig(
-    #                 N=N,
-    #                 C=C,  # local infection
-    #                 omega_1=0.0,
-    #                 omega_2=0.0,
-    #                 a_1=1.0,
-    #                 epsilon_1=0.03,  # adaption rate
-    #                 epsilon_2=0.3,  # adaption rate
-    #                 alpha=float(alpha),  # phase lage
-    #                 beta=float(beta),  # age parameter
-    #                 sigma=float(sigma),
-    #                 T_init=0,
-    #                 T_trans=0,
-    #                 T_max=T_max_base,
-    #                 T_step=T_step_base,
-    #             )
-    #             logger.info(f"New config {run_conf.as_index}")
-    #             if not storage.read_result(run_conf.as_index, threshold=0.0) or overwrite:
-    #                 logger.info("Starting solve")
-    #                 generate_init_conditions = generate_init_conditions_fixed(run_conf.N, run_conf.beta, run_conf.C)
-
-    #                 init_conditions = vmap(generate_init_conditions)(rand_keys)
-    #                 # shape (num_parallel_runs, state)
-    #                 sol = solve(
-    #                     run_conf.T_init,
-    #                     run_conf.T_trans,
-    #                     run_conf.T_max,
-    #                     run_conf.T_step,
-    #                     init_conditions.copy(),
-    #                     run_conf.as_args,
-    #                     solver,
-    #                     term,
-    #                     stepsize_controller,
-    #                     metric_save,
-    #                 )
-    #                 logger.info(f"Solved in {sol.stats['num_steps']} steps")
-    #                 if sol.ys:
-    #                     logger.info("Saving Result")
-    #                     storage.add_result(run_conf.as_index, sol.ys.copy(), overwrite=overwrite)
-    #         storage.write()
-
-    db_str = "DaisyFinal"
-    storage_final = Storage(
+    db_str = "Daisy"
+    storage = Storage(
         key_dim=9,
         metrics_kv_name=f"data/{db_str}SepsisMetrics.db/",
         parameter_k_name=f"data/{db_str}SepsisParameters_index.bin",
         use_mem_cache=True,
     )
-    num_parallel_runs = 100
-    rand_keys = jr.split(rand_key, num_parallel_runs)
-    betas = np.arange(0.0, 2.0, beta_step / 4)
-    sigmas = np.arange(0.0, 2.0, sigma_step / 4)
-    alphas = np.arange(0.0, 1.0, alpha_step / 4)
-    logger.info(
-        f"Starting to map parameter space of "
-        f"{len(betas)} beta, "
-        f"{len(sigmas)} sigma, "
-        f"{len(alphas)} alpha, "
-        f"total {len(betas) * len(sigmas) * len(alphas)}"
-    )
     for alpha in alphas:
         for beta in betas:
             for sigma in sigmas:
-                N = 200
+                N = 100
                 C = int(N * 0.2)
                 run_conf = SystemConfig(
                     N=N,
@@ -178,34 +113,30 @@ if __name__ == "__main__":
                     T_trans=0,
                     T_max=T_max_base,
                     T_step=T_step_base,
+                    steady_state_check=True
                 )
                 logger.info(f"New config {run_conf.as_index}")
-                neighbour = storage_final.read_result(run_conf.as_index, threshold=np.inf)
-                if neighbour and not storage_final.read_result(run_conf.as_index, threshold=0.0):
-                    run_conf.T_max = int(neighbour.tt * 1.5 * T_max_base) if neighbour.tt else T_max_base
-                    run_conf.T_trans = int(0.8 * run_conf.T_max)
-                    run_conf.T_step = 1 if run_conf.T_max < 500 else 10
+                if not storage.read_result(run_conf.as_index, threshold=0.0) or overwrite:
                     logger.info("Starting solve")
                     generate_init_conditions = generate_init_conditions_fixed(run_conf.N, run_conf.beta, run_conf.C)
-                    init_conditions = vmap(generate_init_conditions)(rand_keys)
-                logger.info("Starting solve")
-                generate_init_conditions = generate_init_conditions_fixed(run_conf.N, run_conf.beta, run_conf.C)
 
-                init_conditions = vmap(generate_init_conditions)(rand_keys)
-                sol = solve(
-                    run_conf.T_init,
-                    run_conf.T_trans,
-                    run_conf.T_max,
-                    run_conf.T_step,
-                    init_conditions.copy(),
-                    run_conf.as_args,
-                    solver,
-                    term,
-                    stepsize_controller,
-                    metric_save,
-                )
-                if sol.ys:
+                    init_conditions = vmap(generate_init_conditions)(rand_keys)
+                    # shape (num_parallel_runs, state)
+                    sol = solve(
+                        run_conf.T_init,
+                        run_conf.T_trans,
+                        run_conf.T_max,
+                        run_conf.T_step,
+                        init_conditions.copy(),
+                        run_conf.as_args,
+                        solver,
+                        term,
+                        stepsize_controller,
+                        metric_save,
+                    )
                     logger.info(f"Solved in {sol.stats['num_steps']} steps")
-                    logger.info("Saving Result")
-                    storage_final.add_result(run_conf.as_index, sol.ys.copy(), overwrite=overwrite)
-            storage_final.write()
+                    if sol.ys:
+                        logger.info("Saving Result")
+                        storage.add_result(run_conf.as_index, sol.ys.copy(), overwrite=overwrite)
+            storage.write()
+

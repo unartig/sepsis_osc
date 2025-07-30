@@ -7,6 +7,7 @@ import numpy as np
 from equinox import filter_jit
 from jax import vmap
 from diffrax import (
+    Event,
     diffeqsolve,
     ODETerm,
     ConstantStepSize,
@@ -27,6 +28,7 @@ from sepsis_osc.dnm.simulation import (
     make_full_compressed_save,
     make_metric_save,
     system_deriv,
+    make_check
 )
 from sepsis_osc.storage.storage_interface import Storage
 from sepsis_osc.utils.config import jax_random_seed
@@ -45,7 +47,10 @@ def solve(
     term,
     stepsize_controller,
     save_method,
+    steady_state_check,
 ):
+
+    eps = 9e-4
     result = diffeqsolve(
         term,
         solver,
@@ -58,6 +63,7 @@ def solve(
         max_steps=int(1e12),
         saveat=SaveAt(t0=True, ts=jnp.arange(T_trans, T_max, T_step), fn=save_method),
         progress_meter=TqdmProgressMeter(),
+        event=Event(cond_fn=make_check(system_deriv, eps, eps)) if steady_state_check else None
     )
     return result
 
