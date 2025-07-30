@@ -15,9 +15,9 @@ class LatentDynamicsModel(eqx.Module):
     # Parameter
     label_temperature: Array
     lookup_temperature: Array
-    ordinal_deltas: Array = eqx.static_field()
+    ordinal_deltas: Array # = eqx.field(static=True)
 
-    sofa_dist: Array = eqx.static_field()
+    sofa_dist: Array = eqx.field(static=True)
 
     def __init__(
         self,

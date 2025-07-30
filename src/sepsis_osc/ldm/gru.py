@@ -7,7 +7,7 @@ class GRUPredictor(eqx.Module):
     gru_cell: eqx.nn.GRUCell
     proj_out: eqx.nn.Linear
 
-    hidden_dim: int = eqx.static_field()
+    hidden_dim: int = eqx.field(static=True)
 
     def __init__(self, key, dim: int, hidden_dim: int):
         key1, key2 = jr.split(key)
@@ -18,9 +18,9 @@ class GRUPredictor(eqx.Module):
 
     def __call__(
         self,
-        z_t: Float[Array, "latent_dim"],
+        z_t: Float[Array, " latent_dim"],
         h_prev: Float[Array, "hidden_dim"],
-    ) -> tuple[Float[Array, "latent_dim"], Float[Array, "hidden"]]:
+    ) -> tuple[Float[Array, " latent_dim"], Float[Array, " hidden"]]:
         h_next = self.gru_cell(z_t, h_prev)
         z_pred = self.proj_out(h_next)
         return z_pred, h_next
