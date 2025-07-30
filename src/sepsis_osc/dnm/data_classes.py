@@ -1,14 +1,12 @@
 from dataclasses import dataclass, fields
-from typing import Optional, Union
+from typing import Optional
 
 import jax
 import jax.numpy as jnp
 import jax.tree_util as jtu
-from equinox._tree import _LeafWrapper
-from equinox.internal._loop.common import _Buffer
 import numpy as np
 from beartype import beartype as typechecker
-from equinox import filter_jit, static_field
+from equinox import filter_jit, field
 from jaxtyping import Array, Float, jaxtyped
 from numpy.typing import DTypeLike
 from scipy.ndimage import uniform_filter1d
@@ -175,12 +173,9 @@ class SystemState:
 
 # Register SystemState as a JAX PyTree
 jtu.register_pytree_node(SystemState, SystemState.tree_flatten, SystemState.tree_unflatten)
-
-# _emptySM = Union[bool, None, jax.ShapeDtypeStruct, _LeafWrapper, _Buffer, jax.stages.OutInfo, jax.core.ShapedArray]
-# @jaxtyped(typechecker=typechecker)
 @dataclass
 class SystemMetrics:
-    # NOTE shapes: Simulation | DB/Lookup Query | Visualisations | Integration
+    # NOTE shapes: Simulation | DB/Lookup Query | Visualisations
     
     # Kuramoto Order Parameter
     r_1: Float[Array, "*t ensemble"] | Float[Array, "... 1"] | np.ndarray
@@ -280,20 +275,20 @@ jtu.register_pytree_node(SystemMetrics, SystemMetrics.tree_flatten, SystemMetric
 # @register_dataclass
 @dataclass(frozen=True)
 class LatentLookup:
-    metrics: SystemMetrics = static_field()
-    indices_T: Float[Array, "db_size 3"] = static_field()
-    relevant_metrics: Float[Array, "db_size 2"] = static_field()
+    metrics: SystemMetrics = field(static=True)
+    indices_T: Float[Array, "db_size 3"] = field(static=True)
+    relevant_metrics: Float[Array, "db_size 2"] = field(static=True)
 
     # Precomputations
     # norm for faster distance calculation
-    i_norm: Float[Array, "db_size 3"] = static_field()
+    i_norm: Float[Array, "db_size 3"] = field(static=True)
 
-    grid_shape: tuple[int, int, int] = static_field()
-    grid_origin: Float[Array, "3"] = static_field()
-    grid_spacing: Float[Array, "3"] = static_field()
-    indices_3d: Float[Array, "na nb ns 3"] = static_field()
-    relevant_metrics_3d: Float[Array, "na nb ns 2"] = static_field()
-    metrics_3d: SystemMetrics = static_field()
+    grid_shape: tuple[int, int, int] = field(static=True)
+    grid_origin: Float[Array, "3"] = field(static=True)
+    grid_spacing: Float[Array, "3"] = field(static=True)
+    indices_3d: Float[Array, "na nb ns 3"] = field(static=True)
+    relevant_metrics_3d: Float[Array, "na nb ns 2"] = field(static=True)
+    metrics_3d: SystemMetrics = field(static=True)
 
     dtype: DTypeLike = jnp.float32
 
