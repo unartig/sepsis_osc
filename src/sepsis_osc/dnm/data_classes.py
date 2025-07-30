@@ -176,32 +176,32 @@ class SystemState:
 # Register SystemState as a JAX PyTree
 jtu.register_pytree_node(SystemState, SystemState.tree_flatten, SystemState.tree_unflatten)
 
-_emptySM = Union[bool, None, jax.ShapeDtypeStruct, _LeafWrapper, _Buffer, jax.stages.OutInfo, jax.core.ShapedArray]
-@jaxtyped(typechecker=typechecker)
+# _emptySM = Union[bool, None, jax.ShapeDtypeStruct, _LeafWrapper, _Buffer, jax.stages.OutInfo, jax.core.ShapedArray]
+# @jaxtyped(typechecker=typechecker)
 @dataclass
 class SystemMetrics:
     # NOTE shapes: Simulation | DB/Lookup Query | Visualisations | Integration
     
     # Kuramoto Order Parameter
-    r_1: Float[Array, "*t ensemble"] | Float[Array, "... 1"] | np.ndarray | _emptySM
-    r_2: Float[Array, "*t ensemble"] | Float[Array, "... 1"] | np.ndarray | _emptySM
+    r_1: Float[Array, "*t ensemble"] | Float[Array, "... 1"] | np.ndarray
+    r_2: Float[Array, "*t ensemble"] | Float[Array, "... 1"] | np.ndarray
     # Ensemble average velocity
-    m_1: Float[Array, "*t"] | Float[Array, "... 1"] | np.ndarray | _emptySM
-    m_2: Float[Array, "*t"] | Float[Array, "... 1"] | np.ndarray | _emptySM
+    m_1: Float[Array, "*t"] | Float[Array, "... 1"] | np.ndarray
+    m_2: Float[Array, "*t"] | Float[Array, "... 1"] | np.ndarray
     # Ensemble average std
-    s_1: Float[Array, "*t"] | Float[Array, "... 1"] | np.ndarray | _emptySM
-    s_2: Float[Array, "*t"] | Float[Array, "... 1"] | np.ndarray | _emptySM
+    s_1: Float[Array, "*t"] | Float[Array, "... 1"] | np.ndarray
+    s_2: Float[Array, "*t"] | Float[Array, "... 1"] | np.ndarray
     # Ensemble phase entropy
-    q_1: Float[Array, "*t"] | Float[Array, "... 1"] | np.ndarray | _emptySM
-    q_2: Float[Array, "*t"] | Float[Array, "... 1"] | np.ndarray | _emptySM
+    q_1: Float[Array, "*t"] | Float[Array, "... 1"] | np.ndarray
+    q_2: Float[Array, "*t"] | Float[Array, "... 1"] | np.ndarray
     # Frequency cluster ratio
-    f_1: Float[Array, "*t"] | Float[Array, "... 1"] | np.ndarray | _emptySM
-    f_2: Float[Array, "*t"] | Float[Array, "... 1"] | np.ndarray | _emptySM
+    f_1: Float[Array, "*t"] | Float[Array, "... 1"] | np.ndarray
+    f_2: Float[Array, "*t"] | Float[Array, "... 1"] | np.ndarray
     # Splay State Ratio
-    sr_1: Optional[Float[Array, "*t"] | Float[Array, "... 1"] | np.ndarray | _emptySM] = None
-    sr_2: Optional[Float[Array, "*t"] | Float[Array, "... 1"] | np.ndarray | _emptySM] = None
+    sr_1: Optional[Float[Array, "*t"] | Float[Array, "... 1"] | np.ndarray] = None
+    sr_2: Optional[Float[Array, "*t"] | Float[Array, "... 1"] | np.ndarray] = None
     # Measured mean transient time
-    tt: Optional[Float[Array, "*t"] | Float[Array, "... 1"] | np.ndarray | _emptySM] = None
+    tt: Optional[Float[Array, "*t"] | Float[Array, "... 1"] | np.ndarray] = None
 
     @property
     def shape(self):
