@@ -48,12 +48,17 @@ class AuxLosses:
     recon_loss: Array
     concept_loss: Array
     tc_loss: Array
+    accel_loss: Array
 
     hists_sofa_score: Array
     hists_sofa_metric: Array
 
     infection_t: Array
     sofa_t: Array
+
+    anneal_sofa: Array
+    anneal_recon: Array
+    anneal_threshs: Array
 
     @staticmethod
     def empty() -> "AuxLosses":
@@ -71,8 +76,12 @@ class AuxLosses:
             recon_loss=jnp.zeros(()),
             concept_loss=jnp.zeros(()),
             tc_loss=jnp.zeros(()),
+            accel_loss=jnp.zeros(()),
             hists_sofa_score=jnp.ones(()),
             hists_sofa_metric=jnp.ones(()),
+            anneal_sofa=jnp.zeros(()),
+            anneal_recon=jnp.zeros(()),
+            anneal_threshs=jnp.zeros(()),
         )
         return empty_losses
 
@@ -94,12 +103,15 @@ class AuxLosses:
                 "recon_loss": self.recon_loss,
                 "concept_loss": self.concept_loss,
                 "tc_loss": self.tc_loss,
+                "accel_loss": self.accel_loss,
             },
             "hists": {"sofa_score": self.hists_sofa_score, "sofa_metric": self.hists_sofa_metric},
             "mult": {
                 "infection_t": self.infection_t,
                 "sofa_t": self.sofa_t,
             },
+            "cosine_annealings":
+            {"sofa": self.anneal_sofa, "recon": self.anneal_recon, "thresholds": self.anneal_threshs}
         }
 
 
@@ -157,8 +169,11 @@ class LossesConfig:
     w_concept: float
     w_recon: float
     w_tc: float
+    w_accel: float
     concept: ConceptLossConfig
     anneal_concept_iter: float
+    anneal_recon_iter: float
+    anneal_threshs_iter: float
     steps_per_epoch: int = 0
 
 
