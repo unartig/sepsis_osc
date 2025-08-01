@@ -191,6 +191,10 @@ def loss(
     z_seq = jnp.concatenate([z0[None, ...], z_preds], axis=0)  # (T, batch, z_dim) trimmed stds
     z_seq = jnp.transpose(z_seq, (1, 0, 2))  # (batch, T, z_dim)
 
+    # Acceleration Loss
+    # https://en.wikipedia.org/wiki/Finite_difference#Higher-order_differences
+    aux_losses.accel_loss = jnp.mean((z_seq[:, 2:] - 2 * z_seq[:, 1:-1] + z_seq[:, :-2]) ** 2)
+
     # Recon Loss
     x_recon = jax.vmap(jax.vmap(model.decoder))(z_seq)
     aux_losses.recon_loss = jnp.mean((x - x_recon) ** 2)
