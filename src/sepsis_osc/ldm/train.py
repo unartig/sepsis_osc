@@ -102,12 +102,18 @@ def calc_concept_loss(
     thresholds: Float[Array, " n_classes_minus_1"],
     label_temp: Float[Array, "1"],
     sofa_dist: Float[Array, "24"],
-    params: ConceptLossConfig,
 ) -> tuple[Float[Array, ""], Float[Array, ""], Int[Array, " batch"]]:
     loss_sofa, pred_sofa = ordinal_loss(prediction[:, 0], true_sofa, thresholds, label_temp, sofa_dist)
     loss_infection = binary_loss(prediction[:, 1], true_infection)
 
-    return params.w_sofa * loss_sofa, params.w_inf * loss_infection, pred_sofa
+    return loss_sofa, loss_infection, pred_sofa
+
+
+@jaxtyped(typechecker=typechecker)
+def calc_directional_loss(pred_sofa: Int[Array, " T"], true_sofa: Float[Array, " T"]):
+    tdelta = true_sofa[1:] - true_sofa[:-1]
+    pdelta= pred_sofa[1:] - pred_sofa[:-1]
+    return jnp.clip(-pdelta * tdelta, 0.0, jnp.inf)
 
 
 @jaxtyped(typechecker=typechecker)
@@ -164,10 +170,12 @@ def loss(
 ) -> tuple[Array, AuxLosses]:
     batch_size, T, input_dim = x.shape
     aux_losses = AuxLosses.empty()
-    aux_losses.anneal_sofa = cosine_annealing(0.2, int(params.anneal_concept_iter * params.steps_per_epoch), step)
+    aux_losses.anneal_concept = cosine_annealing(0.2, int(params.anneal_concept_iter * params.steps_per_epoch), step)
     aux_losses.anneal_recon = cosine_annealing(0.0, int(params.anneal_recon_iter * params.steps_per_epoch), step)
     aux_losses.anneal_threshs = cosine_annealing(0.0, int(params.anneal_threshs_iter * params.steps_per_epoch), step)
-    lookup_temp, label_temp, ordinal_thresholds = model.get_parameters(cosine_annealing(0.0, int(1e3*params.steps_per_epoch), step))
+    lookup_temp, label_temp, ordinal_thresholds = model.get_parameters(
+        cosine_annealing(0.0, int(1e3 * params.steps_per_epoch), step)
+    )
 
     def make_keys(base_key):
         return jr.split(base_key, 4)
@@ -175,6 +183,7 @@ def loss(
     sample_keys = jax.vmap(lambda i: jr.fold_in(key, i))(jnp.arange(batch_size))
     drop_keys = jax.vmap(make_keys)(sample_keys)
 
+    # --------- Prediction
     alpha0, beta0, sigma0, h_init = jax.vmap(model.encoder)(x[:, 0], dropout_keys=drop_keys)
     aux_losses.alpha, aux_losses.beta, aux_losses.sigma = (
         alpha0.mean(),
@@ -199,45 +208,45 @@ def loss(
 
     z_seq = jnp.concatenate([z0[None, ...], z_preds], axis=0)  # (T, batch, z_dim) trimmed stds
     z_seq = jnp.transpose(z_seq, (1, 0, 2))  # (batch, T, z_dim)
-
-    # Acceleration Loss
-    # https://en.wikipedia.org/wiki/Finite_difference#Higher-order_differences
-    aux_losses.accel_loss = jnp.mean((z_seq[:, 2:] - 2 * z_seq[:, 1:-1] + z_seq[:, :-2]) ** 2)
-
-    # Recon Loss
-    x_recon = jax.vmap(jax.vmap(model.decoder))(z_seq)
-    aux_losses.recon_loss = jnp.mean((x - x_recon) ** 2)
-
-    # Total correlation loss (one per batch)
-    aux_losses.tc_loss = calc_tc_loss(z_seq)
-
-    # Lookup / concept loss
     concept_metrics = jax.vmap(lookup_func, in_axes=(1, None))(z_seq, lookup_temp).swapaxes(
         0, 1
     )  # (T, batch, z_dim) -> (batch, T, z_dim)
+
+    # --------- Acceleration Loss
+    # https://en.wikipedia.org/wiki/Finite_difference#Higher-order_differences
+    aux_losses.accel_loss = jnp.mean((z_seq[:, 2:] - 2 * z_seq[:, 1:-1] + z_seq[:, :-2]) ** 2)
+
+    # --------- Recon Loss
+    x_recon = jax.vmap(jax.vmap(model.decoder))(z_seq)
+    aux_losses.recon_loss = jnp.mean((x - x_recon) ** 2)
+
+    # --------- Total correlation loss (one per batch)
+    aux_losses.tc_loss = calc_tc_loss(z_seq)
+
+    # --------- Concept loss
     sofa_true, infection_true = true_concepts[..., 0], true_concepts[..., 1]
 
-    sofa_loss, infection_loss, hists = jax.vmap(calc_concept_loss, in_axes=(1, 1, 1, None, None, None, None))(
+    sofa_loss, infection_loss, sofa_pred = jax.vmap(calc_concept_loss, in_axes=(1, 1, 1, None, None, None))(
         concept_metrics,
         sofa_true,
         infection_true,
         ordinal_thresholds,
         label_temp,
         model.sofa_dist,
-        params.concept,
     )
-    hists = jax.lax.stop_gradient(hists)
-    aux_losses.concept_loss = jnp.mean(sofa_loss + infection_loss)
+    aux_losses.concept_loss = jnp.mean(sofa_loss * params.concept.w_sofa + infection_loss * params.concept.w_inf)
 
+    # --------- Directional Loss
+    sofa_pred = sofa_pred.swapaxes(0, 1)  # (T, batch) -> (batch, T)
+    aux_losses.directional_loss = jnp.mean(jax.vmap(calc_directional_loss)(sofa_pred, sofa_true))
+
+    # --------- Total Loss
     aux_losses.total_loss = (
-        (aux_losses.recon_loss * params.w_recon * aux_losses.anneal_threshs)
-        + (
-            aux_losses.concept_loss
-            * params.w_concept
-            * aux_losses.anneal_recon
-        )
+        (aux_losses.recon_loss * params.w_recon * aux_losses.anneal_recon)
+        + (aux_losses.concept_loss * params.w_concept * aux_losses.anneal_concept)
         + aux_losses.tc_loss * params.w_tc
         + aux_losses.accel_loss * params.w_accel
+        + aux_losses.directional_loss * params.w_direction
     )
 
     aux_losses.label_temperature = label_temp.mean(axis=-1)
@@ -246,7 +255,7 @@ def loss(
     aux_losses.infection_loss = infection_loss
     aux_losses = jax.tree_util.tree_map(jnp.mean, aux_losses)
     aux_losses.hists_sofa_metric = jax.lax.stop_gradient(concept_metrics[..., 0].reshape(-1))
-    aux_losses.hists_sofa_score = jax.lax.stop_gradient(hists.reshape(-1))
+    aux_losses.hists_sofa_score = jax.lax.stop_gradient(sofa_pred)
     aux_losses.sofa_t = sofa_loss
     aux_losses.infection_t = infection_loss
     return aux_losses.total_loss, aux_losses
@@ -362,13 +371,7 @@ def process_val_epoch(
         model_full = eqx.combine(model_flat, model_static)
 
         _, aux_losses = loss(
-            model_full,
-            batch_x,
-            batch_true_c,
-            key=batch_key,
-            lookup_func=lookup_func,
-            params=loss_params,
-            step=step
+            model_full, batch_x, batch_true_c, key=batch_key, lookup_func=lookup_func, params=loss_params, step=step
         )
 
         return (model_flat, key), aux_losses
@@ -431,13 +434,14 @@ if __name__ == "__main__":
     logger = logging.getLogger(__name__)
 
     model_conf = ModelConfig(latent_dim=3, input_dim=52, enc_hidden=128, dec_hidden=32, predictor_hidden=64)
-    train_conf = TrainingConfig(batch_size=64, window_len=6, epochs=3000, perc_train_set=0.1, validate_every=5)
+    train_conf = TrainingConfig(batch_size=64, window_len=6, epochs=3000, perc_train_set=0.8, validate_every=5)
     lr_conf = LRConfig(init=0.0, peak=5e-2, peak_decay=0.5, end=1e-12, warmup_epochs=15, enc_wd=1e-3, grad_norm=0.01)
     loss_conf = LossesConfig(
         w_concept=200,
         w_recon=25,
         w_tc=80,
         w_accel=20,
+        w_direction=1.0,
         anneal_concept_iter=2.5 * 1 / train_conf.perc_train_set,
         anneal_recon_iter=20 * 1 / train_conf.perc_train_set,
         anneal_threshs_iter=100 * 1 / train_conf.perc_train_set,
@@ -528,6 +532,7 @@ if __name__ == "__main__":
         "input_dim": encoder.input_dim,
         "latent_dim": encoder.latent_dim,
         "enc_hidden": encoder.enc_hidden,
+        "pred_hidden": encoder.pred_hidden,
         "dropout_rate": encoder.dropout_rate,
     }
     hyper_dec = {

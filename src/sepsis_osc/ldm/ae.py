@@ -256,8 +256,8 @@ def init_decoder_weights(decoder: Decoder, key: jnp.ndarray):
     return decoder
 
 
-def make_encoder(key, input_dim: int, latent_dim: int, enc_hidden: int, dropout_rate: float):
-    return Encoder(key, input_dim, latent_dim, enc_hidden, dropout_rate=dropout_rate)
+def make_encoder(key, input_dim: int, latent_dim: int, enc_hidden: int, pred_hidden: int, dropout_rate: float):
+    return Encoder(key, input_dim, latent_dim, enc_hidden,pred_hidden=pred_hidden, dropout_rate=dropout_rate)
 
 
 def make_decoder(key, input_dim: int, latent_dim: int, dec_hidden: int):
