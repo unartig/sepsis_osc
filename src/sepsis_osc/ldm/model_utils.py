@@ -47,6 +47,7 @@ class AuxLosses:
     total_loss: Array
     recon_loss: Array
     concept_loss: Array
+    directional_loss: Array
     tc_loss: Array
     accel_loss: Array
 
@@ -56,7 +57,7 @@ class AuxLosses:
     infection_t: Array
     sofa_t: Array
 
-    anneal_sofa: Array
+    anneal_concept: Array
     anneal_recon: Array
     anneal_threshs: Array
 
@@ -66,20 +67,21 @@ class AuxLosses:
             alpha=jnp.zeros(()),
             beta=jnp.zeros(()),
             sigma=jnp.zeros(()),
-            infection_loss=jnp.zeros(()),
             sofa_loss=jnp.zeros(()),
-            infection_t=jnp.zeros(()),
+            infection_loss=jnp.zeros(()),
             sofa_t=jnp.zeros(()),
+            infection_t=jnp.zeros(()),
             lookup_temperature=jnp.zeros(()),
             label_temperature=jnp.zeros(()),
             total_loss=jnp.zeros(()),
             recon_loss=jnp.zeros(()),
             concept_loss=jnp.zeros(()),
+            directional_loss=jnp.zeros(()),
             tc_loss=jnp.zeros(()),
             accel_loss=jnp.zeros(()),
             hists_sofa_score=jnp.ones(()),
             hists_sofa_metric=jnp.ones(()),
-            anneal_sofa=jnp.zeros(()),
+            anneal_concept=jnp.zeros(()),
             anneal_recon=jnp.zeros(()),
             anneal_threshs=jnp.zeros(()),
         )
@@ -102,6 +104,7 @@ class AuxLosses:
                 "total_loss": self.total_loss,
                 "recon_loss": self.recon_loss,
                 "concept_loss": self.concept_loss,
+                "directional_loss": self.directional_loss,
                 "tc_loss": self.tc_loss,
                 "accel_loss": self.accel_loss,
             },
@@ -111,7 +114,7 @@ class AuxLosses:
                 "sofa_t": self.sofa_t,
             },
             "cosine_annealings":
-            {"sofa": self.anneal_sofa, "recon": self.anneal_recon, "thresholds": self.anneal_threshs}
+            {"concept": self.anneal_concept, "recon": self.anneal_recon, "thresholds": self.anneal_threshs}
         }
 
 
@@ -170,6 +173,7 @@ class LossesConfig:
     w_recon: float
     w_tc: float
     w_accel: float
+    w_direction: float
     concept: ConceptLossConfig
     anneal_concept_iter: float
     anneal_recon_iter: float
@@ -216,6 +220,7 @@ def load_checkpoint(
         hyper_enc = hyper["encoder"]
         hyper_dec = hyper["decoder"]
         hyper_predictor = hyper["predictor"]
+        hyper_enc["pred_hidden"] = 64
 
         # Build skeleton full model
         key_dummy = jr.PRNGKey(0)
