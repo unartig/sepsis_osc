@@ -79,10 +79,12 @@ def ordinal_loss(
 
     return weighted_loss, pred_sofa
 
+
 @jaxtyped(typechecker=typechecker)
 def binary_logits(probs: Float[Array, " batch"], eps: float = 1e-6) -> Float[Array, " batch"]:
     probs = jnp.clip(probs, eps, 1 - eps)
     return jnp.log(probs) - jnp.log1p(-probs)
+
 
 @jaxtyped(typechecker=typechecker)
 def binary_loss(
@@ -90,6 +92,7 @@ def binary_loss(
 ) -> Float[Array, ""]:
     logits = binary_logits(predicted_infection)
     return jnp.mean(optax.sigmoid_binary_cross_entropy(logits, true_infection))
+
 
 @jaxtyped(typechecker=typechecker)
 def calc_concept_loss(
@@ -106,6 +109,7 @@ def calc_concept_loss(
 
     return params.w_sofa * loss_sofa, params.w_inf * loss_infection, pred_sofa
 
+
 @jaxtyped(typechecker=typechecker)
 def calc_tc_loss(z_seq: Float[Array, "batch t latent_dim"]):
     z_flat = z_seq.reshape(-1, z_seq.shape[-1])
@@ -121,6 +125,7 @@ def calc_tc_loss(z_seq: Float[Array, "batch t latent_dim"]):
     tc_loss = jnp.sum(off_diag**2) / (z_flat.shape[-1] * (z_flat.shape[-1] - 1))
 
     return tc_loss
+
 
 def constrain_z(z):
     alpha, beta, sigma = jnp.split(z, 3, axis=-1)
@@ -143,6 +148,7 @@ def cosine_annealing(base_val: float, num_steps: int, current_step: jnp.int32) -
     cosine = 0.5 * (1 + jnp.cos(jnp.pi * step / num_steps))
     return base_val + (1.0 - base_val) * (1.0 - cosine)
 
+
 # === Loss Function ===
 @jaxtyped(typechecker=typechecker)
 @eqx.filter_jit  # (donate="all")
@@ -158,7 +164,10 @@ def loss(
 ) -> tuple[Array, AuxLosses]:
     batch_size, T, input_dim = x.shape
     aux_losses = AuxLosses.empty()
-    lookup_temp, label_temp, ordinal_thresholds = model.get_parameters()
+    aux_losses.anneal_sofa = cosine_annealing(0.2, int(params.anneal_concept_iter * params.steps_per_epoch), step)
+    aux_losses.anneal_recon = cosine_annealing(0.0, int(params.anneal_recon_iter * params.steps_per_epoch), step)
+    aux_losses.anneal_threshs = cosine_annealing(0.0, int(params.anneal_threshs_iter * params.steps_per_epoch), step)
+    lookup_temp, label_temp, ordinal_thresholds = model.get_parameters(cosine_annealing(0.0, int(1e3*params.steps_per_epoch), step))
 
     def make_keys(base_key):
         return jr.split(base_key, 4)
@@ -221,13 +230,14 @@ def loss(
     aux_losses.concept_loss = jnp.mean(sofa_loss + infection_loss)
 
     aux_losses.total_loss = (
-        aux_losses.recon_loss * params.w_recon
+        (aux_losses.recon_loss * params.w_recon * aux_losses.anneal_threshs)
         + (
             aux_losses.concept_loss
             * params.w_concept
-            * cosine_annealing(0.2, int(params.anneal_concept_iter * params.steps_per_epoch), step)
+            * aux_losses.anneal_recon
         )
         + aux_losses.tc_loss * params.w_tc
+        + aux_losses.accel_loss * params.w_accel
     )
 
     aux_losses.label_temperature = label_temp.mean(axis=-1)
@@ -333,6 +343,7 @@ def process_val_epoch(
     model: LatentDynamicsModel,
     x_data: Float[Array, "nvbatches batch t input_dim"],
     y_data: Float[Array, "nvbatches batch t 2"],
+    step: Int[Array, ""],
     *,
     key: jnp.ndarray,
     lookup_func: Callable,
@@ -357,6 +368,7 @@ def process_val_epoch(
             key=batch_key,
             lookup_func=lookup_func,
             params=loss_params,
+            step=step
         )
 
         return (model_flat, key), aux_losses
@@ -418,14 +430,17 @@ if __name__ == "__main__":
     dtype = jnp.float32
     logger = logging.getLogger(__name__)
 
-    model_conf = ModelConfig(latent_dim=3, input_dim=52, enc_hidden=64, dec_hidden=32, predictor_hidden=64)
-    train_conf = TrainingConfig(batch_size=32, window_len=6, epochs=3000, perc_train_set=0.1, validate_every=5)
-    lr_conf = LRConfig(init=0.0, peak=3e-2, peak_decay=0.9, end=1e-12, warmup_epochs=15, enc_wd=1e-3, grad_norm=0.01)
+    model_conf = ModelConfig(latent_dim=3, input_dim=52, enc_hidden=128, dec_hidden=32, predictor_hidden=64)
+    train_conf = TrainingConfig(batch_size=64, window_len=6, epochs=3000, perc_train_set=0.1, validate_every=5)
+    lr_conf = LRConfig(init=0.0, peak=5e-2, peak_decay=0.5, end=1e-12, warmup_epochs=15, enc_wd=1e-3, grad_norm=0.01)
     loss_conf = LossesConfig(
         w_concept=200,
-        w_recon=15,
+        w_recon=25,
         w_tc=80,
-        anneal_concept_iter=3.5 * 1 / train_conf.perc_train_set,
+        w_accel=20,
+        anneal_concept_iter=2.5 * 1 / train_conf.perc_train_set,
+        anneal_recon_iter=20 * 1 / train_conf.perc_train_set,
+        anneal_threshs_iter=100 * 1 / train_conf.perc_train_set,
         concept=ConceptLossConfig(w_sofa=1.0, w_inf=0.0),
     )
     load_conf = LoadingConfig(from_dir="", epoch=0)
@@ -480,15 +495,28 @@ if __name__ == "__main__":
     deltas = deltas / jnp.sum(deltas)
     deltas = jnp.asarray(deltas)
 
-    encoder = Encoder(key_enc, model_conf.input_dim, model_conf.latent_dim, model_conf.enc_hidden, dtype=dtype)
+    encoder = Encoder(
+        key_enc,
+        model_conf.input_dim,
+        model_conf.latent_dim,
+        model_conf.enc_hidden,
+        model_conf.predictor_hidden,
+        dtype=dtype,
+    )
     decoder = Decoder(key_dec, model_conf.input_dim, model_conf.latent_dim, model_conf.dec_hidden, dtype=dtype)
     key_enc_weights, key_dec_weights = jr.split(key, 2)
     encoder = init_encoder_weights(encoder, key_enc_weights)
     decoder = init_decoder_weights(decoder, key_dec_weights)
-    gru = GRUPredictor(key=key_predictor, dim=model_conf.latent_dim, hidden_dim=model_conf.predictor_hidden)
+    gru = GRUPredictor(
+        key=key_predictor, dim=model_conf.latent_dim - 1, hidden_dim=model_conf.predictor_hidden, dtype=dtype
+    )
 
     model = LatentDynamicsModel(
-        encoder=encoder, predictor=gru, decoder=decoder, ordinal_deltas=deltas, sofa_dist=sofa_dist[:-1]
+        encoder=encoder,
+        predictor=gru,
+        decoder=decoder,
+        ordinal_deltas=deltas,
+        sofa_dist=sofa_dist[:-1],
     )
 
     optimizer = optax.chain(
@@ -507,7 +535,7 @@ if __name__ == "__main__":
         "latent_dim": decoder.latent_dim,
         "dec_hidden": decoder.dec_hidden,
     }
-    hyper_pred = {"dim": model_conf.latent_dim, "hidden_dim": gru.hidden_dim}
+    hyper_pred = {"dim": model_conf.latent_dim - 1, "hidden_dim": gru.hidden_dim, "dropout_rate": gru.dropout_rate}
     params_model, static_model = eqx.partition(model, eqx.is_inexact_array)
     opt_state = optimizer.init(params_model)
     if load_conf.from_dir:
@@ -565,6 +593,7 @@ if __name__ == "__main__":
                 val_model,
                 x_data=val_x,
                 y_data=val_y,
+                step=opt_state[1][0].count,
                 key=key,
                 lookup_func=lookup_table.hard_get_local,
                 loss_params=loss_conf,

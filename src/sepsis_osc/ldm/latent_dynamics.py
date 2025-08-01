@@ -15,7 +15,9 @@ class LatentDynamicsModel(eqx.Module):
     # Parameter
     label_temperature: Array
     lookup_temperature: Array
-    ordinal_deltas: Array # = eqx.field(static=True)
+
+    prior_deltas: Array = eqx.field(static=True)
+    learned_deltas: Array
 
     sofa_dist: Array = eqx.field(static=True)
 
@@ -34,13 +36,17 @@ class LatentDynamicsModel(eqx.Module):
         # Parameter
         self.label_temperature = jnp.log(jnp.ones((1,)) * 0.05)
         self.lookup_temperature = jnp.log(jnp.ones((1,)) * 0.5)
-        self.ordinal_deltas = ordinal_deltas
+        self.prior_deltas = ordinal_deltas
+        self.learned_deltas = ordinal_deltas
 
         self.sofa_dist = sofa_dist
 
 
-    def get_parameters(self) -> tuple[Array, Array, Array]:
-        ordinal_thresholds = jnp.cumsum(jax.nn.softmax(self.ordinal_deltas))[:-1]  # monotonicity
+    def get_parameters(self, lam: Array) -> tuple[Array, Array, Array]:
+
+        combined_deltas = lam * self.learned_deltas + (1.0 - lam) * self.prior_deltas
+
+        ordinal_thresholds = jnp.cumsum(jax.nn.softmax(combined_deltas))[:-1]
         return (
             jnp.exp(self.lookup_temperature),
             jnp.exp(self.label_temperature),
