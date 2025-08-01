@@ -166,22 +166,21 @@ def loss(
     sample_keys = jax.vmap(lambda i: jr.fold_in(key, i))(jnp.arange(batch_size))
     drop_keys = jax.vmap(make_keys)(sample_keys)
 
-    alpha0, beta0, sigma0, h_init = jax.vmap(model.encoder)(
-        x[:, 0], dropout_keys=drop_keys
-    )
+    alpha0, beta0, sigma0, h_init = jax.vmap(model.encoder)(x[:, 0], dropout_keys=drop_keys)
     aux_losses.alpha, aux_losses.beta, aux_losses.sigma = (
         alpha0.mean(),
         beta0.mean(),
         sigma0.mean(),
     )
 
+    # NOTE alpha is only predicted for t=0, and stays constant throughout the prediction horizon for each patient
     z0 = constrain_z(jnp.concatenate([alpha0, beta0, sigma0], axis=-1))
 
     def predict_next(carry, _):
         z_prev, h_prev = carry
 
-        z_next, h_next = jax.vmap(model.predictor)(z_prev, h_prev)
-        z_next = bound_z(z_next)
+        dz_next, h_next = jax.vmap(model.predictor)(z_prev[..., 1:], h_prev, key=drop_keys[:, 0])
+        z_next = bound_z(z_prev + jnp.concat([jnp.zeros_like(alpha0), dz_next], axis=-1))
         new_carry = (z_next, h_next)
         return new_carry, z_next
 
