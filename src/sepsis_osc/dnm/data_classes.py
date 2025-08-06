@@ -1,11 +1,9 @@
 from dataclasses import dataclass, fields
-from typing import Optional, Union
+from typing import Optional
 
 import jax
 import jax.numpy as jnp
 import jax.tree_util as jtu
-from equinox._tree import _LeafWrapper
-from equinox.internal._loop.common import _Buffer
 import numpy as np
 from beartype import beartype as typechecker
 from equinox import filter_jit, field
@@ -138,7 +136,6 @@ class SystemState:
     def shape(self):
         return jax.tree.map(lambda x: x.shape if x is not None else None, self.__dict__)
 
-
     def enforce_bounds(self) -> "SystemState":
         self.phi_1 = self.phi_1 % (2 * jnp.pi)
         self.phi_2 = self.phi_2 % (2 * jnp.pi)
@@ -176,12 +173,12 @@ class SystemState:
 # Register SystemState as a JAX PyTree
 jtu.register_pytree_node(SystemState, SystemState.tree_flatten, SystemState.tree_unflatten)
 
-_emptySM = Union[bool, None, jax.ShapeDtypeStruct, _LeafWrapper, _Buffer, jax.core.ShapedArray]
-# @jaxtyped(typechecker=typechecker)
+
+
 @dataclass
 class SystemMetrics:
-    # NOTE shapes: Simulation | DB/Lookup Query | Visualisations | Solving
-    
+    # NOTE shapes: Simulation | DB/Lookup Query | Visualisations
+
     # Kuramoto Order Parameter
     r_1: Float[Array, "*t ensemble"] | Float[Array, "... 1"] | np.ndarray
     r_2: Float[Array, "*t ensemble"] | Float[Array, "... 1"] | np.ndarray
@@ -221,6 +218,39 @@ class SystemMetrics:
     def copy(self) -> "SystemMetrics":
         return SystemMetrics(**{f.name: getattr(self, f.name) for f in fields(self)})
 
+    def remove_infs(self):
+        def is_valid(arr):
+            if arr is None:
+                return None
+            arr = jnp.asarray(arr)
+            if arr.ndim == 1:
+                return ~jnp.isinf(arr)
+            else:
+                return ~jnp.isinf(arr).any(axis=1)
+
+        masks = [
+            is_valid(self.r_1),
+            is_valid(self.r_2),
+            is_valid(self.m_1),
+            is_valid(self.m_2),
+            is_valid(self.s_1),
+            is_valid(self.s_2),
+            is_valid(self.q_1),
+            is_valid(self.q_2),
+            is_valid(self.f_1),
+            is_valid(self.f_2),
+            is_valid(self.sr_1) if hasattr(self, "sr_1") else None,
+            is_valid(self.sr_2) if hasattr(self, "sr_2") else None,
+        ]
+
+        masks = jnp.asarray([m for m in masks if m is not None])
+        combined_mask = jnp.logical_and.reduce(masks)
+
+        return jax.tree.map(
+            lambda x: x[combined_mask] if x is not None and x.shape[0] == combined_mask.shape[0] else x,
+            self,
+        )
+
     def add_follow_ups(self) -> "SystemMetrics":
         if self.sr_1 is None and self.r_1.size > 1:
             self.sr_1 = jnp.sum(self.r_1 < 0.2, axis=-1) / self.r_1.shape[-1]
@@ -240,13 +270,14 @@ class SystemMetrics:
             return self
 
         self.add_follow_ups()
+        print(self.shape)
         return SystemMetrics(
             r_1=jnp.mean(jnp.asarray(self.r_1)[..., -1, :], axis=(-1,)),
             r_2=jnp.mean(jnp.asarray(self.r_2)[..., -1, :], axis=(-1,)),
             s_1=jnp.mean(jnp.asarray(self.s_1)),
             s_2=jnp.mean(jnp.asarray(self.s_2)),
-            m_1=jnp.mean(jnp.asarray(self.m_1)[..., -1], axis=-1),
-            m_2=jnp.mean(jnp.asarray(self.m_2)[..., -1], axis=-1),
+            m_1=jnp.mean(jnp.asarray(self.m_1), axis=-1),
+            m_2=jnp.mean(jnp.asarray(self.m_2), axis=-1),
             q_1=jnp.mean(jnp.asarray(self.q_1), axis=-1),
             q_2=jnp.mean(jnp.asarray(self.q_2), axis=-1),
             f_1=jnp.mean(jnp.asarray(self.f_1), axis=-1),
@@ -401,10 +432,10 @@ class LatentLookup:
 
         # Convert query points into fractional voxel coordinates
         rel_pos = (q - self.grid_origin) / self.grid_spacing
-        voxel_idx = jnp.round(rel_pos).astype(jnp.int32)
-        voxel_idx = jnp.clip(voxel_idx, 3, self.grid_shape - 4)  # orig -2
+        voxel_idx = self.round_ste(rel_pos).astype(jnp.int32)
+        voxel_idx = jnp.clip(voxel_idx, 1, self.grid_shape - 2)  # orig -2
 
-        offsets = jnp.array([-3, -2, -1, 0, 1, 2, 3])  # orig 1
+        offsets = jnp.array([-1, 0, 1])  # orig 1
         neighbor_offsets = jnp.stack(jnp.meshgrid(offsets, offsets, offsets, indexing="ij"), axis=-1).reshape(-1, 3)
 
         def gather_neighbors(vi, q_point):
@@ -424,6 +455,9 @@ class LatentLookup:
 
         pred_c = jax.vmap(gather_neighbors)(voxel_idx, q)
         return pred_c.astype(orig_dtype)
+
+    def round_ste(self, x):
+        return x + jax.lax.stop_gradient(jnp.round(x) - x)
 
 
 jtu.register_pytree_node(LatentLookup, LatentLookup.tree_flatten, LatentLookup.tree_unflatten)

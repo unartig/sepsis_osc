@@ -47,7 +47,10 @@ class AuxLosses:
     total_loss: Array
     recon_loss: Array
     concept_loss: Array
+    directional_loss: Array
     tc_loss: Array
+    accel_loss: Array
+    diff_loss: Array
 
     hists_sofa_score: Array
     hists_sofa_metric: Array
@@ -55,24 +58,34 @@ class AuxLosses:
     infection_t: Array
     sofa_t: Array
 
+    anneal_concept: Array
+    anneal_recon: Array
+    anneal_threshs: Array
+
     @staticmethod
     def empty() -> "AuxLosses":
         empty_losses = AuxLosses(
             alpha=jnp.zeros(()),
             beta=jnp.zeros(()),
             sigma=jnp.zeros(()),
-            infection_loss=jnp.zeros(()),
             sofa_loss=jnp.zeros(()),
-            infection_t=jnp.zeros(()),
+            infection_loss=jnp.zeros(()),
             sofa_t=jnp.zeros(()),
+            infection_t=jnp.zeros(()),
             lookup_temperature=jnp.zeros(()),
             label_temperature=jnp.zeros(()),
             total_loss=jnp.zeros(()),
             recon_loss=jnp.zeros(()),
             concept_loss=jnp.zeros(()),
+            directional_loss=jnp.zeros(()),
             tc_loss=jnp.zeros(()),
+            accel_loss=jnp.zeros(()),
+            diff_loss=jnp.zeros(()),
             hists_sofa_score=jnp.ones(()),
             hists_sofa_metric=jnp.ones(()),
+            anneal_concept=jnp.zeros(()),
+            anneal_recon=jnp.zeros(()),
+            anneal_threshs=jnp.zeros(()),
         )
         return empty_losses
 
@@ -93,12 +106,20 @@ class AuxLosses:
                 "total_loss": self.total_loss,
                 "recon_loss": self.recon_loss,
                 "concept_loss": self.concept_loss,
+                "directional_loss": self.directional_loss,
                 "tc_loss": self.tc_loss,
+                "accel_loss": self.accel_loss,
+                "diff_loss": self.diff_loss,
             },
             "hists": {"sofa_score": self.hists_sofa_score, "sofa_metric": self.hists_sofa_metric},
             "mult": {
                 "infection_t": self.infection_t,
                 "sofa_t": self.sofa_t,
+            },
+            "cosine_annealings": {
+                "concept": self.anneal_concept,
+                "recon": self.anneal_recon,
+                "thresholds": self.anneal_threshs,
             },
         }
 
@@ -110,6 +131,7 @@ class ModelConfig:
     enc_hidden: int
     dec_hidden: int
     predictor_hidden: int
+    dropout_rate: float
 
 
 @dataclass
@@ -157,8 +179,13 @@ class LossesConfig:
     w_concept: float
     w_recon: float
     w_tc: float
+    w_accel: float
+    w_diff: float
+    w_direction: float
     concept: ConceptLossConfig
     anneal_concept_iter: float
+    anneal_recon_iter: float
+    anneal_threshs_iter: float
     steps_per_epoch: int = 0
 
 
