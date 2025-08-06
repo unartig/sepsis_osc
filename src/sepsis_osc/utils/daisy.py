@@ -22,35 +22,8 @@ from sepsis_osc.dnm.simulation import (
 )
 from sepsis_osc.storage.storage_interface import Storage
 from sepsis_osc.utils.config import jax_random_seed
+from sepsis_osc.utils.run_simulation import solve
 from sepsis_osc.utils.logger import setup_logging
-
-
-@filter_jit
-def solve(
-    T_init,
-    T_trans,
-    T_max,
-    T_step,
-    batched_init_condition,
-    args,
-    solver,
-    term,
-    stepsize_controller,
-    save_method,
-):
-    result = diffeqsolve(
-        term,
-        solver,
-        y0=batched_init_condition,
-        args=args,
-        t0=T_init,
-        t1=T_max,
-        dt0=T_step,
-        stepsize_controller=stepsize_controller,
-        max_steps=int(1e12),
-        saveat=SaveAt(t0=True, ts=jnp.arange(T_trans, T_max, T_step), fn=save_method),
-    )
-    return result
 
 
 if __name__ == "__main__":
@@ -69,11 +42,11 @@ if __name__ == "__main__":
     stepsize_controller = PIDController(rtol=1e-3, atol=1e-6)
 
     beta_step = 0.02
-    betas = np.arange(0.0, 2.0, beta_step)
+    betas = np.arange(0.0, 0.5, beta_step)
     sigma_step = 0.04
-    sigmas = np.arange(0.0, 1.5, sigma_step)
+    sigmas = np.arange(0.0, 2.0, sigma_step)
     alpha_step = 0.04
-    alphas = np.arange(-1.0, 1.0, alpha_step)
+    alphas = jnp.array([-0.28])  # np.arange(-1.0, 1.0, alpha_step)
     T_max_base = 1000
     T_step_base = 10
 
@@ -86,7 +59,7 @@ if __name__ == "__main__":
     )
 
     overwrite = False
-    db_str = "Daisy"
+    db_str = "Steady"
     storage = Storage(
         key_dim=9,
         metrics_kv_name=f"data/{db_str}SepsisMetrics.db/",
@@ -113,7 +86,6 @@ if __name__ == "__main__":
                     T_trans=0,
                     T_max=T_max_base,
                     T_step=T_step_base,
-                    steady_state_check=True
                 )
                 logger.info(f"New config {run_conf.as_index}")
                 if not storage.read_result(run_conf.as_index, threshold=0.0) or overwrite:
@@ -127,12 +99,13 @@ if __name__ == "__main__":
                         run_conf.T_trans,
                         run_conf.T_max,
                         run_conf.T_step,
-                        init_conditions.copy(),
+                        init_conditions,
                         run_conf.as_args,
                         solver,
                         term,
                         stepsize_controller,
                         metric_save,
+                        steady_state_check=True
                     )
                     logger.info(f"Solved in {sol.stats['num_steps']} steps")
                     if sol.ys:

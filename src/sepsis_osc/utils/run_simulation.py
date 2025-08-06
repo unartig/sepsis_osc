@@ -50,7 +50,7 @@ def solve(
     steady_state_check,
 ):
 
-    eps = 9e-4
+    eps = 1e-3
     result = diffeqsolve(
         term,
         solver,
