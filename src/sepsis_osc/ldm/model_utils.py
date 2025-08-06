@@ -50,6 +50,7 @@ class AuxLosses:
     directional_loss: Array
     tc_loss: Array
     accel_loss: Array
+    diff_loss: Array
 
     hists_sofa_score: Array
     hists_sofa_metric: Array
@@ -79,6 +80,7 @@ class AuxLosses:
             directional_loss=jnp.zeros(()),
             tc_loss=jnp.zeros(()),
             accel_loss=jnp.zeros(()),
+            diff_loss=jnp.zeros(()),
             hists_sofa_score=jnp.ones(()),
             hists_sofa_metric=jnp.ones(()),
             anneal_concept=jnp.zeros(()),
@@ -107,14 +109,18 @@ class AuxLosses:
                 "directional_loss": self.directional_loss,
                 "tc_loss": self.tc_loss,
                 "accel_loss": self.accel_loss,
+                "diff_loss": self.diff_loss,
             },
             "hists": {"sofa_score": self.hists_sofa_score, "sofa_metric": self.hists_sofa_metric},
             "mult": {
                 "infection_t": self.infection_t,
                 "sofa_t": self.sofa_t,
             },
-            "cosine_annealings":
-            {"concept": self.anneal_concept, "recon": self.anneal_recon, "thresholds": self.anneal_threshs}
+            "cosine_annealings": {
+                "concept": self.anneal_concept,
+                "recon": self.anneal_recon,
+                "thresholds": self.anneal_threshs,
+            },
         }
 
 
@@ -125,6 +131,7 @@ class ModelConfig:
     enc_hidden: int
     dec_hidden: int
     predictor_hidden: int
+    dropout_rate: float
 
 
 @dataclass
@@ -173,6 +180,7 @@ class LossesConfig:
     w_recon: float
     w_tc: float
     w_accel: float
+    w_diff: float
     w_direction: float
     concept: ConceptLossConfig
     anneal_concept_iter: float
@@ -220,7 +228,6 @@ def load_checkpoint(
         hyper_enc = hyper["encoder"]
         hyper_dec = hyper["decoder"]
         hyper_predictor = hyper["predictor"]
-        hyper_enc["pred_hidden"] = 64
 
         # Build skeleton full model
         key_dummy = jr.PRNGKey(0)

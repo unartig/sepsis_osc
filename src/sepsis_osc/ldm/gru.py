@@ -26,15 +26,15 @@ class GRUPredictor(eqx.Module):
     @jaxtyped(typechecker=typechecker)
     def __call__(
         self,
-        z_t: Float[Array, " latent_dim_minus_1"],
+        z_t: Float[Array, " latent_dim"],
         h_prev: Float[Array, " pred_hidden"],
         *,
         key,
-    ) -> tuple[Float[Array, " latent_dim_minus_1"], Float[Array, " pred_hidden"]]:
+    ) -> tuple[Float[Array, " latent_dim"], Float[Array, " pred_hidden"]]:
         h_next = self.gru_cell(z_t, h_prev)
         h_next_dropped = self.dropout(h_next, key=key)
-        z_pred = jax.nn.tanh(self.proj_out(h_next_dropped))
-        return z_pred, h_next
+        z_pred = jax.nn.tanh(self.proj_out(h_next_dropped)) * 0.01
+        return z_pred, h_next_dropped
 
 
 def make_predictor(key, dim, hidden_dim, dropout_rate):
