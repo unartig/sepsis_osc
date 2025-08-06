@@ -38,7 +38,7 @@ if __name__ == "__main__":
     stepsize_controller = PIDController(rtol=1e-3, atol=1e-6)
 
     #### Parameters
-    N = 200
+    N = 100
     run_conf = SystemConfig(
         N=N,
         C=int(0.2 * N),  # local infection
@@ -54,7 +54,6 @@ if __name__ == "__main__":
         T_trans=0,
         T_max=1000,
         T_step=10,
-        steady_state_check=True
     )
     generate_init_conditions = generate_init_conditions_fixed(run_conf.N, run_conf.beta, run_conf.C)
 
@@ -70,11 +69,12 @@ if __name__ == "__main__":
         term,
         stepsize_controller,
         metric_save,
+        steady_state_check=True
     )
     if not sol.ys or not run_conf.T_max:
         exit(0)
     metrics = sol.ys
-    metrics = metrics.add_follow_ups()
+    metrics = metrics.add_follow_ups().remove_infs()
     ts = np.asarray(sol.ts).squeeze()
     ts = ts[~jnp.isinf(ts)]
     print(metrics.shape)

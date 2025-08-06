@@ -187,7 +187,7 @@ def make_check(deriv, l1t, l2t):
         dy = deriv(0, y, args)
         grad_metric = grad(max_metric)
         gl1t = grad_metric(dy.phi_1, axis=-1)
-        gl2t = grad_metric(dy.phi_2, axis=-1).max()
+        gl2t = grad_metric(dy.phi_2, axis=-1)
 
         return jnp.asarray([(gl1t < l1t).all(), (gl2t < l2t).all()]).all()
 
