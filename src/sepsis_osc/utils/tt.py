@@ -14,15 +14,15 @@ from diffrax import (
     Tsit5,
 )
 
-from simulation.data_classes import SystemConfig
-from simulation.simulation import (
+from sepsis_osc.dnm.data_classes import SystemConfig
+from sepsis_osc.dnm.simulation import (
     generate_init_conditions_fixed,
     make_metric_save,
     system_deriv,
 )
-from storage.storage_interface import Storage
-from utils.config import jax_random_seed
-from utils.logger import setup_logging
+from sepsis_osc.storage.storage_interface import Storage
+from sepsis_osc.utils.config import jax_random_seed
+from sepsis_osc.utils.logger import setup_logging
 
 
 @filter_jit

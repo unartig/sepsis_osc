@@ -23,6 +23,7 @@ from sepsis_osc.ldm.train import (
     ordinal_logits,
     constrain_z,
     bound_z,
+    get_latent_seq,
 )
 from sepsis_osc.ldm.ae import (
     Decoder,
@@ -35,8 +36,8 @@ from sepsis_osc.utils.logger import setup_logging
 from sepsis_osc.visualisations.viz_param_space import space_plot
 from sepsis_osc.visualisations.viz_three_dee import three_dee
 
-LOAD_FROM_CHECKPOINT = "runs/Jul22_13-41-57_tinkpad"
-LOAD_EPOCH = 69
+LOAD_FROM_CHECKPOINT = "runs/Aug05_15-35-33_tinkpad"
+LOAD_EPOCH = 199
 
 SMALL_SIZE = 12
 MEDIUM_SIZE = 14
@@ -56,8 +57,8 @@ def viz_latent(df, params, p_y, metrics, indices, key, filename, figure_dir):
     print(indices.shape)
     mask = (
         (indices[..., 0] >= df["alpha"].min() * 0.5)
-        & (indices[..., 0] <= df["alpha"].max() * 1.5) &
-         (indices[..., 1] >= df["beta"].min() * 0.5)
+        & (indices[..., 0] <= df["alpha"].max() * 1.5)
+        & (indices[..., 1] >= df["beta"].min() * 0.5)
         & (indices[..., 1] <= df["beta"].max() * 1.5)
         & (indices[..., 2] >= df["sigma"].min() * 0.5)
         & (indices[..., 2] <= df["sigma"].max() * 1.5)
@@ -97,17 +98,16 @@ def viz_latent(df, params, p_y, metrics, indices, key, filename, figure_dir):
         fig.write_html(f"{figure_dir}/both_{filename}.html")
 
 
-def viz_plane(params, model, p_x, p_y, lookup, key, filename, figure_dir):
+def viz_plane(df, params, p_y, lookup, filename, figure_dir):
     filename = filename + "_plane"
-    df = do_inference(p_x, p_y, model.encoder, key)
-    betas = np.arange(BETA_SPACE[0], BETA_SPACE[1], BETA_SPACE[2])
-    sigmas = np.arange(SIGMA_SPACE[0], SIGMA_SPACE[1], SIGMA_SPACE[2])
-    alphas = np.array(df["alpha"].mean())
+    alphas = jnp.asarray(df["alpha"])
+    betas = jnp.asarray(df["beta"])
+    sigmas = jnp.asarray(df["sigma"])
     alpha_grid, beta_grid, sigma_grid = np.meshgrid(alphas, betas, sigmas, indexing="ij")
     param_grid = np.stack([alpha_grid.ravel(), beta_grid.ravel(), sigma_grid.ravel()], axis=1)
 
     metrics = (
-        lookup.hard_get_local(param_grid, temperatures=np.ones_like(param_grid) * 1e4)
+        lookup.hard_get_local(jnp.asarray(param_grid), temperatures=jnp.ones_like(param_grid) * 1e-4)
         .reshape(len(betas), len(sigmas), 2)
         .swapaxes(0, 1)[::-1, :, :]
     )
@@ -176,7 +176,7 @@ def to_input(df):
 
 @eqx.filter_jit
 def process_batch(x_batch, y_batch, model, enc_keys, direct=False):
-    temp_lookup, temp_label, thresholds = model.get_parameters()
+    temp_lookup, temp_label, thresholds = model.get_parameters(lam=1.0)
     alpha0, beta0, sigma0, _ = jax.vmap(model.encoder)(x_batch, dropout_keys=enc_keys)
 
     z0 = constrain_z(jnp.concatenate([alpha0, beta0, sigma0], axis=-1))
@@ -248,54 +248,31 @@ def do_inference(x, y, model, key):
             output_buffers[k] = output_buffers[k][:x_len]
 
     df = pl.DataFrame(output_buffers)
-    print(df)
     return df
 
 
 def process_sequence(x, y, model, key):
-    preds = []
-    temp_lookup, temp_label, thresholds, = model.get_parameters()
+    lookup_temp, label_temp, ordinal_thresholds = model.get_parameters(1.0)
 
-    alpha0, beta0, sigma0, h_next = model.encoder(x[0], dropout_keys=jnp.array(jr.split(key, 4)))
-    z0 = constrain_z(jnp.concatenate([alpha0, beta0, sigma0], axis=-1))
+    x = jnp.asarray(x)[None]
+    y = jnp.asarray(y)
+    z_seq = get_latent_seq(model, x, key=key)
+    concept_metrics = jax.vmap(lookup_table.hard_get_local, in_axes=(1, None))(z_seq, lookup_temp).swapaxes(
+        0, 1
+    )  # (T, batch, z_dim) -> (batch, T, z_dim)
 
-    pred_concepts = lookup_table.hard_get_local(z0[None, :], jnp.asarray(temp_lookup))
-    pred_sofa_logits = (pred_concepts[..., 0, None] - thresholds) / temp_lookup
-    pred_sofa = jnp.abs(jnp.argmin(jnp.abs(pred_sofa_logits), axis=1))
-    pred_infs = pred_concepts[:, 1]
-
-    preds.append({
-        "pred_sofa": np.asarray(pred_sofa),
-        "pred_infs": np.asarray(pred_infs),
-        "alpha": alpha0.squeeze(),
-        "beta": beta0.squeeze(),
-        "sigma": sigma0.squeeze(),
-        "true_sofa": y[0, 0],
-        "true_infs": y[0, 1],
+    pred_sofa = jnp.sum(concept_metrics[..., 0, None] > ordinal_thresholds, axis=-1)
+    pred_infs = concept_metrics[..., 1]
+    print(pred_sofa.shape, y[:, 0].shape)
+    df = pl.DataFrame({
+        "true_sofa": np.asarray(y[:, 0]),
+        "true_infs": np.asarray(y[:, 1]),
+        "alpha": np.asarray(z_seq[..., 0].flatten()),
+        "beta": np.asarray(z_seq[..., 1].flatten()),
+        "sigma": np.asarray(z_seq[..., 2].flatten()),
+        "pred_sofa": np.asarray(pred_sofa.flatten()),
+        "pred_infs": np.asarray(pred_infs.flatten()),
     })
-
-    # h_next = jnp.zeros((model.predictor.hidden_dim))
-    z_next = z0
-    for t in range(1, x.shape[0]):
-        z_prev = z_next
-        h_prev = h_next
-        z_next, h_next = model.predictor(z_prev, h_prev)
-        z_next = bound_z(z_next)
-
-        pred_concepts = lookup_table.hard_get_local(z_next[None, :], jnp.asarray(temp_lookup))
-        pred_sofa_logits = (pred_concepts[..., 0, None]- thresholds) / temp_lookup
-        pred_sofa = jnp.abs(jnp.argmin(jnp.abs(pred_sofa_logits), axis=1))
-        pred_infs = pred_concepts[:, 1]
-        preds.append({
-            "pred_sofa": np.asarray(pred_sofa),
-            "pred_infs": np.asarray(pred_infs),
-            "alpha": z_next[..., 0].squeeze(),
-            "beta": z_next[..., 1].squeeze(),
-            "sigma": z_next[..., 2].squeeze(),
-            "true_sofa": y[t, 0],
-            "true_infs": y[t, 1],
-        })
-    df = pl.DataFrame(preds)
     return df
 
 
@@ -333,6 +310,7 @@ if __name__ == "__main__":
         grid_spacing=spacing_3d,
     )
 
+    storage.close()
     if not metrics_3d:
         exit(0)
 
@@ -362,9 +340,16 @@ if __name__ == "__main__":
     ]
 
     # results = do_inference(to_input(test_x), to_input(test_y), model, key)
-    # scatter_concepts(results["true_sofa"], results["true_infs"], results["pred_sofa"], results["pred_infs"], figure_dir="figures/poster")
+    # scatter_concepts(
+    #     results["true_sofa"],
+    #     results["true_infs"],
+    #     results["pred_sofa"],
+    #     results["pred_infs"],
+    #     figure_dir="figures/poster",
+    # )
     # print(results.min())
     # print(results.max())
+    # plt.show()
 
     stay_counts = test_x.group_by("stay_id").len()
     sofa_std = test_y.group_by("stay_id").agg([pl.col("sofa").std().alias("sofa_std")])
@@ -377,15 +362,15 @@ if __name__ == "__main__":
         p_y = to_input(test_y.filter(pl.col("stay_id").is_in(sid)).sort("time"))
         df = process_sequence(p_x, p_y, model, key)
         print(df)
-    
+
     sid = np.random.choice(valids, 1)
     # sid = [244038]
     # sid = [260152]
     sid = [205200]
     # sid = [294100]
-    # sid = [209826]
+    # sid = [209826]drop_keys[:, 0]
     # sid = [226863]
-    sid =  [227512]
+    sid = [227512]
     p_x = to_input(test_x.filter(pl.col("stay_id").is_in(sid)).sort("time"))
     p_y = to_input(test_y.filter(pl.col("stay_id").is_in(sid)).sort("time"))
     print(p_x.shape)
@@ -397,16 +382,24 @@ if __name__ == "__main__":
     df = process_sequence(p_x, p_y, model, key)
     p_y = p_y[3:]
     df = df[3:, :]
-    viz_latent(
-        params=params,
-        df=df,
-        p_y=p_y,
-        metrics=metrics_3d,
-        indices=indices_3d,
-        key=key,
-        filename="latent_z",
-        figure_dir="figures/model",
-    )
+    # viz_plane(
+    #     params=params,
+    #     df=df,
+    #     p_y=p_y,
+    #     lookup=lookup_table,
+    #     filename="latent_z",
+    #     figure_dir="figures/model",
+    # )
+    # viz_latent(
+    #     params=params,
+    #     df=df,
+    #     p_y=p_y,
+    #     metrics=metrics_3d,
+    #     indices=indices_3d,
+    #     key=key,
+    #     filename="latent_z",
+    #     figure_dir="figures/model",
+    # )
 
     # valids = np.intersect1d(valid_stays.to_numpy(), valid_sofas.to_numpy())
     # for sid in valids:
@@ -422,5 +415,4 @@ if __name__ == "__main__":
     #         filename="latent_z",
     #         figure_dir="figures/model",
     #     )
-    storage.close()
     plt.show()

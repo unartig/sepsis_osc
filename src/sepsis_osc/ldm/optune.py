@@ -41,38 +41,55 @@ def make_objective(train_x_inner, train_y_inner, val_x_inner, val_y_inner, sofa_
     def objective(trial: Trial) -> float:
         jkey = jr.PRNGKey(jax_random_seed)
         # --- Tune hyperparameters ---
-        w_concept = trial.suggest_float("w_concept", 0, 200, log=False)
-        w_recon = trial.suggest_float("w_recon", 0, 50, log=False)
-        w_tc = trial.suggest_float("w_tc", 0, 200, log=False)
-        enc_hidden = trial.suggest_categorical("enc_hidden", [32, 64, 128, 256])
-        pred_hidden = trial.suggest_categorical("pred_hidden", [32, 64, 128, 256])
-        dec_hidden = trial.suggest_categorical("dec_hidden", [32, 64, 128, 256])
+        w_concept = trial.suggest_float("w_concept", 1e-5, 1000, log=True)
+        w_recon = trial.suggest_float("w_recon", 1e-5, 100, log=True)
+        w_tc = trial.suggest_float("w_tc", 1e-5, 100, log=True)
+        w_diff = trial.suggest_float("w_diff", 1e-5, 100, log=True)
+        w_accel = trial.suggest_float("w_accel", 1e-5, 100, log=True)
+        w_direction = trial.suggest_float("w_direction", 1e-5, 100, log=True)
+
+        enc_hidden = trial.suggest_categorical("enc_hidden", [16, 32, 64, 128, 256])
+        pred_hidden = trial.suggest_categorical("pred_hidden", [16, 32, 64, 128, 256])
+        dec_hidden = trial.suggest_categorical("dec_hidden", [16, 32, 64, 128, 256])
         # batch_size = trial.suggest_categorical("batch_size", [32, 64, 128, 256])
         # lr_peak = trial.suggest_float("lr_peak", 1e-5, 1e-1, log=True)
         # lr_end = trial.suggest_float("lr_end", 1e-7, 1e-3, log=True)
-        anneal_concept = trial.suggest_float("anneal_concept", 1, 5, log=False)
+        anneal_concept = trial.suggest_float("anneal_concept", 1, 100, log=False)
+        anneal_recon = trial.suggest_float("anneal_recon", 1, 100, log=False)
+        anneal_threshs = trial.suggest_float("anneal_threshs", 1, 100, log=False)
 
-        train_conf = TrainingConfig(
-            batch_size=512, epochs=150, window_len=6, perc_train_set=0.1, validate_every=1
-        )
+        train_conf = TrainingConfig(batch_size=128, epochs=150, window_len=6, perc_train_set=0.222, validate_every=1)
         loss_conf = LossesConfig(
             w_concept=w_concept,
             w_recon=w_recon,
             w_tc=w_tc,
-            anneal_concept_iter=anneal_concept * 1 / train_conf.perc_train_set,
+            w_accel=w_accel,
+            w_diff=w_diff,
+            w_direction=w_direction,
+            anneal_concept_iter=anneal_concept / train_conf.perc_train_set,
+            anneal_recon_iter=anneal_recon / train_conf.perc_train_set,
+            anneal_threshs_iter=anneal_threshs / train_conf.perc_train_set,
             concept=ConceptLossConfig(w_sofa=1.0, w_inf=0.0),
         )
 
         model_conf = ModelConfig(
-            latent_dim=3, input_dim=52, enc_hidden=enc_hidden, dec_hidden=dec_hidden, predictor_hidden=pred_hidden
+            latent_dim=3,
+            input_dim=52,
+            enc_hidden=enc_hidden,
+            dec_hidden=dec_hidden,
+            predictor_hidden=pred_hidden,
+            dropout_rate=0.3,
         )
-        lr_conf = LRConfig(
-            init=0.0, peak=1e-2, peak_decay=0.9, end=1e-10, warmup_epochs=15, enc_wd=1e-3, grad_norm=0.1
-        )
+        lr_conf = LRConfig(init=0.0, peak=1e-2, peak_decay=0.9, end=1e-10, warmup_epochs=15, enc_wd=1e-3, grad_norm=0.5)
 
         key_enc, key_dec, key_predictor = jr.split(jkey, 3)
         encoder = Encoder(
-            key_enc, model_conf.input_dim, model_conf.latent_dim, model_conf.enc_hidden, dtype=jnp.float32
+            key_enc,
+            model_conf.input_dim,
+            model_conf.latent_dim,
+            model_conf.enc_hidden,
+            model_conf.predictor_hidden,
+            dtype=jnp.float32,
         )
         decoder = Decoder(
             key_dec, model_conf.input_dim, model_conf.latent_dim, model_conf.dec_hidden, dtype=jnp.float32
@@ -94,7 +111,7 @@ def make_objective(train_x_inner, train_y_inner, val_x_inner, val_y_inner, sofa_
             init_value=lr_conf.init,
             peak_value=lr_conf.peak,
             warmup_steps=lr_conf.warmup_epochs * steps_per_epoch,
-            steps_per_cycle=[steps_per_epoch * n for n in [25, 25, 35, 50]],  # cycle durations
+            steps_per_cycle=[steps_per_epoch * n for n in [50]],  # cycle durations
             end_value=lr_conf.end,
             peak_decay=lr_conf.peak_decay,
         )
@@ -131,6 +148,7 @@ def make_objective(train_x_inner, train_y_inner, val_x_inner, val_y_inner, sofa_
                 val_model,
                 x_data=val_x,
                 y_data=val_y,
+                step=opt_state[1][0].count,
                 key=key,
                 lookup_func=lookup_table.hard_get_local,
                 loss_params=loss_conf,
@@ -187,18 +205,18 @@ if __name__ == "__main__":
     train_x, train_y, val_x, val_y, test_x, test_y = get_data_sets(window_len=6, dtype=jnp.float32)
     metrics = jnp.sort(lookup_table.relevant_metrics[..., 0])
     sofa_dist, _ = jnp.histogram(train_y[..., 0], bins=25, density=False)
-    sofa_dist = sofa_dist/jnp.sum(sofa_dist)
-    deltas= metrics[jnp.round(jnp.cumsum(sofa_dist) * len(metrics)).astype(dtype=jnp.int32)]
-    deltas = deltas/ jnp.sum(deltas)
-    deltas= jnp.asarray(deltas)
+    sofa_dist = sofa_dist / jnp.sum(sofa_dist)
+    deltas = metrics[jnp.round(jnp.cumsum(sofa_dist) * len(metrics)).astype(dtype=jnp.int32)]
+    deltas = deltas / jnp.sum(deltas)
+    deltas = jnp.asarray(deltas)
 
     study = optuna.create_study(
         direction="minimize",
         storage="sqlite:///data/db.sqlite3",  # Specify the storage URL here.
-        study_name="der_wahre",
+        study_name="der_wahre2",
         load_if_exists=True,
         sampler=optuna.samplers.TPESampler(),
-        pruner=optuna.pruners.PatientPruner(optuna.pruners.MedianPruner(), patience=25),
+        pruner=optuna.pruners.PatientPruner(optuna.pruners.MedianPruner(), patience=15),
     )
     # dataset_fraction_callback = DatasetFractionCallback(total_trials=TOTAL_TRIALS)
     study.optimize(make_objective(train_x, train_y, val_x, val_y, sofa_dist[:-1], deltas), n_trials=TOTAL_TRIALS)

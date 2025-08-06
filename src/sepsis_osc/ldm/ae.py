@@ -3,7 +3,8 @@ import logging
 import equinox as eqx
 import jax
 import jax.numpy as jnp
-from jaxtyping import Array, Float
+from beartype import beartype as typechecker
+from jaxtyping import Array, Float, jaxtyped
 
 logger = logging.getLogger(__name__)
 
@@ -41,6 +42,7 @@ class Encoder(eqx.Module):
     input_dim: int
     latent_dim: int
     enc_hidden: int
+    pred_hidden: int
     dropout_rate: float
 
     def __init__(
@@ -49,7 +51,8 @@ class Encoder(eqx.Module):
         input_dim: int,
         latent_dim: int,
         enc_hidden: int,
-        dropout_rate: float = 0.3,
+        pred_hidden: int,
+        dropout_rate: float = 0.2,
         dtype=jnp.float32,
     ):
         (
@@ -70,6 +73,7 @@ class Encoder(eqx.Module):
         self.input_dim = input_dim
         self.latent_dim = latent_dim
         self.enc_hidden = enc_hidden
+        self.pred_hidden = pred_hidden
         self.dropout_rate = dropout_rate
 
         # Initial layers
@@ -97,11 +101,12 @@ class Encoder(eqx.Module):
         self.alpha_layer = eqx.nn.Linear(enc_hidden, 1, key=key_alpha, dtype=dtype)
         self.beta_layer = eqx.nn.Linear(enc_hidden, 1, key=key_beta, dtype=dtype)
         self.sigma_layer = eqx.nn.Linear(enc_hidden, 1, key=key_sigma, dtype=dtype)
-        self.h_layer = eqx.nn.Linear(enc_hidden, enc_hidden, key=key_sigma, dtype=dtype)
+        self.h_layer = eqx.nn.Linear(enc_hidden, pred_hidden, key=key_sigma, dtype=dtype)
 
+    @jaxtyped(typechecker=typechecker)
     def __call__(
-        self, x: Float[Array, "input_dim"], *, dropout_keys: jnp.ndarray
-    ) -> tuple[Float[Array, "1"], Float[Array, "1"], Float[Array, "1"], Float[Array, "1"]]:
+        self, x: Float[Array, " input_dim"], *, dropout_keys: jnp.ndarray
+    ) -> tuple[Float[Array, "1"], Float[Array, "1"], Float[Array, "1"], Float[Array, " pred_hidden"]]:
         k1, k2, k3, k4 = dropout_keys
 
         # === Initial Layers ===
@@ -122,9 +127,6 @@ class Encoder(eqx.Module):
 
         attn_weights = jax.nn.softmax(query * key, axis=-1)
         x_attended = attn_weights * value
-        # attention_scores = self.attention_layer(x_hidden)
-        # attention_weights = jax.nn.softmax(attention_scores, axis=-1)
-        # x_attended = x * attention_weights
 
         x_combined = jnp.concatenate([x_hidden, x_attended], axis=-1)
         x_combined = self.post_attention_dropout(x_combined, key=k3)
@@ -142,8 +144,7 @@ class Encoder(eqx.Module):
             jax.nn.sigmoid(self.alpha_layer(x_final_enc)),
             jax.nn.sigmoid(self.beta_layer(x_final_enc)),
             jax.nn.sigmoid(self.sigma_layer(x_final_enc)),
-            jax.nn.tanh(self.h_layer(x_final_enc))
-            # x_final_enc
+            jax.nn.tanh(self.h_layer(x_final_enc)),
         )
 
 
@@ -167,7 +168,8 @@ class Decoder(eqx.Module):
             jax.nn.tanh,
         ]
 
-    def __call__(self, z: Float[Array, "batch latent_dim"]) -> Float[Array, "batch input_dim"]:
+    @jaxtyped(typechecker=typechecker)
+    def __call__(self, z: Float[Array, " latent_dim"]) -> Float[Array, " input_dim"]:
         z = z.reshape(
             self.latent_dim,
         )
@@ -254,8 +256,8 @@ def init_decoder_weights(decoder: Decoder, key: jnp.ndarray):
     return decoder
 
 
-def make_encoder(key, input_dim: int, latent_dim: int, enc_hidden: int, dropout_rate: float):
-    return Encoder(key, input_dim, latent_dim, enc_hidden, dropout_rate=dropout_rate)
+def make_encoder(key, input_dim: int, latent_dim: int, enc_hidden: int, pred_hidden: int, dropout_rate: float):
+    return Encoder(key, input_dim, latent_dim, enc_hidden,pred_hidden=pred_hidden, dropout_rate=dropout_rate)
 
 
 def make_decoder(key, input_dim: int, latent_dim: int, dec_hidden: int):
