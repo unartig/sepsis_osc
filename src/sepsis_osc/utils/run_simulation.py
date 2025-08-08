@@ -62,7 +62,7 @@ def solve(
         max_steps=int(1e6),
         saveat=SaveAt(t0=True, ts=jnp.arange(T_init, T_max, T_step), fn=save_method),
         progress_meter=TqdmProgressMeter() if progress_bar else NoProgressMeter(),
-        event=Event(cond_fn=make_check(eps_dm=1e-10, eps_v=1e-10, t_min=int(0.05*T_max))) if steady_state_check else None
+        event=Event(cond_fn=make_check(eps_dm=1e-10, eps_v=1e-10, eps_dv=7.5e-5, t_min=int(0.05*T_max))) if steady_state_check else None
     )
     return result
 
