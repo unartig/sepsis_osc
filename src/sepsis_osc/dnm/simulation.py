@@ -1,13 +1,11 @@
 from collections.abc import Callable
-from dataclasses import asdict
 from typing import Optional
 
 import equinox as eqx
 import jax.numpy as jnp
 import jax.random as jr
 from equinox.debug import assert_max_traces
-from jax import jit, vmap
-from jax.tree import map as tree_map
+from jax import vmap
 from jaxtyping import ScalarLike
 
 from sepsis_osc.dnm.data_classes import SystemMetrics, SystemState
@@ -227,10 +225,7 @@ def make_metric_save(deriv) -> Callable:
     return metric_save
 
 
-import jax
-
-
-def make_check(eps_dm=1e-3, eps_v=1e-4, t_min=1.0):
+def make_check(eps_dm=1e-3, eps_v=1e-4, eps_dv=5e-5, t_min=1.0):
     def check(t, y, args, **kwargs):
         is_late = t > t_min
 
@@ -246,11 +241,9 @@ def make_check(eps_dm=1e-3, eps_v=1e-4, t_min=1.0):
 
         is_const = is_m1_small & is_v1_small & is_m2_small & is_v2_small
 
-        eps_dv = 1e-4
         ddv1 = jnp.abs(y.dv_1 - y.v_1p)
         ddv2 = jnp.abs(y.dv_2 - y.v_2p)
         is_energy_plateau = (ddv1.max() < eps_dv) & (ddv2.max() < eps_dv)
-        jax.debug.print("dd1 {x} dd2 {y}", x=ddv1.max(), y=ddv2.max())
 
         is_energy_plateau = (ddv1.max() < eps_dv) & (ddv2.max() < eps_dv)
         is_const_high_energy = is_energy_plateau & ((y.v_1.max() >= eps_v) | (y.v_2.max() >= eps_v))
