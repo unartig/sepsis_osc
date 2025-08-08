@@ -1,12 +1,13 @@
 from dataclasses import dataclass, fields
 from typing import Optional
 
+import equinox as eqx
 import jax
 import jax.numpy as jnp
 import jax.tree_util as jtu
 import numpy as np
 from beartype import beartype as typechecker
-from equinox import filter_jit, field
+from equinox import field, filter_jit
 from jaxtyping import Array, Float, jaxtyped
 from numpy.typing import DTypeLike
 from scipy.ndimage import uniform_filter1d
@@ -25,8 +26,8 @@ class SystemConfig:
     alpha: float  # phase lag
     beta: float  # plasticity (age parameter)
     sigma: float  # interlayer coupling
+    tau: float = 0.5
     T_init: Optional[int] = None
-    T_trans: Optional[int] = None
     T_max: Optional[int] = None
     T_step: Optional[int] = None
 
@@ -45,6 +46,7 @@ class SystemConfig:
         jomega_1_i = jnp.ones((self.N,), jnp.float64) * self.omega_1
         jomega_2_i = jnp.ones((self.N,), jnp.float64) * self.omega_2
         jsigma = jnp.array(self.sigma, jnp.float64)
+        jtau = jnp.array(self.tau)
         return (
             ja_1_ij,
             jsin_alpha,
@@ -57,6 +59,7 @@ class SystemConfig:
             jsigma,
             jomega_1_i,
             jomega_2_i,
+            jtau,
         )
 
     @property
@@ -116,33 +119,47 @@ class SystemConfig:
 
 
 @jaxtyped(typechecker=typechecker)
-@dataclass
-class SystemState:
+# @dataclass
+class SystemState(eqx.Module):
     # NOTE shapes: Ensemble Simulation | Single Simulation | Visualisations
     phi_1: Float[Array, "*t ensemble N"] | Float[Array, " N"] | np.ndarray | object
     phi_2: Float[Array, "*t ensemble N"] | Float[Array, " N"] | np.ndarray | object
     kappa_1: Float[Array, "*t ensemble N N"] | Float[Array, "N N"] | np.ndarray | object
     kappa_2: Float[Array, "*t ensemble N N"] | Float[Array, "N N"] | np.ndarray | object
 
-    # Required for JAX to recognize it as a PyTree
-    def tree_flatten(self):
-        return (self.phi_1, self.phi_2, self.kappa_1, self.kappa_2), None
+    m_1: Float[Array, "*t ensemble"] | object
+    m_2: Float[Array, "*t ensemble"] | object
+    v_1: Float[Array, "*t ensemble"] | object
+    v_2: Float[Array, "*t ensemble"] | object
 
-    @classmethod
-    def tree_unflatten(cls, aux_data, children):
-        return cls(*children)
+    v_1p: Float[Array, "*t ensemble"] | object
+    v_2p: Float[Array, "*t ensemble"] | object
+    dv_1: Float[Array, "*t ensemble"] | object
+    dv_2: Float[Array, "*t ensemble"] | object
+
+    def tree_flatten(self):
+        children = tuple(getattr(self, f.name) for f in fields(self))
+        return children, None
 
     @property
     def shape(self):
         return jax.tree.map(lambda x: x.shape if x is not None else None, self.__dict__)
 
     def enforce_bounds(self) -> "SystemState":
-        self.phi_1 = self.phi_1 % (2 * jnp.pi)
-        self.phi_2 = self.phi_2 % (2 * jnp.pi)
-        # its written but not actually done
-        # self.kappa_1 = jnp.clip(self.kappa_1, -1, 1)
-        # self.kappa_2 = jnp.clip(self.kappa_2, -1, 1)
-        return self
+        return SystemState(
+            phi_1=self.phi_1 % (2 * jnp.pi),
+            phi_2=self.phi_2 % (2 * jnp.pi),
+            kappa_1=self.kappa_1,  # or clipped if you want
+            kappa_2=self.kappa_2,
+            m_1=self.m_1,
+            v_1=self.v_1,
+            m_2=self.m_2,
+            v_2=self.v_2,
+            v_1p=self.v_1p,
+            v_2p=self.v_2p,
+            dv_1=self.dv_1,
+            dv_2=self.dv_2,
+        )
 
     def last(self) -> "SystemState":
         return jax.tree.map(lambda x: x[-1], self)
@@ -167,12 +184,7 @@ class SystemState:
         return jax.tree.map(lambda x: x[combined_mask], self)
 
     def copy(self) -> "SystemState":
-        return SystemState(self.phi_1, self.phi_2, self.kappa_1, self.kappa_2)
-
-
-# Register SystemState as a JAX PyTree
-jtu.register_pytree_node(SystemState, SystemState.tree_flatten, SystemState.tree_unflatten)
-
+        return jax.tree.map(lambda x: x, self)
 
 
 @dataclass
@@ -239,15 +251,21 @@ class SystemMetrics:
             is_valid(self.q_2),
             is_valid(self.f_1),
             is_valid(self.f_2),
-            is_valid(self.sr_1) if hasattr(self, "sr_1") else None,
-            is_valid(self.sr_2) if hasattr(self, "sr_2") else None,
+            is_valid(self.sr_1) if self.sr_1 is not None else None,
+            is_valid(self.sr_2) if self.sr_2 is not None else None,
         ]
 
         masks = jnp.asarray([m for m in masks if m is not None])
         combined_mask = jnp.logical_and.reduce(masks)
 
+        if not combined_mask.any():
+            return jax.tree.map(
+                lambda x: x[:0] if x is not None and x.shape[0] == combined_mask.shape[0] else x,
+                self,
+            )
+
         return jax.tree.map(
-            lambda x: x[combined_mask] if x is not None and x.shape[0] == combined_mask.shape[0] else x,
+            lambda x: x[combined_mask] if x is not None and x.size > 1 else x,
             self,
         )
 
@@ -255,14 +273,7 @@ class SystemMetrics:
         if self.sr_1 is None and self.r_1.size > 1:
             self.sr_1 = jnp.sum(self.r_1 < 0.2, axis=-1) / self.r_1.shape[-1]
             self.sr_2 = jnp.sum(self.r_2 < 0.2, axis=-1) / self.r_2.shape[-1]
-            std_over_time = jnp.std(self.r_1, axis=1)
-            smoothed_std = uniform_filter1d(std_over_time, size=10)
-            threshold = jnp.percentile(smoothed_std, jnp.clip((self.r_1[-1].std() * 100) ** 2, 1, 10))
-            transient_end_candidates = np.where(smoothed_std < threshold)[0]
-            if len(transient_end_candidates) > 0:
-                self.tt = transient_end_candidates.max()
-            else:
-                self.tt = jnp.array([self.r_1.shape[0]])
+            self.tt = jnp.array([self.r_1.shape[0]]) - 1
         return self
 
     def as_single(self) -> "SystemMetrics":
@@ -270,7 +281,6 @@ class SystemMetrics:
             return self
 
         self.add_follow_ups()
-        print(self.shape)
         return SystemMetrics(
             r_1=jnp.mean(jnp.asarray(self.r_1)[..., -1, :], axis=(-1,)),
             r_2=jnp.mean(jnp.asarray(self.r_2)[..., -1, :], axis=(-1,)),
@@ -302,6 +312,9 @@ class SystemMetrics:
 
     def astype(self, dtype: jnp.dtype = jnp.float32) -> "SystemMetrics":
         return jax.tree.map(lambda x: x.astype(dtype) if x is not None else None, self)
+
+    def squeeze(self) -> "SystemMetrics":
+        return jax.tree.map(lambda x: x.squeeze() if x is not None else None, self)
 
 
 jtu.register_pytree_node(SystemMetrics, SystemMetrics.tree_flatten, SystemMetrics.tree_unflatten)

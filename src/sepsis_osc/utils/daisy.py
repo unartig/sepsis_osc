@@ -12,6 +12,7 @@ from diffrax import (
     SaveAt,
     Dopri5,  # Dopri5 same as MATLAB ode45
     Tsit5,
+    Dopri8,
 )
 
 from sepsis_osc.dnm.data_classes import SystemConfig
@@ -32,7 +33,7 @@ if __name__ == "__main__":
     np.set_printoptions(suppress=True, linewidth=120)
 
     rand_key = jr.key(jax_random_seed)
-    num_parallel_runs = 50
+    num_parallel_runs = 100
     rand_keys = jr.split(rand_key, num_parallel_runs)
 
     metric_save = make_metric_save(system_deriv)
@@ -41,31 +42,32 @@ if __name__ == "__main__":
     term = ODETerm(system_deriv)
     stepsize_controller = PIDController(rtol=1e-3, atol=1e-6)
 
-    beta_step = 0.02
-    betas = np.arange(0.0, 0.5, beta_step)
-    sigma_step = 0.04
-    sigmas = np.arange(0.0, 2.0, sigma_step)
-    alpha_step = 0.04
-    alphas = jnp.array([-0.28])  # np.arange(-1.0, 1.0, alpha_step)
+    beta_step = 0.01
+    betas = np.arange(0.0, 1, beta_step)
+    sigma_step = 0.02
+    sigmas = np.arange(0.0, 1.5, sigma_step)
+    alpha_step = 0.1
+    alphas = jnp.array([-0.28]) # jnp.array([-1.0, -0.76, -0.52, -0.28, 0.0, 0.28, 0.52, 0.76, 1.0])
     T_max_base = 1000
     T_step_base = 10
-
+    total = len(betas) * len(sigmas) * len(alphas)
     logger.info(
         f"Starting to map parameter space of "
         f"{len(betas)} beta, "
         f"{len(sigmas)} sigma, "
         f"{len(alphas)} alpha, "
-        f"total {len(betas) * len(sigmas) * len(alphas)}"
+        f"total {total}"
     )
 
-    overwrite = False
-    db_str = "Steady"
+    overwrite = True
+    db_str = "Daisy2"
     storage = Storage(
         key_dim=9,
         metrics_kv_name=f"data/{db_str}SepsisMetrics.db/",
         parameter_k_name=f"data/{db_str}SepsisParameters_index.bin",
         use_mem_cache=True,
     )
+    i = 0
     for alpha in alphas:
         for beta in betas:
             for sigma in sigmas:
@@ -83,9 +85,9 @@ if __name__ == "__main__":
                     beta=float(beta),  # age parameter
                     sigma=float(sigma),
                     T_init=0,
-                    T_trans=0,
                     T_max=T_max_base,
                     T_step=T_step_base,
+                    tau=0.5
                 )
                 logger.info(f"New config {run_conf.as_index}")
                 if not storage.read_result(run_conf.as_index, threshold=0.0) or overwrite:
@@ -96,7 +98,6 @@ if __name__ == "__main__":
                     # shape (num_parallel_runs, state)
                     sol = solve(
                         run_conf.T_init,
-                        run_conf.T_trans,
                         run_conf.T_max,
                         run_conf.T_step,
                         init_conditions,
@@ -105,11 +106,13 @@ if __name__ == "__main__":
                         term,
                         stepsize_controller,
                         metric_save,
-                        steady_state_check=True
+                        steady_state_check=True,
+                        progress_bar=False,
                     )
                     logger.info(f"Solved in {sol.stats['num_steps']} steps")
                     if sol.ys:
-                        logger.info("Saving Result")
-                        storage.add_result(run_conf.as_index, sol.ys.copy(), overwrite=overwrite)
+                        logger.info(f"Saving Result {i}/{total} - {100*i/total:.2f}%")
+                        storage.add_result(run_conf.as_index, sol.ys.remove_infs().copy(), overwrite=overwrite)
+                    i += 1
             storage.write()
 

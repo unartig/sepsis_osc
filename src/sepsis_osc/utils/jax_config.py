@@ -18,6 +18,8 @@ def setup_jax(simulation: bool = True):
         "--xla_gpu_enable_cublaslt=true "
         "--xla_gpu_autotune_level=4 "  # https://docs.nvidia.com/deeplearning/frameworks/tensorflow-user-guide/index.html#xla-autotune
         "--xla_gpu_exhaustive_tiling_search=true "
+        "--xla_gpu_enable_command_buffer='' "
+        
         if simulation
         else ""
     )
