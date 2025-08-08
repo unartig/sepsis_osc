@@ -14,6 +14,7 @@ from diffrax import (
     PIDController,
     SaveAt,
     TqdmProgressMeter,
+    NoProgressMeter,
     # solver - from most to least accurate / slow to fast
     Dopri8,
     Dopri5,  # Dopri5 same as MATLAB ode45
@@ -38,7 +39,6 @@ from sepsis_osc.utils.logger import setup_logging
 @filter_jit
 def solve(
     T_init,
-    T_trans,
     T_max,
     T_step,
     batched_init_condition,
@@ -48,9 +48,8 @@ def solve(
     stepsize_controller,
     save_method,
     steady_state_check,
+    progress_bar=True,
 ):
-
-    eps = 1e-3
     result = diffeqsolve(
         term,
         solver,
@@ -60,10 +59,10 @@ def solve(
         t1=T_max,
         dt0=T_step,
         stepsize_controller=stepsize_controller,
-        max_steps=int(1e12),
-        saveat=SaveAt(t0=True, ts=jnp.arange(T_trans, T_max, T_step), fn=save_method),
-        progress_meter=TqdmProgressMeter(),
-        event=Event(cond_fn=make_check(system_deriv, eps, eps)) if steady_state_check else None
+        max_steps=int(1e6),
+        saveat=SaveAt(t0=True, ts=jnp.arange(T_init, T_max, T_step), fn=save_method),
+        progress_meter=TqdmProgressMeter() if progress_bar else NoProgressMeter(),
+        event=Event(cond_fn=make_check(eps_dm=1e-10, eps_v=1e-10, t_min=int(0.05*T_max))) if steady_state_check else None
     )
     return result
 
@@ -112,8 +111,8 @@ if __name__ == "__main__":
                     alpha=-0.28,  # phase lage
                     beta=float(beta),  # age parameter
                     sigma=float(sigma),
+                    tau=0.5,
                     T_init=0,
-                    T_trans=0,
                     T_max=1000,
                     T_step=10,
                 )
@@ -127,7 +126,6 @@ if __name__ == "__main__":
                     # shape (num_parallel_runs, state)
                     sol = solve(
                         run_conf.T_init,
-                        run_conf.T_trans,
                         run_conf.T_max,
                         run_conf.T_step,
                         init_conditions.copy(),

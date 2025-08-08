@@ -2,12 +2,12 @@ from collections.abc import Callable
 from dataclasses import asdict
 from typing import Optional
 
-from jax import jit
-from jax import vmap
-from jax.tree import map as tree_map
+import equinox as eqx
 import jax.numpy as jnp
 import jax.random as jr
 from equinox.debug import assert_max_traces
+from jax import jit, vmap
+from jax.tree import map as tree_map
 from jaxtyping import ScalarLike
 
 from sepsis_osc.dnm.data_classes import SystemMetrics, SystemState
@@ -37,16 +37,19 @@ def generate_init_conditions_fixed(N: int, beta: float, C: int) -> Callable:
             phi_2=phi_2_init,
             kappa_1=kappa_1_init,
             kappa_2=kappa_2_init,
+            m_1=kappa_1_init.mean(),
+            m_2=kappa_2_init.mean(),
+            v_1=kappa_1_init.var(),
+            v_2=kappa_2_init.var(),
+            v_1p=kappa_1_init.var(),
+            v_2p=kappa_2_init.var(),
+            dv_1=jnp.array(0),
+            dv_2=jnp.array(0),
         )
 
     return inner
 
 
-def stack_system_state(states: tuple[SystemState]) -> SystemState:
-    return tree_map(lambda *xs: jnp.stack(xs), *states)
-
-
-@jit
 # @assert_max_traces(max_traces=20)  # TODO: why is it traced that often?
 def system_deriv(
     t: ScalarLike,
@@ -65,15 +68,24 @@ def system_deriv(
         jsigma,
         jomega_1_i,
         jomega_2_i,
+        jtau,
     ) = args
 
+    @eqx.filter_jit(inline=True)
     def single_system_deriv(
         phi_1,
         phi_2,
         kappa_1,
         kappa_2,
+        m_1,
+        m_2,
+        v_1,
+        v_2,
+        v_1p,
+        v_2p,
+        dv_1p,
+        dv_2p,
     ) -> SystemState:
-        print(phi_1.shape)
         # sin/cos in radians
         # https://mediatum.ub.tum.de/doc/1638503/1638503.pdf
         sin_phi_1, cos_phi_1 = jnp.sin(phi_1), jnp.cos(phi_1)
@@ -88,7 +100,7 @@ def system_deriv(
         sin_phi_1_diff_alpha = sin_diff_phi_1 * cos_alpha + cos_diff_phi_1 * sin_alpha
         sin_phi_2_diff_alpha = sin_diff_phi_2 * cos_alpha + cos_diff_phi_2 * sin_alpha
 
-        # (phi1 (bxN), phi2 (bxN), k1 (bxNxN), k2 (bxNxN)))
+        # (phi1 (N), phi2 (N), k1 (NxN), k2 (NxN)))
         phi_1 = (
             jomega_1_i
             - adj * jnp.einsum("ij,ij->i", (ja_1_ij + kappa_1), sin_phi_1_diff_alpha)
@@ -102,13 +114,26 @@ def system_deriv(
         kappa_1 = -jepsilon_1 * (kappa_1 + (sin_diff_phi_1 * cos_beta - cos_diff_phi_1 * sin_beta))
         kappa_2 = -jepsilon_2 * (kappa_2 + (sin_diff_phi_2 * cos_beta - cos_diff_phi_2 * sin_beta))
 
-        return SystemState(phi_1=phi_1, phi_2=phi_2, kappa_1=kappa_1.squeeze(), kappa_2=kappa_2.squeeze())
+        kmean1 = jnp.mean(kappa_1)
+        kmean2 = jnp.mean(kappa_2)
 
+        return SystemState(
+            phi_1=phi_1,
+            phi_2=phi_2,
+            kappa_1=kappa_1.squeeze(),
+            kappa_2=kappa_2.squeeze(),
+            m_1=(kmean1 - m_1) / jtau,
+            m_2=(kmean2 - m_2) / jtau,
+            v_1=((kmean1 - m_1) ** 2 - v_1) / jtau,
+            v_2=((kmean2 - m_2) ** 2 - v_2) / jtau,
+            v_1p=v_1,
+            v_2p=v_2,
+            dv_1=(v_1 -(((kmean1 - m_1) ** 2 - v_1) / jtau)),
+            dv_2=(v_2 -(((kmean2 - m_2) ** 2 - v_2) / jtau)),
+        )
 
-    print(y.shape)
-    p1, p2, k1, k2 = y.tree_flatten()[0]
-    print(p1.shape, p1)
-    batched_results = vmap(single_system_deriv)(p1, p2, k1, k2)
+    batched_results = vmap(single_system_deriv)(*y.tree_flatten()[0])
+
     return batched_results
 
 
@@ -159,7 +184,7 @@ def phase_entropy(phis, num_bins=36) -> jnp.ndarray:
 
 def make_metric_save(deriv) -> Callable:
     def metric_save(t: ScalarLike, y: SystemState, args: tuple[jnp.ndarray, ...]):
-        y.enforce_bounds()
+        y = y.enforce_bounds()
 
         ###### Kuramoto Order Parameter
         r_1 = jnp.abs(jnp.mean(jnp.exp(1j * y.phi_1), axis=-1))
@@ -202,16 +227,33 @@ def make_metric_save(deriv) -> Callable:
     return metric_save
 
 
-def make_check(deriv, l1t, l2t):
-    def max_metric(angles, axis=-1):
-        return std_angle(angles, axis).max()
+import jax
 
-    def check_grad_metric(t, y, args, **kwargs):
-        dy = deriv(0, y, args)
-        grad_metric = grad(max_metric)
-        gl1t = grad_metric(dy.phi_1, axis=-1)
-        gl2t = grad_metric(dy.phi_2, axis=-1)
 
-        return jnp.asarray([(gl1t < l1t).all(), (gl2t < l2t).all()]).all()
+def make_check(eps_dm=1e-3, eps_v=1e-4, t_min=1.0):
+    def check(t, y, args, **kwargs):
+        is_late = t > t_min
 
-    return check_grad_metric
+        # Compute errors per batch
+        err_m1 = jnp.abs((jnp.mean(y.kappa_1) - y.m_1) / 0.5)
+        err_m2 = jnp.abs((jnp.mean(y.kappa_2) - y.m_2) / 0.5)
+
+        is_m1_small = (jnp.abs(err_m1).max() < eps_dm) | (jnp.abs(err_m1 - 1).max() < eps_dm)
+        is_m2_small = (jnp.abs(err_m2).max() < eps_dm) | (jnp.abs(err_m2 - 1).max() < eps_dm)
+
+        is_v1_small = y.v_1.max() < eps_v
+        is_v2_small = y.v_2.max() < eps_v
+
+        is_const = is_m1_small & is_v1_small & is_m2_small & is_v2_small
+
+        eps_dv = 1e-4
+        ddv1 = jnp.abs(y.dv_1 - y.v_1p)
+        ddv2 = jnp.abs(y.dv_2 - y.v_2p)
+        is_energy_plateau = (ddv1.max() < eps_dv) & (ddv2.max() < eps_dv)
+        jax.debug.print("dd1 {x} dd2 {y}", x=ddv1.max(), y=ddv2.max())
+
+        is_energy_plateau = (ddv1.max() < eps_dv) & (ddv2.max() < eps_dv)
+        is_const_high_energy = is_energy_plateau & ((y.v_1.max() >= eps_v) | (y.v_2.max() >= eps_v))
+        return (is_const | is_const_high_energy) & is_late
+
+    return check

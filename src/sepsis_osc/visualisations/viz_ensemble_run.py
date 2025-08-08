@@ -38,7 +38,7 @@ if __name__ == "__main__":
     stepsize_controller = PIDController(rtol=1e-3, atol=1e-6)
 
     #### Parameters
-    N = 100
+    N = 200
     run_conf = SystemConfig(
         N=N,
         C=int(0.2 * N),  # local infection
@@ -48,10 +48,10 @@ if __name__ == "__main__":
         epsilon_1=0.03,  # adaption rate
         epsilon_2=0.3,  # adaption rate
         alpha=-0.28,  # phase lage
-        beta=0.666,  # age parameter
-        sigma=0.42,
+        beta=1.,  # age parameter
+        sigma=1.,
+        tau=0.5,
         T_init=0,
-        T_trans=0,
         T_max=1000,
         T_step=10,
     )
@@ -60,7 +60,6 @@ if __name__ == "__main__":
     init_conditions = vmap(generate_init_conditions)(rand_keys)
     sol = solve(
         run_conf.T_init,
-        run_conf.T_trans,
         run_conf.T_max,
         run_conf.T_step,
         init_conditions.copy(),
@@ -74,7 +73,7 @@ if __name__ == "__main__":
     if not sol.ys or not run_conf.T_max:
         exit(0)
     metrics = sol.ys
-    metrics = metrics.add_follow_ups().remove_infs()
+    metrics = metrics.remove_infs().add_follow_ups()
     ts = np.asarray(sol.ts).squeeze()
     ts = ts[~jnp.isinf(ts)]
     print(metrics.shape)

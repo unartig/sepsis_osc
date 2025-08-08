@@ -7,6 +7,7 @@ import numpy as np
 from sepsis_osc.dnm.data_classes import SystemConfig, SystemMetrics
 from sepsis_osc.storage.storage_interface import Storage
 from sepsis_osc.utils.logger import setup_logging
+from sepsis_osc.ldm.model_utils import as_2d_indices
 
 setup_logging()
 logger = logging.getLogger(__name__)
@@ -42,7 +43,7 @@ def space_plot(metric, xs, ys, title, filename, figure_dir, fs=(6, 4)):
     fig, ax = plt.subplots(1, 1, figsize=fs)
 
     # Enhanced heatmap plotting
-    im = ax.imshow(metric, cmap="viridis")
+    im = ax.imshow(metric.T[::-1, :], cmap="viridis")
 
     # Clearer titles and labels
     ax.set_title(f"{title}\nParenchymal Layer", fontsize=14)
@@ -64,8 +65,8 @@ def pretty_plot(metric_parenchymal, metric_immune, title, filename, figure_dir, 
     fig, axes = plt.subplots(2, 1, figsize=fs)
 
     # Enhanced heatmap plotting
-    im0 = axes[0].imshow(metric_parenchymal, aspect="auto", cmap="viridis")
-    im1 = axes[1].imshow(metric_immune, aspect="auto", cmap="viridis")
+    im0 = axes[0].imshow(metric_parenchymal.T[::-1, :], aspect="auto", cmap="viridis")
+    im1 = axes[1].imshow(metric_immune.T[::-1, :], aspect="auto", cmap="viridis")
 
     # Clearer titles and labels
     axes[0].set_title(f"{title}\nParenchymal Layer", fontsize=14)
@@ -83,10 +84,10 @@ def pretty_plot(metric_parenchymal, metric_immune, title, filename, figure_dir, 
         a.set_xticklabels([f"{val:.2f}" for val in xs[xtick_positions]], rotation=45)
         a.set_yticks(ytick_positions)
         a.set_yticklabels([f"{val:.2f}" for val in ys[ytick_positions]][::-1])
-        a.plot(orig_xs, [orig_ys[0], orig_ys[0]], color="white", linewidth=0.5)
-        a.plot(orig_xs, [orig_ys[1], orig_ys[1]], color="white", linewidth=0.5)
-        a.plot([orig_xs[0], orig_xs[0]], orig_ys, color="white", linewidth=0.5)
-        a.plot([orig_xs[1], orig_xs[1]], orig_ys, color="white", linewidth=0.5)
+        a.plot([orig_xs[0], orig_xs[1]], [orig_ys[0], orig_ys[0]], color="white", linewidth=0.5)
+        a.plot([orig_xs[0], orig_xs[1]], [orig_ys[1], orig_ys[1]], color="white", linewidth=0.5)
+        a.plot([orig_xs[0], orig_xs[0]], [orig_ys[0], orig_ys[1]], color="white", linewidth=0.5)
+        a.plot([orig_xs[1], orig_xs[1]], [orig_ys[0], orig_ys[1]], color="white", linewidth=0.5)
 
     # Add a colorbar to each subplot
     fig.colorbar(im0, ax=axes[0], location="right", shrink=0.8)
@@ -101,58 +102,39 @@ def pretty_plot(metric_parenchymal, metric_immune, title, filename, figure_dir, 
 
 if __name__ == "__main__":
 
-# xs_step = 0.00303030303030305
-    # ys_step = 0.01515151515151515
-    xs_step = 0.02
-    ys_step = 0.04
-    # xs = np.arange(0.0, 1.5, xs_step)
-    # ys = np.arange(0.0, 1.5, ys_step)
-    xs = np.arange(0.2, 1.5, xs_step)
-    ys = np.arange(0.0, 1.5, ys_step)
-    alphas = np.arange(0.0, 1.0, 0.04)
-    print(alphas)
-
+    # ALPHA_SPACE = (-0.52, -0.52, 1.0)
+    BETA_SPACE = (0.2, 2.0, 0.02)
+    SIGMA_SPACE = (0.0, 2.0, 0.04)
+    xs = np.arange(*BETA_SPACE)
+    ys = np.arange(*SIGMA_SPACE)
+    
     orig_xs = [np.argmin(np.abs(xs - x)) for x in [0.4, 0.7]]
     orig_ys = [len(ys) - np.argmin(np.abs(ys - y)) - 1 for y in [0.0, 1.5]]
-
-    size = (len(ys), len(xs))
-    db_str = "Daisy"  # other/Tiny"
+    
+    db_str = "Steady1_3"  # other/Tiny"
     storage = Storage(
         key_dim=9,
         metrics_kv_name=f"data/{db_str}SepsisMetrics.db/",
         parameter_k_name=f"data/{db_str}SepsisParameters_index.bin",
         use_mem_cache=False,
     )
-    params = np.ndarray((*size, 9))
+    b, s = as_2d_indices(BETA_SPACE, SIGMA_SPACE)
+    a = np.ones_like(b) * -0.28
+    indices_3d = np.concatenate([a, b, s], axis=-1)
+    spacing_3d = np.array([0, BETA_SPACE[2], SIGMA_SPACE[2]])
+    params = SystemConfig.batch_as_index(a, b, s, 0.2)
+    metrics_3d, _ = storage.read_multiple_results(params, np.inf)
+    print(metrics_3d.shape)
+    metrix = metrics_3d.squeeze()
 
-    for x, beta in enumerate(xs):
-        for y, sigma in enumerate(ys):
-            N = 100
-            run_conf = SystemConfig(
-                N=100,
-                C=int(0.2 * N),
-                omega_1=0.0,
-                omega_2=0.0,
-                a_1=1.0,
-                epsilon_1=0.03,
-                epsilon_2=0.3,
-                alpha=-0.28,
-                beta=float(beta),
-                sigma=float(sigma),
-            )
-            params[-y, x] = np.array(run_conf.as_index)
-
-    metrix, _ = storage.read_multiple_results(params)
     storage.close()
     if not metrix:
         exit(0)
 
-
     print(metrix.shape)
-    print(metrix.sr_2.sum() / metrix.sr_2.size)
     log = False
     show = False
-    figure_dir = "figures"
+    figure_dir = f"figures/{db_str}"
     fs = (8, 8)
     pretty_plot(metrix.r_1, metrix.r_2, "Kuramoto Order Parameter R", "kuramoto_beta_sigma", figure_dir, fs, show)
     pretty_plot(metrix.sr_1, metrix.sr_2, "Splay Ratio", "splay_ratio_beta_sigma", figure_dir, fs, show)
