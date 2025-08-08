@@ -260,6 +260,14 @@ def as_3d_indices(
     a, b, s = permutations[:, :, :, 0:1], permutations[:, :, :, 1:2], permutations[:, :, :, 2:3]
     return a, b, s
 
+def as_2d_indices(
+    x_space: tuple[float, float, float],
+    y_space: tuple[float, float, float],
+) -> tuple[np.ndarray, np.ndarray]:
+    xs = np.arange(*x_space)
+    ys = np.arange(*y_space)
+    x_grid, y_grid = np.meshgrid(xs, ys, indexing="ij")
+    return x_grid, y_grid
 
 def flatten_dict(d, parent_key="", sep="_"):
     return (
