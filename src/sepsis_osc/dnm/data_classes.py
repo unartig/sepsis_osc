@@ -122,24 +122,18 @@ class SystemConfig:
 # @dataclass
 class SystemState(eqx.Module):
     # NOTE shapes: Ensemble Simulation | Single Simulation | Visualisations
-    phi_1: Float[Array, "*t ensemble N"] | Float[Array, " N"] | np.ndarray | object
-    phi_2: Float[Array, "*t ensemble N"] | Float[Array, " N"] | np.ndarray | object
-    kappa_1: Float[Array, "*t ensemble N N"] | Float[Array, "N N"] | np.ndarray | object
-    kappa_2: Float[Array, "*t ensemble N N"] | Float[Array, "N N"] | np.ndarray | object
+    phi_1: Float[Array, "*t ensemble N"] | Float[Array, " N"] | np.ndarray
+    phi_2: Float[Array, "*t ensemble N"] | Float[Array, " N"] | np.ndarray
+    kappa_1: Float[Array, "*t ensemble N N"] | Float[Array, "N N"] | np.ndarray
+    kappa_2: Float[Array, "*t ensemble N N"] | Float[Array, "N N"] | np.ndarray
 
-    m_1: Float[Array, "*t ensemble"] | object
-    m_2: Float[Array, "*t ensemble"] | object
-    v_1: Float[Array, "*t ensemble"] | object
-    v_2: Float[Array, "*t ensemble"] | object
+    m_1: Float[Array, "*t ensemble"] | Float[Array, ""]
+    m_2: Float[Array, "*t ensemble"] | Float[Array, ""]
+    v_1: Float[Array, "*t ensemble"] | Float[Array, ""]
+    v_2: Float[Array, "*t ensemble"] | Float[Array, ""]
 
-    v_1p: Float[Array, "*t ensemble"] | object
-    v_2p: Float[Array, "*t ensemble"] | object
-    dv_1: Float[Array, "*t ensemble"] | object
-    dv_2: Float[Array, "*t ensemble"] | object
-
-    def tree_flatten(self):
-        children = tuple(getattr(self, f.name) for f in fields(self))
-        return children, None
+    v_1p: Float[Array, "*t ensemble"] | Float[Array, ""]
+    v_2p: Float[Array, "*t ensemble"] | Float[Array, ""]
 
     @property
     def shape(self):
@@ -152,13 +146,11 @@ class SystemState(eqx.Module):
             kappa_1=self.kappa_1,  # or clipped if you want
             kappa_2=self.kappa_2,
             m_1=self.m_1,
-            v_1=self.v_1,
             m_2=self.m_2,
+            v_1=self.v_1,
             v_2=self.v_2,
             v_1p=self.v_1p,
             v_2p=self.v_2p,
-            dv_1=self.dv_1,
-            dv_2=self.dv_2,
         )
 
     def last(self) -> "SystemState":
