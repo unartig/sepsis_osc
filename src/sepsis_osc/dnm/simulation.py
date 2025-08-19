@@ -7,6 +7,7 @@ import jax.random as jr
 from equinox.debug import assert_max_traces
 from jax import vmap
 from jaxtyping import ScalarLike
+import jaxlie
 
 from sepsis_osc.dnm.data_classes import SystemMetrics, SystemState
 from sepsis_osc.utils.jax_config import setup_jax
@@ -39,16 +40,94 @@ def generate_init_conditions_fixed(N: int, beta: float, C: int) -> Callable:
             m_2=kappa_2_init.mean(),
             v_1=kappa_1_init.var(),
             v_2=kappa_2_init.var(),
-            v_1p=kappa_1_init.var(),
-            v_2p=kappa_2_init.var(),
-            dv_1=jnp.array(0),
-            dv_2=jnp.array(0),
+            v_1p=jnp.array(0.0),
+            v_2p=jnp.array(0.0),
         )
 
     return inner
 
-
 # @assert_max_traces(max_traces=20)  # TODO: why is it traced that often?
+def lie_deriv(
+    t: ScalarLike,
+    y: SystemState,
+    args: tuple[jnp.ndarray, ...],
+):
+    (
+        ja_1_ij,
+        sin_alpha,
+        cos_alpha,
+        sin_beta,
+        cos_beta,
+        adj,
+        jepsilon_1,
+        jepsilon_2,
+        jsigma,
+        jomega_1_i,
+        jomega_2_i,
+        jtau,
+    ) = args
+
+    @eqx.filter_jit
+    def single_lie_deriv(
+        y
+    ) -> SystemState:
+        # sin/cos in radians
+        R1 = jaxlie.SO2.from_radians(y.phi_1)  # shape (N,)
+        R2 = jaxlie.SO2.from_radians(y.phi_2)
+        _xR1 = jaxlie.SO2.from_radians(y.phi_1[:, None])  # shape (N,)
+        _xR2 = jaxlie.SO2.from_radians(y.phi_2[:, None])
+        _R1x = jaxlie.SO2.from_radians(y.phi_1[None, :])  # shape (N,)
+        _R2x = jaxlie.SO2.from_radians(y.phi_2[None, :])
+        R1_diff = _xR1 @ _R1x.inverse()  # shape (N, N)
+        R2_diff = _xR2 @ _R2x.inverse()
+
+        R_alpha = jaxlie.SO2.from_radians(jnp.asin(sin_alpha))
+        R_beta = jaxlie.SO2.from_radians(jnp.asin(sin_beta))
+
+        R1_diff_alpha = R1_diff @ R_alpha
+        R2_diff_alpha = R2_diff @ R_alpha
+
+        R1_diff_beta = R1_diff @ R_beta.inverse()
+        R2_diff_beta = R2_diff @ R_beta.inverse()
+       
+        phi_12_diff = (R1 @ R2.inverse())
+        phi_21_diff = (R2 @ R1.inverse())
+
+        # (phi1 (N), phi2 (N), k1 (NxN), k2 (NxN)))
+        phi_1 = (
+            jomega_1_i
+            - adj * jnp.einsum("ij,ij->i", (ja_1_ij + y.kappa_1), R1_diff_alpha.unit_complex[..., 1])
+            - jsigma * phi_12_diff.unit_complex[..., 1]
+)
+       
+        phi_2 = (
+            jomega_2_i
+            - adj * jnp.einsum("ij,ij->i", y.kappa_2, R2_diff_alpha.unit_complex[..., 1])
+            - jsigma * phi_21_diff.unit_complex[..., 1]
+        )
+        
+        kappa_1 = -jepsilon_1 * (y.kappa_1 + R1_diff_beta.unit_complex[..., 1])
+        kappa_2 = -jepsilon_2 * (y.kappa_2 + R2_diff_beta.unit_complex[..., 1])
+
+        kmean1 = jnp.mean(kappa_1)
+        kmean2 = jnp.mean(kappa_2)
+
+        return SystemState(
+            phi_1=phi_1,
+            phi_2=phi_2,
+            kappa_1=kappa_1.squeeze(),
+            kappa_2=kappa_2.squeeze(),
+            m_1=(kmean1 - y.m_1) / jtau,
+            m_2=(kmean2 - y.m_2) / jtau,
+            v_1=((kmean1 - y.m_1) ** 2 - y.v_1) / jtau,
+            v_2=((kmean2 - y.m_2) ** 2 - y.v_2) / jtau,
+            v_1p=(y.v_1 - y.v_1p) / (jtau),
+            v_2p=(y.v_2 - y.v_2p) / (jtau),
+        )
+    batched_results = vmap(single_lie_deriv)(y)
+
+    return batched_results
+
 def system_deriv(
     t: ScalarLike,
     y: SystemState,
@@ -71,46 +150,36 @@ def system_deriv(
 
     @eqx.filter_jit(inline=True)
     def single_system_deriv(
-        phi_1,
-        phi_2,
-        kappa_1,
-        kappa_2,
-        m_1,
-        m_2,
-        v_1,
-        v_2,
-        v_1p,
-        v_2p,
-        dv_1p,
-        dv_2p,
+        y
     ) -> SystemState:
         # sin/cos in radians
         # https://mediatum.ub.tum.de/doc/1638503/1638503.pdf
-        sin_phi_1, cos_phi_1 = jnp.sin(phi_1), jnp.cos(phi_1)
-        sin_phi_2, cos_phi_2 = jnp.sin(phi_2), jnp.cos(phi_2)
+        sin_phi_1, cos_phi_1 = jnp.sin(y.phi_1), jnp.cos(y.phi_1)
+        sin_phi_2, cos_phi_2 = jnp.sin(y.phi_2), jnp.cos(y.phi_2)
 
         # expand dims to broadcast outer product [i:]*[:j]->[ij]
-        sin_diff_phi_1 = jnp.einsum("i,j->ij", sin_phi_1, cos_phi_1) - jnp.einsum("i,j->ij", cos_phi_1, sin_phi_1)
-        cos_diff_phi_1 = jnp.einsum("i,j->ij", cos_phi_1, cos_phi_1) + jnp.einsum("i,j->ij", sin_phi_1, sin_phi_1)
+        sin_diff_phi_1 = sin_phi_1[:, None] * cos_phi_1[None, :] - cos_phi_1[:, None] * sin_phi_1[None, :]
+        cos_diff_phi_1 = cos_phi_1[:, None] * cos_phi_1[None, :] + sin_phi_1[:, None] * sin_phi_1[None, :]
 
-        sin_diff_phi_2 = jnp.einsum("i,j->ij", sin_phi_2, cos_phi_2) - jnp.einsum("i,j->ij", cos_phi_2, sin_phi_2)
-        cos_diff_phi_2 = jnp.einsum("i,j->ij", cos_phi_2, cos_phi_2) + jnp.einsum("i,j->ij", sin_phi_2, sin_phi_2)
+        sin_diff_phi_2 = sin_phi_2[:, None] * cos_phi_2[None, :] - cos_phi_2[:, None] * sin_phi_2[None, :]
+        cos_diff_phi_2 = cos_phi_2[:, None] * cos_phi_2[None, :] + sin_phi_2[:, None] * sin_phi_2[None, :]
+        
         sin_phi_1_diff_alpha = sin_diff_phi_1 * cos_alpha + cos_diff_phi_1 * sin_alpha
         sin_phi_2_diff_alpha = sin_diff_phi_2 * cos_alpha + cos_diff_phi_2 * sin_alpha
 
         # (phi1 (N), phi2 (N), k1 (NxN), k2 (NxN)))
         phi_1 = (
             jomega_1_i
-            - adj * jnp.einsum("ij,ij->i", (ja_1_ij + kappa_1), sin_phi_1_diff_alpha)
+            - adj * jnp.einsum("ij,ij->i", (ja_1_ij + y.kappa_1), sin_phi_1_diff_alpha)
             - jsigma * (sin_phi_1 * cos_phi_2 - cos_phi_1 * sin_phi_2)
         )
         phi_2 = (
             jomega_2_i
-            - adj * jnp.einsum("ij,ij->i", kappa_2, sin_phi_2_diff_alpha)
+            - adj * jnp.einsum("ij,ij->i", y.kappa_2, sin_phi_2_diff_alpha)
             - jsigma * (sin_phi_2 * cos_phi_1 - cos_phi_2 * sin_phi_1)
         )
-        kappa_1 = -jepsilon_1 * (kappa_1 + (sin_diff_phi_1 * cos_beta - cos_diff_phi_1 * sin_beta))
-        kappa_2 = -jepsilon_2 * (kappa_2 + (sin_diff_phi_2 * cos_beta - cos_diff_phi_2 * sin_beta))
+        kappa_1 = -jepsilon_1 * (y.kappa_1 + (sin_diff_phi_1 * cos_beta - cos_diff_phi_1 * sin_beta))
+        kappa_2 = -jepsilon_2 * (y.kappa_2 + (sin_diff_phi_2 * cos_beta - cos_diff_phi_2 * sin_beta))
 
         kmean1 = jnp.mean(kappa_1)
         kmean2 = jnp.mean(kappa_2)
@@ -120,17 +189,15 @@ def system_deriv(
             phi_2=phi_2,
             kappa_1=kappa_1.squeeze(),
             kappa_2=kappa_2.squeeze(),
-            m_1=(kmean1 - m_1) / jtau,
-            m_2=(kmean2 - m_2) / jtau,
-            v_1=((kmean1 - m_1) ** 2 - v_1) / jtau,
-            v_2=((kmean2 - m_2) ** 2 - v_2) / jtau,
-            v_1p=v_1,
-            v_2p=v_2,
-            dv_1=(v_1 -(((kmean1 - m_1) ** 2 - v_1) / jtau)),
-            dv_2=(v_2 -(((kmean2 - m_2) ** 2 - v_2) / jtau)),
+            m_1=(kmean1 - y.m_1) / jtau,
+            m_2=(kmean2 - y.m_2) / jtau,
+            v_1=((kmean1 - y.m_1) ** 2 - y.v_1) / jtau,
+            v_2=((kmean2 - y.m_2) ** 2 - y.v_2) / jtau,
+            v_1p=y.v_1,
+            v_2p=y.v_2,
         )
 
-    batched_results = vmap(single_system_deriv)(*y.tree_flatten()[0])
+    batched_results = vmap(single_system_deriv)(y)
 
     return batched_results
 
@@ -225,6 +292,7 @@ def make_metric_save(deriv) -> Callable:
     return metric_save
 
 
+import jax
 def make_check(eps_dm=1e-3, eps_v=1e-4, eps_dv=5e-5, t_min=1.0):
     def check(t, y, args, **kwargs):
         is_late = t > t_min
@@ -241,12 +309,10 @@ def make_check(eps_dm=1e-3, eps_v=1e-4, eps_dv=5e-5, t_min=1.0):
 
         is_const = is_m1_small & is_v1_small & is_m2_small & is_v2_small
 
-        ddv1 = jnp.abs(y.dv_1 - y.v_1p)
-        ddv2 = jnp.abs(y.dv_2 - y.v_2p)
-        is_energy_plateau = (ddv1.max() < eps_dv) & (ddv2.max() < eps_dv)
+        dv1 = jnp.abs(y.v_1p - y.v_1)
+        dv2 = jnp.abs(y.v_2p - y.v_2)
 
-        is_energy_plateau = (ddv1.max() < eps_dv) & (ddv2.max() < eps_dv)
-        is_const_high_energy = is_energy_plateau & ((y.v_1.max() >= eps_v) | (y.v_2.max() >= eps_v))
-        return (is_const | is_const_high_energy) & is_late
+        is_energy_plateau = (dv1.max() < eps_dv) & (dv2.max() < eps_dv)
+        return (is_const | is_energy_plateau) & is_late
 
     return check
