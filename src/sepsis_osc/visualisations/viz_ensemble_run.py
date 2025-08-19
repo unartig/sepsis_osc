@@ -77,15 +77,9 @@ if __name__ == "__main__":
     ts = np.asarray(sol.ts).squeeze()
     ts = ts[~jnp.isinf(ts)]
     print(metrics.shape)
-    print(metrics.r_1)
-    # exit(0)
 
-    # calculate transient time
-    last_x = metrics.r_1[-int(0.3 * run_conf.T_max) :]
-    # tt = np.where(np.max(np.abs(metrics.r_1 - last_x.mean(axis=0)), axis=-1) > 0.1)[0].max()
     tt = metrics.tt.max()
     print(tt)
-    # tt = int(tt[-1] / metrics.r_1.shape[0] * run_conf.T_max)
 
     ax = plot_metric_t(metrics.s_1, metrics.s_2)
     ax[0].set_ylim([0, 1])

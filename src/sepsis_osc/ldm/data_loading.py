@@ -48,13 +48,13 @@ def get_raw_data():
 
 
 def prepare_batches(
-    x_data: Float[Array, "nsamples dim"],
-    y_data: Float[Array, "nsamples dim"],
+    x_data: np.ndarray,
+    y_data: np.ndarray,
     batch_size: int,
     key: jnp.ndarray,
     perc: float = 1.0,
     shuffle=True,
-) -> tuple[Float[Array, "nbatches batch dim"], Float[Array, "nbatches batch dim"], int]:
+) -> tuple[np.ndarray, np.ndarray, int]:
     num_samples = int(perc * x_data.shape[0])
     num_features = x_data.shape[1:]
     num_targets = y_data.shape[1:]
