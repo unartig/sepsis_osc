@@ -2,8 +2,6 @@ import json
 import logging
 import os
 from dataclasses import dataclass
-from functools import wraps
-from time import time
 
 import equinox as eqx
 import jax.numpy as jnp
@@ -18,18 +16,6 @@ from sepsis_osc.ldm.gru import make_predictor
 from sepsis_osc.ldm.latent_dynamics import LatentDynamicsModel
 
 logger = logging.getLogger(__name__)
-
-
-def timing(f):
-    @wraps(f)
-    def wrap(*args, **kw):
-        ts = time()
-        result = f(*args, **kw)
-        te = time()
-        logger.info("func:%r took: %2.6f sec" % (f.__name__, te - ts))
-        return result
-
-    return wrap
 
 
 @register_dataclass
