@@ -1,6 +1,8 @@
 from abc import ABC, abstractmethod
 from dataclasses import fields
 from typing import Callable, TypeVar
+import msgpack
+import msgpack_numpy as mnp
 
 import equinox as eqx
 import jax.numpy as jnp
@@ -20,6 +22,7 @@ from numpy.typing import DTypeLike
 
 from sepsis_osc.utils.jax_config import setup_jax
 
+mnp.patch()
 setup_jax()
 
 ConfigT = TypeVar("ConfigT")
@@ -34,17 +37,18 @@ class ConfigBase(ABC, eqx.Module):
     @property
     @abstractmethod
     def as_args(self):
-        NotImplementedError
+        raise NotImplementedError
 
     @property
     @abstractmethod
     def as_index(self):
-        NotImplementedError
+        raise NotImplementedError
 
     @staticmethod
     @abstractmethod
-    def batch_as_index():
-        NotImplementedError
+    def batch_as_index() -> tuple[float, ...]:
+        raise NotImplementedError
+        return ()
 
 
 class TreeBase(eqx.Module):
@@ -68,19 +72,47 @@ class TreeBase(eqx.Module):
     def squeeze(self) -> StateT:
         return jtree.map(lambda x: x.squeeze() if x is not None else None, self)
 
-    def copy(self) -> StateT:
-        return StateBase(**{f.name: getattr(self, f.name) for f in fields(self)})
+    @classmethod
+    def copy(cls: type[StateT]) -> StateT:
+        return cls(**{f.name: getattr(cls, f.name) for f in fields(cls)})
 
 
 class StateBase(ABC, TreeBase):
     pass
 
 
-class MetricsBase(ABC, TreeBase):
-    @staticmethod
-    def np_empty(shape: tuple[int, ...], dtype: DTypeLike = np.float32) -> MetricT:
-        initialized_fields = {f.name: np.zeros(shape, dtype=dtype) for f in fields(MetricsBase)}
-        return MetricsBase(**initialized_fields)
+class MetricBase(ABC, TreeBase):
+
+    @abstractmethod
+    def as_single(self) -> MetricT:
+        raise NotImplementedError
+    
+    @classmethod
+    def np_empty(cls, shape: tuple[int, ...], dtype: DTypeLike = np.float32) -> MetricT:
+        initialized_fields = {f.name: np.zeros(shape, dtype=dtype) for f in fields(cls)}
+        return cls(**initialized_fields)
+
+    def serialise(self) -> bytes:
+        return msgpack.packb({f.name: np.asarray(getattr(self, f.name)) for f in fields(self)}, default=mnp.encode)
+
+    @classmethod
+    def deserialise(cls: type[MetricT], data_bytes: bytes) -> MetricT:
+        unpacked = msgpack.unpackb(data_bytes, object_hook=mnp.decode)
+        return cls(**unpacked)
+
+    def insert_at(self, index: tuple[int, ...], other: MetricT) -> MetricT:
+        if not isinstance(other, type(self)):
+            raise TypeError(f"Expected type {type(self)}, but got {type(other)}")
+
+        def insert_leaf(self_leaf, other_leaf):
+            if isinstance(self_leaf, np.ndarray):
+                self_leaf[index] = other_leaf
+            elif isinstance(self_leaf, jnp.ndarray):
+                return self_leaf.at[index].set(other_leaf)
+            else:
+                raise ValueError("Unexpected Leaf Type")
+        return jtree.map(insert_leaf, self, other)
+        
 
 
 class ODEBase(ABC):
