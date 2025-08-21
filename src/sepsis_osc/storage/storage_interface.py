@@ -1,34 +1,18 @@
 import logging
 
 import concurrent.futures
-from functools import wraps
-from time import time
 from typing import Optional
 
 import faiss
-import msgpack
-import msgpack_numpy as mnp
 import numpy as np
 import rocksdbpy as rock
 
 
-from sepsis_osc.dnm.data_classes import SystemMetrics
+from sepsis_osc.dnm.abstract_ode import MetricBase, MetricT
 from sepsis_osc.utils.config import db_metrics_key_value, db_parameter_keys, max_workers
+from sepsis_osc.utils.utils import timing
 
-mnp.patch()
 logger = logging.getLogger(__name__)
-
-
-def timing(f):
-    @wraps(f)
-    def wrap(*args, **kw):
-        ts = time()
-        result = f(*args, **kw)
-        te = time()
-        logger.info("func:%r took: %2.6f sec" % (f.__name__, te - ts))
-        return result
-
-    return wrap
 
 
 def pprint_key(key: list[float] | tuple[float, ...] | np.ndarray) -> tuple[float, ...]:
@@ -125,32 +109,12 @@ class Storage:
 
     def add_metric(
         self,
-        metrics: Optional[SystemMetrics],
         packed_data: Optional[bytes],
         index: str = "",
     ):
         if not index:
             logger.error("Cannot save empty key in MemoryCache")
             return
-        if metrics and not packed_data:
-            packed_data = msgpack.packb(
-                {
-                    "r_1": np.asarray(metrics.r_1),
-                    "r_2": np.asarray(metrics.r_2),
-                    "m_1": np.asarray(metrics.m_1),
-                    "m_2": np.asarray(metrics.m_2),
-                    "s_1": np.asarray(metrics.s_1),
-                    "s_2": np.asarray(metrics.s_2),
-                    "q_1": np.asarray(metrics.q_1),
-                    "q_2": np.asarray(metrics.q_2),
-                    "f_1": np.asarray(metrics.f_1),
-                    "f_2": np.asarray(metrics.f_2),
-                    "sr_1": np.asarray(metrics.sr_1),
-                    "sr_2": np.asarray(metrics.sr_2),
-                    "tt": np.asarray(metrics.tt),
-                },
-                default=mnp.encode,
-            )
 
         if packed_data:
             if self.use_mem_cache:
@@ -160,11 +124,13 @@ class Storage:
             else:
                 logger.info(f"Adding SystemMetrics with key {index} to RocksDB")
                 self.__db_metric.set(f"metrics_{index}".encode(), packed_data)
+        else:
+            logger.error("Something went wrong, no packed data...")
 
     def read_metric(
         self,
         key: str,
-    ) -> Optional[SystemMetrics]:
+    ) -> Optional[MetricBase]:
         if self.use_mem_cache:
             logger.info(f"Reading SystemMetrics with key {key} from MemoryCache")
             if key in self.__memory_cache:
@@ -177,44 +143,27 @@ class Storage:
             data_bytes = self.__db_metric.get(f"metrics_{key}".encode())
             if not data_bytes:
                 logger.info(f"Could not find SystemMetrics for {key} in RocksDB")
-
-        unpacked = msgpack.unpackb(data_bytes, object_hook=mnp.decode)
-        return SystemMetrics(
-            r_1=unpacked["r_1"],
-            r_2=unpacked["r_2"],
-            m_1=unpacked["m_1"],
-            m_2=unpacked["m_2"],
-            s_1=unpacked["s_1"],
-            s_2=unpacked["s_2"],
-            q_1=unpacked["q_1"],
-            q_2=unpacked["q_2"],
-            f_1=unpacked["f_1"],
-            f_2=unpacked["f_2"],
-            sr_1=unpacked["sr_1"],
-            sr_2=unpacked["sr_2"],
-            tt=unpacked["tt"],
-        )
+        return data_bytes
 
     def add_result(
         self,
         params: tuple[int | float, ...] | np.ndarray,
-        metrics: SystemMetrics,
+        packed_metric: bytes,
         overwrite: bool = False,
     ) -> bool:
-        single_metrics = metrics.copy().as_single()
         np_params = np.array([params], dtype=np.float32)
         index, distance = self.find_faiss(np_params)
         if distance != 0.0:
             logger.info(f"Adding new Results for {pprint_key(params)}, starting Pipeline")
             np_params = np.array([params], dtype=np.float32)
             self.add_faiss(np_params)
-            self.add_metric(single_metrics, None, str(self.current_idx))
+            self.add_metric(packed_metric, index=str(self.current_idx))
             self.current_idx += 1
             return True
         if overwrite:
             logger.info(f"Adding new Results for {pprint_key(params)}, starting Pipeline")
             np_params = np.array([params], dtype=np.float32)
-            self.add_metric(single_metrics, None, index=str(int(index[0][0])))
+            self.add_metric(packed_metric, index=str(int(index[0][0])))
             return True
 
         logger.info("Will not overwrite")
@@ -223,19 +172,20 @@ class Storage:
     def read_result(
         self,
         params: tuple[int | float, ...] | np.ndarray,
+        proto_metric: MetricT,
         threshold=np.inf,
-    ) -> Optional[SystemMetrics]:
+    ) -> Optional[MetricT]:
         logger.info(f"Getting Metrics for {pprint_key(params)}")
         np_params = np.array([params], dtype=np.float32)
         index, distance = self.find_faiss(np_params)
         if distance[0][0] <= threshold:
             logger.info(f"Using parameter-set with distance {distance[0][0]} <= threshold {threshold}")
-            return self.read_metric(str(index[0][0]))
+            return proto_metric.deserialise(self.read_metric(str(index[0][0])))
         logger.info(f"Will not use parameter-set with distance {distance[0][0]} <= threshold {threshold}")
         return None
 
     @timing
-    def read_multiple_results(self, params: np.ndarray, threshold: float = 0.0) -> tuple[SystemMetrics, np.ndarray] | tuple[None, None]:
+    def read_multiple_results(self, params: np.ndarray, proto_metric: MetricT, threshold: float = 0.0) -> tuple[MetricBase, np.ndarray] | tuple[None, None]:
         logger.info(f"Getting Metrics for multiple queries with shape {params.shape}")
 
         original_shape = params.shape[:-1]
@@ -252,7 +202,7 @@ class Storage:
         inds = list(zip(*inds))
 
         metrics_shape = original_shape + (1,)
-        res = SystemMetrics.np_empty(metrics_shape)
+        res = proto_metric.np_empty(metrics_shape)
 
         def _get_value_or_key(ind: tuple[int, ...]):
             index = int(indices[ind] if len(ind) else indices[ind[0]])
@@ -274,21 +224,8 @@ class Storage:
                     logger.error(f"Failed to fetch data for index {ind}")
                     return False
 
-                unpacked = msgpack.unpackb(raw, object_hook=mnp.decode)
-                res.r_1[ind] = unpacked["r_1"]
-                res.r_2[ind] = unpacked["r_2"]
-                res.m_1[ind] = unpacked["m_1"]
-                res.m_2[ind] = unpacked["m_2"]
-                res.s_1[ind] = unpacked["s_1"]
-                res.s_2[ind] = unpacked["s_2"]
-                res.q_1[ind] = unpacked["q_1"]
-                res.q_2[ind] = unpacked["q_2"]
-                res.f_1[ind] = unpacked["f_1"]
-                res.f_2[ind] = unpacked["f_2"]
-                if res.sr_1 is not None and res.sr_2 is not None and res.tt is not None:
-                    res.sr_1[ind] = unpacked["sr_1"]
-                    res.sr_2[ind] = unpacked["sr_2"]
-                    res.tt[ind] = unpacked["tt"]
+                metric = proto_metric.deserialise(raw)
+                res.insert_at(ind, metric)
             return True
 
         # Split indices into chunks for each thread
@@ -302,7 +239,7 @@ class Storage:
             logger.error("Retrieved invalid metrics")
             return None, None
 
-        logger.info("Successfuly fetched bulk metrics")
+        logger.info("Successfuly retrieved bulk metrics")
         return res, distances
 
     def write(self):
@@ -326,6 +263,7 @@ class Storage:
     def merge(
         self,
         other: "Storage",
+        proto_metric: MetricT,
         overwrite: bool = False,
     ) -> "Optional[Storage]":
         # Merges other into self
@@ -341,7 +279,7 @@ class Storage:
         added = 0
         for key in other_keys:
             logger.info(f"Checking for other parameter-set {pprint_key(key)}")
-            metrics = other.read_result(key, threshold=0.0)
+            metrics = other.read_result(key, proto_metric, threshold=0.0)
             if metrics:
                 success = self.add_result(key, metrics, overwrite=overwrite)
                 added += 1 if success else 0
