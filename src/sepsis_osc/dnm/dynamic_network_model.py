@@ -10,17 +10,17 @@ import numpy as np
 from beartype import beartype as typechecker
 from jax import vmap
 from jaxtyping import Array, Float, Int, ScalarLike, jaxtyped
-from numpy.typing import DTypeLike
 
-from sepsis_osc.dnm.abstract_ode import ConfigBase, ConfigArgBase, ODEBase, StateBase, MetricsBase
+from sepsis_osc.dnm.abstract_ode import ConfigArgBase, ConfigBase, MetricBase, ODEBase, StateBase
 from sepsis_osc.dnm.commons import diff_angle, mean_angle, phase_entropy, std_angle
-from sepsis_osc.ldm.model_utils import timing
+from sepsis_osc.storage.storage_interface import Storage
 from sepsis_osc.utils.config import jax_random_seed
 from sepsis_osc.utils.logger import setup_logging
+from sepsis_osc.utils.utils import timing
 
 
 @jaxtyped(typechecker=typechecker)
-class SystemConfigArgs(ConfigArgBase):
+class DNMConfigArgs(ConfigArgBase):
     # Everything precomputed for ODE
     N: Int[ScalarLike, ""]
     omega_1: Float[Array, " N"]
@@ -37,7 +37,7 @@ class SystemConfigArgs(ConfigArgBase):
     tau: Float[Array, ""]
 
 
-class SystemConfig(ConfigBase):
+class DNMConfig(ConfigBase):
     N: int  # number of oscillators per layer
     alpha: float  # phase lag
     beta: float  # plasticity (age parameter)
@@ -56,7 +56,7 @@ class SystemConfig(ConfigBase):
     @property
     def as_args(self):
         diag = (jnp.ones((self.N, self.N)) - jnp.eye(self.N))[None, :]
-        return SystemConfigArgs(
+        return DNMConfigArgs(
             N=self.N,
             omega_1=jnp.ones((self.N,)) * self.omega_1,
             omega_2=jnp.ones((self.N,)) * self.omega_2,
@@ -100,11 +100,11 @@ class SystemConfig(ConfigBase):
         _C = jnp.full(batch_shape, C)
 
         consts = {
-            "omega_1": SystemConfig.omega_1,
-            "omega_2": SystemConfig.omega_2,
-            "a_1": SystemConfig.a_1,
-            "epsilon_1": SystemConfig.epsilon_1,
-            "epsilon_2": SystemConfig.epsilon_2,
+            "omega_1": DNMConfig.omega_1,
+            "omega_2": DNMConfig.omega_2,
+            "a_1": DNMConfig.a_1,
+            "epsilon_1": DNMConfig.epsilon_1,
+            "epsilon_2": DNMConfig.epsilon_2,
         }
         const_batches = [jnp.full(batch_shape, v) for v in consts.values()]
 
@@ -114,13 +114,14 @@ class SystemConfig(ConfigBase):
 
 
 @jaxtyped(typechecker=typechecker)
-class SystemState(StateBase):
+class DNMState(StateBase):
     # NOTE shapes: Ensemble Simulation | Single Simulation | Visualisations
     phi_1: Float[Array, "*t ensemble N"] | Float[Array, " N"] | np.ndarray
     phi_2: Float[Array, "*t ensemble N"] | Float[Array, " N"] | np.ndarray
     kappa_1: Float[Array, "*t ensemble N N"] | Float[Array, "N N"] | np.ndarray
     kappa_2: Float[Array, "*t ensemble N N"] | Float[Array, "N N"] | np.ndarray
 
+    # following are used for steady state check
     m_1: Float[Array, "*t ensemble"] | Float[Array, ""]
     m_2: Float[Array, "*t ensemble"] | Float[Array, ""]
     v_1: Float[Array, "*t ensemble"] | Float[Array, ""]
@@ -129,8 +130,8 @@ class SystemState(StateBase):
     v_1p: Float[Array, "*t ensemble"] | Float[Array, ""]
     v_2p: Float[Array, "*t ensemble"] | Float[Array, ""]
 
-    def enforce_bounds(self) -> "SystemState":
-        return SystemState(
+    def enforce_bounds(self) -> "DNMState":
+        return DNMState(
             phi_1=self.phi_1 % (2 * jnp.pi),
             phi_2=self.phi_2 % (2 * jnp.pi),
             kappa_1=self.kappa_1,  # or clipped if you want
@@ -142,7 +143,8 @@ class SystemState(StateBase):
             v_1p=self.v_1p,
             v_2p=self.v_2p,
         )
-    def remove_infs(self) -> "SystemState":
+
+    def remove_infs(self) -> "DNMState":
         phi_1_has_inf = jnp.isinf(self.phi_1).any(axis=(1, 2))
         phi_2_has_inf = jnp.isinf(self.phi_2).any(axis=(1, 2))
         kappa_1_has_inf = jnp.isinf(self.kappa_1).any(axis=(1, 2, 3))
@@ -151,7 +153,7 @@ class SystemState(StateBase):
         return jtree.map(lambda x: x[combined_mask], self)
 
 
-class SystemMetrics(MetricsBase):
+class DNMMetrics(MetricBase):
     # NOTE shapes: Simulation | DB/Lookup Query | Visualisations
 
     # Kuramoto Order Parameter
@@ -175,19 +177,31 @@ class SystemMetrics(MetricsBase):
     # Measured mean transient time
     tt: Optional[Float[Array, "*t"] | Float[Array, "... 1"] | np.ndarray] = None
 
-    def add_follow_ups(self) -> "SystemMetrics":
+    def add_follow_ups(self) -> "DNMMetrics":
         if self.sr_1 is None and self.r_1.size > 1:
-            self.sr_1 = jnp.sum(self.r_1 < 0.2, axis=-1) / self.r_1.shape[-1]
-            self.sr_2 = jnp.sum(self.r_2 < 0.2, axis=-1) / self.r_2.shape[-1]
-            self.tt = jnp.array([self.r_1.shape[0]]) - 1
-        return self
+            new = DNMMetrics(
+                r_1=self.r_1,
+                r_2=self.r_2,
+                s_1=self.s_1,
+                s_2=self.s_2,
+                m_1=self.m_1,
+                m_2=self.m_2,
+                q_1=self.q_1,
+                q_2=self.q_2,
+                f_1=self.f_1,
+                f_2=self.f_2,
+                sr_1=jnp.sum(self.r_1 < 0.2, axis=-1) / self.r_1.shape[-1],
+                sr_2=jnp.sum(self.r_2 < 0.2, axis=-1) / self.r_2.shape[-1],
+                tt=jnp.array([self.r_1.shape[0]]) - 1,
+            )
+        return new
 
-    def as_single(self) -> "SystemMetrics":
+    def as_single(self) -> "DNMMetrics":
         if self.r_1.size <= 1:  # already single
             return self
 
         self.add_follow_ups()
-        return SystemMetrics(
+        return DNMMetrics(
             r_1=jnp.mean(jnp.asarray(self.r_1)[..., -1, :], axis=(-1,)),
             r_2=jnp.mean(jnp.asarray(self.r_2)[..., -1, :], axis=(-1,)),
             s_1=jnp.mean(jnp.asarray(self.s_1)),
@@ -203,23 +217,16 @@ class SystemMetrics(MetricsBase):
             tt=self.tt.max() if self.tt is not None else None,
         )
 
-    @staticmethod
-    def np_empty(shape: tuple[int, ...], dtype: DTypeLike = np.float32) -> "SystemMetrics":
-        initialized_fields = {}
-        for f in fields(SystemMetrics):
-            initialized_fields[f.name] = {f.name: np.zeros(shape, dtype=dtype) for f in fields(SystemMetrics) }
-        return SystemMetrics(**initialized_fields)
-
 
 class DynamicNetworkModel(ODEBase):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
 
     @timing
-    def generate_init_conditions(self, config, M, key) -> SystemState:
+    def generate_init_conditions(self, config, M, key) -> DNMState:
         C = int(config.C * config.N)
 
-        def sample(key: jnp.ndarray) -> SystemState:
+        def sample(key: jnp.ndarray) -> DNMState:
             keys = jr.split(key, 3)
             phi_1_init = jr.uniform(keys[0], (config.N,)) * (2 * jnp.pi)
             phi_2_init = jr.uniform(keys[1], (config.N,)) * (2 * jnp.pi)
@@ -232,11 +239,12 @@ class DynamicNetworkModel(ODEBase):
             kappa_2_init = kappa_2_init.at[:C, C:].set(0.0)
             kappa_2_init = kappa_2_init.at[jnp.diag_indices(config.N)].set(0.0)
 
-            return SystemState(
+            return DNMState(
                 phi_1=phi_1_init,
                 phi_2=phi_2_init,
                 kappa_1=kappa_1_init,
                 kappa_2=kappa_2_init,
+                # following are only used for steady state check
                 m_1=kappa_1_init.mean(),
                 m_2=kappa_2_init.mean(),
                 v_1=kappa_1_init.var(),
@@ -252,12 +260,10 @@ class DynamicNetworkModel(ODEBase):
     @eqx.filter_jit
     def system_deriv(
         t: ScalarLike,
-        y: SystemState,
-        args: SystemConfigArgs,
+        y: DNMState,
+        args: DNMConfigArgs,
     ):
-        print("Tracy")
-
-        def single_system_deriv(y) -> SystemState:
+        def single_system_deriv(y) -> DNMState:
             # sin/cos in radians
             # https://mediatum.ub.tum.de/doc/1638503/1638503.pdf
             sin_phi_1, cos_phi_1 = jnp.sin(y.phi_1), jnp.cos(y.phi_1)
@@ -290,7 +296,7 @@ class DynamicNetworkModel(ODEBase):
             kmean1 = jnp.mean(kappa_1)
             kmean2 = jnp.mean(kappa_2)
 
-            return SystemState(
+            return DNMState(
                 phi_1=phi_1,
                 phi_2=phi_2,
                 kappa_1=kappa_1.squeeze(),
@@ -309,14 +315,14 @@ class DynamicNetworkModel(ODEBase):
 
     @timing
     def generate_metric_save(self, deriv) -> Callable:
-        def metric_save(t: ScalarLike, y: SystemState, args: SystemConfigArgs):
+        def metric_save(t: ScalarLike, y: DNMState, args: DNMConfigArgs):
             y = y.enforce_bounds()
 
             ###### Kuramoto Order Parameter
             r_1 = jnp.abs(jnp.mean(jnp.exp(1j * y.phi_1), axis=-1))
             r_2 = jnp.abs(jnp.mean(jnp.exp(1j * y.phi_2), axis=-1))
 
-            ###### Entropy of Phase System
+            ###### Entropy of Phase DNM
             q_1 = phase_entropy(y.phi_1)
             q_2 = phase_entropy(y.phi_2)
 
@@ -348,9 +354,7 @@ class DynamicNetworkModel(ODEBase):
             f_1 = n_f_1 / N_E  # N_f / N_E
             f_2 = n_f_2 / N_E
 
-            return SystemMetrics(
-                r_1=r_1, r_2=r_2, m_1=m_1, m_2=m_2, s_1=s_1, s_2=s_2, q_1=q_1, q_2=q_2, f_1=f_1, f_2=f_2
-            )
+            return DNMMetrics(r_1=r_1, r_2=r_2, m_1=m_1, m_2=m_2, s_1=s_1, s_2=s_2, q_1=q_1, q_2=q_2, f_1=f_1, f_2=f_2)
 
         return metric_save
 
@@ -359,8 +363,8 @@ class DynamicNetworkModel(ODEBase):
         self, deriv, dtype: jnp.dtype = jnp.float16, save_y: bool = True, save_dy: bool = True
     ) -> Callable:
         def full_compressed_save(
-            t: ScalarLike, y: SystemState, args: Optional[SystemConfigArgs]
-        ) -> tuple[SystemState, SystemState] | SystemState:
+            t: ScalarLike, y: DNMState, args: Optional[DNMConfigArgs]
+        ) -> tuple[DNMState, DNMState] | DNMState:
             y.enforce_bounds()
             if save_y and not save_dy:
                 return y.astype(dtype)
@@ -408,8 +412,10 @@ if __name__ == "__main__":
 
     solver = Tsit5()
     beta_step = 0.08
+    beta_step = 0.1
     betas = np.arange(0.5, 1.0, beta_step)
     sigma_step = 0.08
+    sigma_step = 0.5
     sigmas = np.arange(0.0, 1.0, sigma_step)
     alpha_step = 0.1
     alphas = jnp.array([-0.28])  # jnp.array([-1.0, -0.76, -0.52, -0.28, 0.0, 0.28, 0.52, 0.76, 1.0])
@@ -423,25 +429,47 @@ if __name__ == "__main__":
     dnm = DynamicNetworkModel(full_save=False)
     solver = Tsit5()
 
+    db_str = "Colab"
+    storage = Storage(
+        key_dim=9,
+        metrics_kv_name=f"data/{db_str}SepsisMetrics.db/",
+        parameter_k_name=f"data/{db_str}SepsisParameters_index.bin",
+        use_mem_cache=True,
+    )
+    overwrite = False
+
     i = 0
     for alpha in alphas:
         for beta in betas:
             for sigma in sigmas:
                 N = 25
-                run_conf = SystemConfig(
+                run_conf = DNMConfig(
                     N=N,
                     alpha=float(alpha),  # phase lage
                     beta=float(beta),  # age parameter
                     sigma=float(sigma),
                 )
-                res = dnm.integrate(
+                logger.info(f"New config {run_conf.as_index}")
+                logger.info("Starting solve")
+                sol = dnm.integrate(
                     config=run_conf,
                     M=num_parallel_runs,
-                    # solver=solver,
                     key=rand_key,
                     T_init=0,
                     T_max=T_max_base,
                     T_step=T_step_base,
                 )
-                logger.info(f"New config {run_conf.as_index}")
-                logger.info("Starting solve")
+                logger.info(f"Solved in {sol.stats['num_steps']} steps")
+                if sol.ys:
+                    logger.info("Saving Result")
+                    storage.add_result(run_conf.as_index, sol.ys.as_single().serialise(), overwrite=overwrite)
+                    storage.write()
+                xs = storage.read_result(run_conf.as_index, DNMMetrics)
+
+    storage.close()
+    storage = Storage(
+        key_dim=9,
+        metrics_kv_name=f"data/{db_str}SepsisMetrics.db/",
+        parameter_k_name=f"data/{db_str}SepsisParameters_index.bin",
+        use_mem_cache=True,
+    )
