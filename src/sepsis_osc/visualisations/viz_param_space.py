@@ -4,7 +4,7 @@ import matplotlib.pyplot as plt
 from matplotlib.colors import LogNorm
 import numpy as np
 
-from sepsis_osc.dnm.data_classes import SystemConfig, SystemMetrics
+from sepsis_osc.dnm.dynamic_network_model import DNMConfigArgs, DNMConfig, DNMMetrics
 from sepsis_osc.storage.storage_interface import Storage
 from sepsis_osc.utils.logger import setup_logging
 from sepsis_osc.ldm.model_utils import as_2d_indices
@@ -17,7 +17,7 @@ num_ticks = 10
 
 def plot_tt(tt, title, filename, figure_dir, fs=(8, 6), show=False):
     fig, ax = plt.subplots(figsize=fs)
-    im = ax.imshow(tt, aspect="auto", cmap="viridis")
+    im = ax.imshow(tt.T[::-1, :], aspect="auto", cmap="viridis")
     ax.set_title(f"{title}\nParenchymal Layer", fontsize=14)
     ax.set_ylabel(r"$\sigma$", fontsize=12)
     ax.set_xlabel(r"$\beta / \pi$", fontsize=12)
@@ -103,15 +103,15 @@ def pretty_plot(metric_parenchymal, metric_immune, title, filename, figure_dir, 
 if __name__ == "__main__":
 
     # ALPHA_SPACE = (-0.52, -0.52, 1.0)
-    BETA_SPACE = (0.2, 2.0, 0.02)
-    SIGMA_SPACE = (0.0, 2.0, 0.04)
+    BETA_SPACE = (0.5, 1.0, 0.08)
+    SIGMA_SPACE = (0.0, 1.0, 0.08)
     xs = np.arange(*BETA_SPACE)
     ys = np.arange(*SIGMA_SPACE)
     
     orig_xs = [np.argmin(np.abs(xs - x)) for x in [0.4, 0.7]]
     orig_ys = [len(ys) - np.argmin(np.abs(ys - y)) - 1 for y in [0.0, 1.5]]
     
-    db_str = "Steady1_3"  # other/Tiny"
+    db_str = "Daisy2_LMM"  # other/Tiny"
     storage = Storage(
         key_dim=9,
         metrics_kv_name=f"data/{db_str}SepsisMetrics.db/",
@@ -122,8 +122,8 @@ if __name__ == "__main__":
     a = np.ones_like(b) * -0.28
     indices_3d = np.concatenate([a, b, s], axis=-1)
     spacing_3d = np.array([0, BETA_SPACE[2], SIGMA_SPACE[2]])
-    params = SystemConfig.batch_as_index(a, b, s, 0.2)
-    metrics_3d, _ = storage.read_multiple_results(params, np.inf)
+    params = DNMConfig.batch_as_index(a, b, s, 0.2)
+    metrics_3d, _ = storage.read_multiple_results(params, DNMMetrics, np.inf)
     print(metrics_3d.shape)
     metrix = metrics_3d.squeeze()
 
