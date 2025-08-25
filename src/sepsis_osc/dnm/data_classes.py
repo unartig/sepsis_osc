@@ -10,7 +10,6 @@ from beartype import beartype as typechecker
 from equinox import field, filter_jit
 from jaxtyping import Array, Float, jaxtyped
 from numpy.typing import DTypeLike
-from scipy.ndimage import uniform_filter1d
 
 
 @jaxtyped(typechecker=typechecker)
