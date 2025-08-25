@@ -31,11 +31,12 @@ from sepsis_osc.ldm.model_utils import (
     log_train_metrics,
     log_val_metrics,
     save_checkpoint,
-    timing,
 )
-from sepsis_osc.dnm.data_classes import LatentLookup, SystemConfig
+from sepsis_osc.dnm.dynamic_network_model import DNMConfig
+from sepsis_osc.ldm.lookup import LatentLookup
 from sepsis_osc.storage.storage_interface import Storage
 from sepsis_osc.utils.config import jax_random_seed
+from sepsis_osc.utils.utils import timing
 from sepsis_osc.utils.jax_config import setup_jax
 from sepsis_osc.utils.logger import setup_logging
 
@@ -482,7 +483,7 @@ if __name__ == "__main__":
     a, b, s = as_3d_indices(ALPHA_SPACE, BETA_SPACE, SIGMA_SPACE)
     indices_3d = jnp.concatenate([a, b, s], axis=-1)
     spacing_3d = jnp.array([ALPHA_SPACE[2], BETA_SPACE[2], SIGMA_SPACE[2]])
-    params = SystemConfig.batch_as_index(a, b, s, 0.2)
+    params = DNMConfig.batch_as_index(a, b, s, 0.2)
     metrics_3d, _ = sim_storage.read_multiple_results(np.asarray(params))
     metrics_3d = metrics_3d.to_jax()
     lookup_table = LatentLookup(
