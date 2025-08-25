@@ -1,11 +1,10 @@
-import logging
-from dataclasses import fields
 from typing import Callable, Optional
 
 import equinox as eqx
 import jax.numpy as jnp
 import jax.random as jr
 import jax.tree as jtree
+from jax.debug import print as jprint
 import numpy as np
 from beartype import beartype as typechecker
 from jax import vmap
@@ -13,9 +12,6 @@ from jaxtyping import Array, Float, Int, ScalarLike, jaxtyped
 
 from sepsis_osc.dnm.abstract_ode import ConfigArgBase, ConfigBase, MetricBase, ODEBase, StateBase
 from sepsis_osc.dnm.commons import diff_angle, mean_angle, phase_entropy, std_angle
-from sepsis_osc.storage.storage_interface import Storage
-from sepsis_osc.utils.config import jax_random_seed
-from sepsis_osc.utils.logger import setup_logging
 from sepsis_osc.utils.utils import timing
 
 
@@ -121,7 +117,7 @@ class DNMState(StateBase):
     kappa_1: Float[Array, "*t ensemble N N"] | Float[Array, "N N"] | np.ndarray
     kappa_2: Float[Array, "*t ensemble N N"] | Float[Array, "N N"] | np.ndarray
 
-    # following are used for steady state check
+    # following running moments are used for steady state check
     m_1: Float[Array, "*t ensemble"] | Float[Array, ""]
     m_2: Float[Array, "*t ensemble"] | Float[Array, ""]
     v_1: Float[Array, "*t ensemble"] | Float[Array, ""]
@@ -257,12 +253,13 @@ class DynamicNetworkModel(ODEBase):
         return vmap(sample)(rand_keys)
 
     @staticmethod
+    @jaxtyped(typechecker=typechecker)
     @eqx.filter_jit
     def system_deriv(
         t: ScalarLike,
         y: DNMState,
         args: DNMConfigArgs,
-    ):
+    ) -> DNMState:
         def single_system_deriv(y) -> DNMState:
             # sin/cos in radians
             # https://mediatum.ub.tum.de/doc/1638503/1638503.pdf
@@ -280,31 +277,31 @@ class DynamicNetworkModel(ODEBase):
             sin_phi_2_diff_alpha = sin_diff_phi_2 * args.cos_alpha + cos_diff_phi_2 * args.sin_alpha
 
             # (phi1 (N), phi2 (N), k1 (NxN), k2 (NxN)))
-            phi_1 = (
+            dphi_1 = (
                 args.omega_1
                 - args.adj * jnp.einsum("ij,ij->i", (args.a_1 + y.kappa_1), sin_phi_1_diff_alpha)
                 - args.sigma * (sin_phi_1 * cos_phi_2 - cos_phi_1 * sin_phi_2)
             )
-            phi_2 = (
+            dphi_2 = (
                 args.omega_2
                 - args.adj * jnp.einsum("ij,ij->i", y.kappa_2, sin_phi_2_diff_alpha)
                 - args.sigma * (sin_phi_2 * cos_phi_1 - cos_phi_2 * sin_phi_1)
             )
-            kappa_1 = -args.epsilon_1 * (y.kappa_1 + (sin_diff_phi_1 * args.cos_beta - cos_diff_phi_1 * args.sin_beta))
-            kappa_2 = -args.epsilon_2 * (y.kappa_2 + (sin_diff_phi_2 * args.cos_beta - cos_diff_phi_2 * args.sin_beta))
+            dkappa_1 = -args.epsilon_1 * (y.kappa_1 + (sin_diff_phi_1 * args.cos_beta - cos_diff_phi_1 * args.sin_beta))
+            dkappa_2 = -args.epsilon_2 * (y.kappa_2 + (sin_diff_phi_2 * args.cos_beta - cos_diff_phi_2 * args.sin_beta))
 
-            kmean1 = jnp.mean(kappa_1)
-            kmean2 = jnp.mean(kappa_2)
+            dkmean1 = jnp.mean(dkappa_1)
+            dkmean2 = jnp.mean(dkappa_2)
 
             return DNMState(
-                phi_1=phi_1,
-                phi_2=phi_2,
-                kappa_1=kappa_1.squeeze(),
-                kappa_2=kappa_2.squeeze(),
-                m_1=(kmean1 - y.m_1) / args.tau,
-                m_2=(kmean2 - y.m_2) / args.tau,
-                v_1=((kmean1 - y.m_1) ** 2 - y.v_1) / args.tau,
-                v_2=((kmean2 - y.m_2) ** 2 - y.v_2) / args.tau,
+                phi_1=dphi_1,
+                phi_2=dphi_2,
+                kappa_1=dkappa_1.squeeze(),
+                kappa_2=dkappa_2.squeeze(),
+                m_1=(dkmean1 - y.m_1) / args.tau,
+                m_2=(dkmean2 - y.m_2) / args.tau,
+                v_1=((dkmean1 - y.m_1) ** 2 - y.v_1) / args.tau,
+                v_2=((dkmean2 - y.m_2) ** 2 - y.v_2) / args.tau,
                 v_1p=(y.v_1 - y.v_1p) / args.tau,
                 v_2p=(y.v_1 - y.v_1p) / args.tau,
             )
@@ -402,7 +399,11 @@ class DynamicNetworkModel(ODEBase):
 
 
 if __name__ == "__main__":
+    import logging
     from diffrax import Tsit5
+    from sepsis_osc.utils.config import jax_random_seed
+    from sepsis_osc.storage.storage_interface import Storage
+    from sepsis_osc.utils.logger import setup_logging
 
     setup_logging("info", console_log=True)
     logger = logging.getLogger(__name__)
@@ -464,7 +465,6 @@ if __name__ == "__main__":
                     logger.info("Saving Result")
                     storage.add_result(run_conf.as_index, sol.ys.as_single().serialise(), overwrite=overwrite)
                     storage.write()
-                xs = storage.read_result(run_conf.as_index, DNMMetrics)
 
     storage.close()
     storage = Storage(
