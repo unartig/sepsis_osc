@@ -395,7 +395,7 @@ class DynamicNetworkModel(ODEBase):
             is_energy_plateau = (dv1.max() < eps_dv) & (dv2.max() < eps_dv)
             return (is_const | is_energy_plateau) & is_late
 
-        self.steady_state_check = check
+        return check
 
 
 if __name__ == "__main__":
