@@ -57,13 +57,14 @@ class LatentLookup:
 
     @jaxtyped(typechecker=typechecker)
     @staticmethod
-    def extract_relevant(metrics_: MetricBase) -> Float[Array, "na nb ns 2"] | Float[Array, "naxnbxns 2"]:
-        sofa_metric = metrics_.s_1
+    def extract_relevant(_metrics: MetricBase) -> Float[Array, "na nb ns 2"] | Float[Array, "naxnbxns 2"]:
+        sofa_metric = _metrics.s_1
+        inf_metric = _metrics.s_2 + _metrics.sr_2
         stacked = jnp.concatenate(
             [
                 (sofa_metric - sofa_metric.min()) / (sofa_metric.max() - sofa_metric.min()) + 1e-12,
-                # jnp.clip(metrics_.sr_2 + metrics_.f_2, 0, 1),
-                jnp.zeros_like(sofa_metric, dtype=sofa_metric.dtype),
+                (inf_metric - inf_metric.min()) / (inf_metric.max() - inf_metric.min()) + 1e-12,
+                
             ],
             axis=-1,
         )

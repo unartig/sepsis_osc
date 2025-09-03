@@ -21,6 +21,7 @@ data_dir = Path(yaib_data_dir)
 
 
 def get_raw_data():
+    logger.info(f"Searching for sequence_files in {data_dir}")
     data = preprocess_data(
         data_dir=data_dir,
         file_names=file_names,
@@ -123,16 +124,17 @@ def get_data_sets(
         test_x, test_y = loaded["test_x"], loaded["test_y"]
         logger.info("Data loaded successfully.")
     else:
-        logger.warning("Processed sequence files not found. Preparing sequences and saving data...")
+        logger.warning("Processed sequence files not found, reading YAIB-data.")
         train_y, train_x, val_y, val_x, test_y, test_x = [
             v.drop([
                 col
                 for col in v.columns
-                if col.startswith("Missing") or col in {"sep3_alt", "__index_level_0__", "los_icu"}
+                if col.startswith("Missing") or col in {"__index_level_0__", "los_icu", "susp_inf_alt"}
             ])
             for inner in get_raw_data().values()
             for v in inner.values()
         ]
+        logger.info("Preparing sequences and saving data...")
         train_x, train_y = prepare_sequences(train_x, train_y, window_len)
         val_x, val_y = prepare_sequences(val_x, val_y, window_len)
         test_x, test_y = prepare_sequences(test_x, test_y, window_len)
@@ -148,13 +150,14 @@ def get_data_sets(
         )
         logger.info("Data prepared and saved sequences successfully.")
 
+    # reorder for (sofa, susp_inf_ramp, sep3_alt)
     return (
         train_x.astype(dtype),
-        train_y.astype(dtype),
+        train_y[:, :, [0, 2, 1]].astype(dtype),
         val_x.astype(dtype),
-        val_y.astype(dtype),
+        val_y[:, :, [0, 2, 1]].astype(dtype),
         test_x.astype(dtype),
-        test_y.astype(dtype),
+        test_y[:, :, [0, 2, 1]].astype(dtype),
     )
 
 
