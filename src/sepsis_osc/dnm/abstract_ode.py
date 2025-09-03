@@ -36,19 +36,19 @@ class ConfigArgBase(ABC, eqx.Module):
 class ConfigBase(ABC, eqx.Module):
     @property
     @abstractmethod
-    def as_args(self):
+    def as_args(self) -> ConfigArgBase:
         raise NotImplementedError
 
     @property
     @abstractmethod
-    def as_index(self):
+    def as_index(self)-> tuple[float, ...]:
         raise NotImplementedError
 
     @staticmethod
     @abstractmethod
-    def batch_as_index() -> tuple[float, ...]:
+    def batch_as_index(*args, **kwargs) -> jnp.ndarray:
         raise NotImplementedError
-        return ()
+        return jnp.empty(())
 
 
 class TreeBase(eqx.Module):
@@ -116,11 +116,11 @@ class MetricBase(ABC, TreeBase):
 
 
 class ODEBase(ABC):
-    def __init__(self, full_save: bool = False):
+    def __init__(self, full_save: bool = False, steady_state_check: bool = False):
         deriv = self.system_deriv
         self.term = ODETerm(deriv)
         self.save_method = self.generate_full_save(deriv) if full_save else self.generate_metric_save(deriv)
-        self.steady_state_check = None
+        self.steady_state_check = self.generate_steady_state_check() if steady_state_check else None
 
     def generate_init_conditions(self, config, M, key) -> StateT:
         raise NotImplementedError
@@ -137,6 +137,7 @@ class ODEBase(ABC):
     def generate_steady_state_check(self) -> Callable:
         raise NotImplementedError
 
+    @eqx.filter_jit
     def integrate(
         self,
         config,
