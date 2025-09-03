@@ -1,15 +1,16 @@
 import json
 import logging
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, fields
 
 import equinox as eqx
 import jax.numpy as jnp
 import jax.random as jr
-from jax.tree_util import register_dataclass
 import numpy as np
+from jax.tree_util import register_dataclass
 from jaxtyping import Array, PyTree
 from optax import GradientTransformation, OptState
+from sklearn.metrics import average_precision_score, roc_auc_score
 
 from sepsis_osc.ldm.ae import make_decoder, make_encoder
 from sepsis_osc.ldm.gru import make_predictor
@@ -25,8 +26,6 @@ class AuxLosses:
     beta: Array
     sigma: Array
 
-    infection_loss: Array
-    sofa_loss: Array
     lookup_temperature: Array
     label_temperature: Array
 
@@ -37,43 +36,28 @@ class AuxLosses:
     tc_loss: Array
     accel_loss: Array
     diff_loss: Array
+    thresh_loss: Array
 
     hists_sofa_score: Array
     hists_sofa_metric: Array
+    hists_inf_error: Array
 
-    infection_t: Array
-    sofa_t: Array
+    infection_loss_t: Array
+    sofa_loss_t: Array
+    sep3_loss_t: Array
 
     anneal_concept: Array
     anneal_recon: Array
     anneal_threshs: Array
 
+    sofa_d2_p: Array
+    susp_inf_p: Array
+    sep3_p: Array
+
     @staticmethod
     def empty() -> "AuxLosses":
-        empty_losses = AuxLosses(
-            alpha=jnp.zeros(()),
-            beta=jnp.zeros(()),
-            sigma=jnp.zeros(()),
-            sofa_loss=jnp.zeros(()),
-            infection_loss=jnp.zeros(()),
-            sofa_t=jnp.zeros(()),
-            infection_t=jnp.zeros(()),
-            lookup_temperature=jnp.zeros(()),
-            label_temperature=jnp.zeros(()),
-            total_loss=jnp.zeros(()),
-            recon_loss=jnp.zeros(()),
-            concept_loss=jnp.zeros(()),
-            directional_loss=jnp.zeros(()),
-            tc_loss=jnp.zeros(()),
-            accel_loss=jnp.zeros(()),
-            diff_loss=jnp.zeros(()),
-            hists_sofa_score=jnp.ones(()),
-            hists_sofa_metric=jnp.ones(()),
-            anneal_concept=jnp.zeros(()),
-            anneal_recon=jnp.zeros(()),
-            anneal_threshs=jnp.zeros(()),
-        )
-        return empty_losses
+        initialized_fields = {f.name: np.zeros(()) for f in fields(AuxLosses)}
+        return AuxLosses(**initialized_fields)
 
     def to_dict(self) -> dict[str, dict[str, jnp.ndarray]]:
         return {
@@ -83,10 +67,9 @@ class AuxLosses:
                 "sigma": self.sigma,
             },
             "concepts": {
-                "infection": self.infection_loss,
-                "sofa": self.sofa_loss,
-                "lookup_temperature": self.lookup_temperature,
-                "label_temperature": self.label_temperature,
+                "sofa": self.sofa_loss_t,
+                "infection": self.infection_loss_t,
+                "sepsis-3": self.sep3_loss_t,
             },
             "losses": {
                 "total_loss": self.total_loss,
@@ -96,16 +79,27 @@ class AuxLosses:
                 "tc_loss": self.tc_loss,
                 "accel_loss": self.accel_loss,
                 "diff_loss": self.diff_loss,
+                "thresh_loss": self.thresh_loss,
             },
-            "hists": {"sofa_score": self.hists_sofa_score, "sofa_metric": self.hists_sofa_metric},
+            "hists": {
+                "sofa_score": self.hists_sofa_score,
+                "sofa_metric": self.hists_sofa_metric,
+                "inf_error": self.hists_inf_error,
+            },
             "mult": {
-                "infection_t": self.infection_t,
-                "sofa_t": self.sofa_t,
+                "infection_t": self.infection_loss_t,
+                "sofa_t": self.sofa_loss_t,
+                "sep3_t": self.sep3_loss_t,
             },
             "cosine_annealings": {
                 "concept": self.anneal_concept,
                 "recon": self.anneal_recon,
                 "thresholds": self.anneal_threshs,
+            },
+            "sepsis_metrics": {
+                "sofa_d2_p": self.sofa_d2_p,
+                "susp_inf_p": self.susp_inf_p,
+                "sep3_p": self.sep3_p,
             },
         }
 
@@ -157,6 +151,7 @@ class LRConfig:
 class ConceptLossConfig:
     w_sofa: float
     w_inf: float
+    w_sep3: float
 
 
 @register_dataclass
@@ -168,6 +163,7 @@ class LossesConfig:
     w_accel: float
     w_diff: float
     w_direction: float
+    w_thresh: float
     concept: ConceptLossConfig
     anneal_concept_iter: float
     anneal_recon_iter: float
@@ -246,6 +242,7 @@ def as_3d_indices(
     a, b, s = permutations[:, :, :, 0:1], permutations[:, :, :, 1:2], permutations[:, :, :, 2:3]
     return a, b, s
 
+
 def as_2d_indices(
     x_space: tuple[float, float, float],
     y_space: tuple[float, float, float],
@@ -254,6 +251,7 @@ def as_2d_indices(
     ys = np.arange(*y_space)
     x_grid, y_grid = np.meshgrid(xs, ys, indexing="ij")
     return x_grid, y_grid
+
 
 def flatten_dict(d, parent_key="", sep="_"):
     return (
@@ -267,37 +265,54 @@ def flatten_dict(d, parent_key="", sep="_"):
     )
 
 
-def log_train_metrics(metrics, epoch, writer):
-    log_msg = f"Epoch {epoch} Training Metrics "
+def log_train_metrics(metrics, model_params, epoch, writer):
+    log_msg = f"Epoch {epoch} Training "
     metrics = metrics.to_dict()
+    metrics = {**metrics, "model_params": {**model_params}}
     for group_key, metrics_group in metrics.items():
-        if group_key in ("hists", "mult"):
+        if group_key in ("hists", "mult", "sepsis_metrics"):
             continue
         for metric_name, metric_values in metrics_group.items():
             metric_values = np.asarray(metric_values)
-            if group_key == "losses":
+            if metric_name in ("total_loss", "sofa", "infection", "sepsis-3"):
                 log_msg += f"{metric_name} = {float(metric_values.mean()):.4f} ({float(metric_values.std()):.4f}), "
             writer.add_scalar(f"train_{group_key}/{metric_name}_mean", np.asarray(metric_values.mean()), epoch)
     return log_msg
 
 
-def log_val_metrics(metrics, epoch, writer):
-    log_msg = f"Epoch {epoch} Valdation Metrics "
+def log_val_metrics(metrics, y, epoch, writer):
+    log_msg = f"Epoch {epoch} Valdation "
     metrics = metrics.to_dict()
     for k in metrics.keys():
         if k == "hists":
             writer.add_histogram("SOFA Score", np.asarray(metrics["hists"]["sofa_score"].flatten()), epoch, bins=25)
             writer.add_histogram("SOFA metric", np.asarray(metrics["hists"]["sofa_metric"].flatten()), epoch, bins=25)
+            writer.add_histogram("Inf Error", np.asarray(metrics["hists"]["inf_error"].flatten()), epoch)
         elif k == "mult":
             for t, v in enumerate(np.asarray(metrics["mult"]["infection_t"]).mean(axis=0)):
                 writer.add_scalar(f"infection_per_timestep/t{t}", np.asarray(v), epoch)
             for t, v in enumerate(np.asarray(metrics["mult"]["sofa_t"]).mean(axis=0)):
                 writer.add_scalar(f"sofa_per_timestep/t{t}", np.asarray(v), epoch)
+        elif k == "sepsis_metrics":
+            sep3 = np.asarray(y[..., 2].any(axis=-1)).flatten()
+            pred_sep3_p = np.asarray(metrics[k]["sep3_p"]).flatten()
+            pred_sofa_d2_p = np.asarray(metrics[k]["sofa_d2_p"]).flatten()
+            pred_susp_inf_p = np.asarray(metrics[k]["susp_inf_p"]).flatten()
+            writer.add_scalar(k + "/AUROC_pred_sep", roc_auc_score(sep3, pred_sep3_p), epoch)
+            writer.add_scalar(k + "/AUPRC_pred_sep", average_precision_score(sep3, pred_sep3_p), epoch)
+            writer.add_scalar(k + "/AUROC_pred_sofa_d2", roc_auc_score(sep3, pred_sofa_d2_p), epoch)
+            writer.add_scalar(k + "/AUPRC_pred_sofa_d2", average_precision_score(sep3, pred_sofa_d2_p), epoch)
+            writer.add_scalar(k + "/AUROC_pred_susp_inf", roc_auc_score(sep3, pred_susp_inf_p), epoch)
+            writer.add_scalar(k + "/AUPRC_pred_susp_inf", average_precision_score(sep3, pred_susp_inf_p), epoch)
+            log_msg += (f"AUROC = {float(roc_auc_score(sep3, pred_sep3_p)):.4f}, ")
+            log_msg += (f"AUPRC = {float(average_precision_score(sep3, pred_sep3_p)):.4f}, ")
+        elif k in ("cosine_annealings"):
+            continue
         else:
             for metric_name, metric_values in metrics[k].items():
                 log_msg += (
                     f"{metric_name} = {float(metric_values.mean()):.4f} ({float(metric_values.std()):.4f}), "
-                    if k == "losses"
+                    if metric_name in ("total_loss", "sofa", "infection", "sepsis-3")
                     else ""
                 )
                 writer.add_scalar(f"val_{k}/{metric_name}_mean", np.asarray(metric_values.mean()), epoch)
