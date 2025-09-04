@@ -125,7 +125,7 @@ def ordinal_loss(
 
 
 @jaxtyped(typechecker=typechecker)
-def binary_logits(probs: Float[Array, " batch"]) -> Float[Array, " batch"]:
+def binary_logits(probs: Float[Array, "batch *"]) -> Float[Array, "batch *"]:
     probs = jnp.clip(probs, EPS, 1 - EPS)
     return jnp.log(probs) - jnp.log1p(-probs)
 
@@ -136,7 +136,7 @@ def binary_loss(
 ) -> Float[Array, ""]:
     logits = binary_logits(predicted_infection)
     loss_per_sample = optax.sigmoid_binary_cross_entropy(logits, true_infection > 0.0)
-    weights_per_sample = 1 # + true_infection
+    weights_per_sample = 1 + true_infection
     weighted_loss = loss_per_sample * weights_per_sample
     return jnp.mean(weighted_loss, axis=-1)
 
@@ -293,12 +293,12 @@ def loss(
 
     mask =jnp.triu(jnp.ones((x.shape[1], x.shape[1])), k=1).astype(bool) 
     aux.sofa_d2_p = jax.vmap(sofa_event_prob, in_axes=(0, None, None, None, None, None))(
-        sofa_pred, ordinal_thresholds, model.label_temperature, mask, jnp.array([0.5]), 1.5
-        # sofa_pred, ordinal_thresholds, model.label_temperature, mask, model.delta_temperature, 1.5
+        # sofa_pred, ordinal_thresholds, model.label_temperature, mask, jnp.array([0.5]), 2.0
+        sofa_pred, ordinal_thresholds, model.label_temperature, mask, model.delta_temperature, 2.0
     )
-    aux.susp_inf_p = jax.nn.logsumexp(infection_pred, axis=-1)
+    aux.susp_inf_p = 1.0 - jnp.prod(1.0 - infection_pred, axis=-1)
     aux.sep3_p = aux.sofa_d2_p * aux.susp_inf_p
-    aux.sep3_loss_t = jnp.mean(optax.sigmoid_binary_cross_entropy(aux.sep3_p, sepsis_true.any(axis=-1)))
+    aux.sep3_loss_t = jnp.mean(optax.sigmoid_binary_cross_entropy(binary_logits(aux.sep3_p), sepsis_true.any(axis=-1)))
     aux.concept_loss = jnp.mean(
         aux.sofa_loss_t * params.concept.w_sofa
         + aux.infection_loss_t * params.concept.w_inf
@@ -497,22 +497,22 @@ if __name__ == "__main__":
     logger = logging.getLogger(__name__)
 
     model_conf = ModelConfig(
-        latent_dim=3, input_dim=52, enc_hidden=512, dec_hidden=64, predictor_hidden=5, dropout_rate=0.5
+        latent_dim=3, input_dim=52, enc_hidden=64, dec_hidden=64, predictor_hidden=5, dropout_rate=0.5
     )
-    train_conf = TrainingConfig(batch_size=1024, window_len=6, epochs=9000, perc_train_set=0.222, validate_every=5)
-    lr_conf = LRConfig(init=0.0, peak=5e-3, peak_decay=0.5, end=1e-12, warmup_epochs=3, enc_wd=1e-4, grad_norm=0.7)
+    train_conf = TrainingConfig(batch_size=256, window_len=6, epochs=9000, perc_train_set=0.666, validate_every=5)
+    lr_conf = LRConfig(init=0.0, peak=5e-3, peak_decay=0.5, end=1e-12, warmup_epochs=5, enc_wd=1e-4, grad_norm=0.7)
     loss_conf = LossesConfig(
-        w_concept=10.0,
-        w_recon=0.01,
-        w_tc=0.0,
+        w_concept=20.0,
+        w_recon=0.1,
+        w_tc=1.0,
         w_accel=0.0,
         w_diff=0.0,
-        w_direction=5.0,
+        w_direction=0.0,
         w_thresh=0.0,
-        anneal_concept_iter=100 * 1 / train_conf.perc_train_set,
-        anneal_recon_iter=20 * 1 / train_conf.perc_train_set,
-        anneal_threshs_iter=50 * 1 / train_conf.perc_train_set,
-        concept=ConceptLossConfig(w_sofa=1.0, w_inf=1.0, w_sep3=20.0),
+        anneal_concept_iter=50 * 1 / train_conf.perc_train_set,
+        anneal_recon_iter=5 * 1 / train_conf.perc_train_set,
+        anneal_threshs_iter=10 * 1 / train_conf.perc_train_set,
+        concept=ConceptLossConfig(w_sofa=1.0, w_inf=3.0, w_sep3=0.0),
     )
     load_conf = LoadingConfig(from_dir="", epoch=0)
     save_conf = SaveConfig(save_every=10, perform=True)
@@ -567,7 +567,7 @@ if __name__ == "__main__":
     sofa_dist, _ = jnp.histogram(train_y[..., 0], bins=25, density=False)
     sofa_dist = sofa_dist / jnp.sum(sofa_dist)
     deltas = metrics[jnp.round(jnp.cumsum(sofa_dist) * len(metrics)).astype(dtype=jnp.int32)]
-    # deltas = jnp.ones_like(deltas)  # NOTE
+    deltas = jnp.ones_like(deltas)  # NOTE
     deltas = deltas / jnp.sum(deltas)
     deltas = jnp.asarray(deltas)
 
