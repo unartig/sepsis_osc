@@ -17,8 +17,8 @@ from sepsis_osc.ldm.ae import Decoder, Encoder, init_decoder_weights, init_encod
 from sepsis_osc.ldm.data_loading import get_data_sets, prepare_batches
 from sepsis_osc.ldm.gru import GRUPredictor
 from sepsis_osc.ldm.latent_dynamics import LatentDynamicsModel
-from sepsis_osc.ldm.lookup import LatentLookup
-from sepsis_osc.ldm.model_utils import (
+from sepsis_osc.ldm.lookup import LatentLookup, as_3d_indices
+from sepsis_osc.ldm.helper_structs import (
     AuxLosses,
     LoadingConfig,
     LossesConfig,
@@ -26,13 +26,10 @@ from sepsis_osc.ldm.model_utils import (
     ModelConfig,
     SaveConfig,
     TrainingConfig,
-    as_3d_indices,
-    flatten_dict,
-    load_checkpoint,
-    log_train_metrics,
-    log_val_metrics,
-    save_checkpoint,
 )
+from sepsis_osc.ldm.checkpoint_utils import save_checkpoint, load_checkpoint
+
+from sepsis_osc.ldm.logging_utils import log_val_metrics, log_train_metrics
 from sepsis_osc.storage.storage_interface import Storage
 from sepsis_osc.utils.config import jax_random_seed, ALPHA_SPACE, BETA_SPACE, SIGMA_SPACE
 from sepsis_osc.utils.jax_config import setup_jax, EPS
@@ -263,7 +260,7 @@ def loss(
         0, 1
     )  # (T, batch, 2) -> (batch, T, 2)
     # NOTE
-    sofa_pred = pred_metrics[..., 0] #  ** model.sofa_exp  # (batch, T, 1)
+    sofa_pred = pred_metrics[..., 0]  #  ** model.sofa_exp  # (batch, T, 1)
     infection_pred = pred_metrics[..., 1] ** model.inf_exp  # (batch, T, 1)
 
     # --------- Difference Loss
