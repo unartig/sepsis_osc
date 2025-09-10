@@ -32,7 +32,7 @@ def get_raw_data():
         load_cache=True,
         cv_repetitions=2,
         repetition_index=0,
-        train_size=None,
+        train_size=0.5,
         cv_folds=2,
         fold_index=0,
         pretrained_imputation_model=None,
@@ -85,6 +85,7 @@ def prepare_sequences(
     x_df: pl.DataFrame,
     y_df: pl.DataFrame,
     window_len: int,
+    time_step: int = 1
 ) -> tuple[np.ndarray, np.ndarray]:
     # Sort and group only once
     x_df = x_df.sort(["stay_id", "time"])
@@ -94,6 +95,7 @@ def prepare_sequences(
     y_seqs = []
 
     for pid in x_df["stay_id"].unique():
+        times = x_df.filter(pl.col("stay_id")==pid)["time"].to_numpy()
         x_group = x_df.filter(pl.col("stay_id") == pid).drop(["stay_id", "time"])
         y_group = y_df.filter(pl.col("stay_id") == pid).drop(["stay_id", "time"])
 
@@ -105,8 +107,9 @@ def prepare_sequences(
             continue
 
         for i in range(n - window_len + 1):
-            x_seqs.append(x_np[i : i + window_len])
-            y_seqs.append(y_np[i : i + window_len])
+            if np.all(np.diff(times[i:i+window_len]) == time_step):
+                x_seqs.append(x_np[i : i + window_len])
+                y_seqs.append(y_np[i : i + window_len])
 
     x_out = np.array(x_seqs)
     y_out = np.array(y_seqs)
