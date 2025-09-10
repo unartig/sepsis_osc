@@ -2,16 +2,17 @@ from dataclasses import dataclass
 import jax
 import jax.numpy as jnp
 import jax.tree_util as jtu
+import equinox as eqx
 from beartype import beartype as typechecker
 from equinox import field, filter_jit
 from jaxtyping import Array, Float, jaxtyped
 from numpy.typing import DTypeLike
+from sepsis_osc.utils.jax_config import EPS
 
 from sepsis_osc.dnm.abstract_ode import MetricBase
 
 @jaxtyped(typechecker=typechecker)
-@dataclass(frozen=True)
-class LatentLookup:
+class LatentLookup(eqx.Module):
     metrics: MetricBase = field(static=True)
     indices_T: Float[Array, "db_size 3"] = field(static=True)
     relevant_metrics: Float[Array, "db_size 2"] = field(static=True)
@@ -33,9 +34,9 @@ class LatentLookup:
         self,
         metrics: MetricBase,
         indices: Float[Array, "db_size 3"],
-        metrics_3d,
-        indices_3d,
-        grid_spacing,
+        metrics_3d: MetricBase,
+        indices_3d: Float[Array, "na nb ns 3"],
+        grid_spacing: Float[Array, "3"],
         dtype: DTypeLike = jnp.float32,
     ):
         object.__setattr__(self, "metrics", metrics.astype(dtype))
@@ -59,7 +60,8 @@ class LatentLookup:
     @staticmethod
     def extract_relevant(_metrics: MetricBase) -> Float[Array, "na nb ns 2"] | Float[Array, "naxnbxns 2"]:
         sofa_metric = _metrics.s_1
-        inf_metric = _metrics.s_2 + _metrics.sr_2
+        inf_metric = _metrics.s_2
+
         stacked = jnp.concatenate(
             [
                 (sofa_metric - sofa_metric.min()) / (sofa_metric.max() - sofa_metric.min()) + 1e-12,
@@ -69,13 +71,6 @@ class LatentLookup:
             axis=-1,
         )
         return stacked
-
-    def tree_flatten(self):
-        return (self.metrics, self.indices_T.T, self.metrics_3d, self.indices_3d, self.grid_spacing), None
-
-    @classmethod
-    def tree_unflatten(cls, aux_data, children):
-        return cls(*children)
 
     @jaxtyped(typechecker=typechecker)
     @filter_jit
@@ -112,7 +107,7 @@ class LatentLookup:
         offsets = jnp.array([-1, 0, 1])
         neighbor_offsets = jnp.stack(jnp.meshgrid(offsets, offsets, offsets, indexing="ij"), axis=-1).reshape(-1, 3)
         neighbor_coords = center_idx[:, None, :] + neighbor_offsets[None, :, :]
-        neighbor_coords = jnp.clip(neighbor_coords, 0, jnp.array(self.grid_shape) - 1)
+        neighbor_coords = jnp.clip(neighbor_coords, 1, jnp.array(self.grid_shape) - 2)
         x, y, z = neighbor_coords[..., 0], neighbor_coords[..., 1], neighbor_coords[..., 2]
         neighbor_xyz = self.indices_3d[x, y, z]
         neighbor_metrics = self.relevant_metrics_3d[x, y, z]
@@ -150,7 +145,7 @@ class LatentLookup:
             # Compute distances to neighbors
             dists = jnp.sum((q_point - neighbor_xyz) ** 2, axis=-1)
 
-            weights = jax.nn.softmax(-dists / temp, axis=-1)
+            weights = jax.nn.softmax(-dists / (temp + EPS), axis=-1)
             weighted = jnp.sum(weights[:, None] * neighbor_metrics, axis=0)
 
             return weighted
@@ -161,5 +156,3 @@ class LatentLookup:
     def round_ste(self, x):
         return x + jax.lax.stop_gradient(jnp.round(x) - x)
 
-
-jtu.register_pytree_node(LatentLookup, LatentLookup.tree_flatten, LatentLookup.tree_unflatten)
