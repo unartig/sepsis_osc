@@ -26,7 +26,7 @@ class GRUPredictor(eqx.Module):
         h_prev: Float[Array, " pred_hidden"],
     ) -> tuple[Float[Array, " latent_dim"], Float[Array, " pred_hidden"]]:
         h_next = self.gru_cell(z_t, h_prev)
-        z_pred = jax.nn.tanh(self.proj_out(h_next))
+        z_pred = self.proj_out(h_next)
         return z_pred, h_next
 
 
