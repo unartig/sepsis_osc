@@ -1,15 +1,15 @@
-from dataclasses import dataclass
 import jax
 import jax.numpy as jnp
-import jax.tree_util as jtu
 import equinox as eqx
 from beartype import beartype as typechecker
 from equinox import field, filter_jit
 from jaxtyping import Array, Float, jaxtyped
 from numpy.typing import DTypeLike
 from sepsis_osc.utils.jax_config import EPS
+import numpy as np
 
 from sepsis_osc.dnm.abstract_ode import MetricBase
+
 
 @jaxtyped(typechecker=typechecker)
 class LatentLookup(eqx.Module):
@@ -66,7 +66,6 @@ class LatentLookup(eqx.Module):
             [
                 (sofa_metric - sofa_metric.min()) / (sofa_metric.max() - sofa_metric.min()) + 1e-12,
                 (inf_metric - inf_metric.min()) / (inf_metric.max() - inf_metric.min()) + 1e-12,
-                
             ],
             axis=-1,
         )
@@ -156,3 +155,26 @@ class LatentLookup(eqx.Module):
     def round_ste(self, x):
         return x + jax.lax.stop_gradient(jnp.round(x) - x)
 
+
+def as_3d_indices(
+    alpha_space: tuple[float, float, float],
+    beta_space: tuple[float, float, float],
+    sigma_space: tuple[float, float, float],
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    alphas = np.arange(*alpha_space)
+    betas = np.arange(*beta_space)
+    sigmas = np.arange(*sigma_space)
+    alpha_grid, beta_grid, sigma_grid = np.meshgrid(alphas, betas, sigmas, indexing="ij")
+    permutations = np.stack([alpha_grid, beta_grid, sigma_grid], axis=-1)
+    a, b, s = permutations[:, :, :, 0:1], permutations[:, :, :, 1:2], permutations[:, :, :, 2:3]
+    return a, b, s
+
+
+def as_2d_indices(
+    x_space: tuple[float, float, float],
+    y_space: tuple[float, float, float],
+) -> tuple[np.ndarray, np.ndarray]:
+    xs = np.arange(*x_space)
+    ys = np.arange(*y_space)
+    x_grid, y_grid = np.meshgrid(xs, ys, indexing="ij")
+    return x_grid, y_grid

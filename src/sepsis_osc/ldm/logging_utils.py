@@ -1,6 +1,19 @@
 import numpy as np
 from sklearn.metrics import average_precision_score, roc_auc_score
 
+
+def flatten_dict(d, parent_key="", sep="_"):
+    return (
+        {
+            f"{k}" if parent_key else k: v
+            for pk, pv in d.items()
+            for k, v in flatten_dict(pv, f"{parent_key}{sep}{pk}" if parent_key else pk, sep).items()
+        }
+        if isinstance(d, dict)
+        else {parent_key: d}
+    )
+
+
 def log_train_metrics(metrics, model_params, epoch, writer):
     log_msg = f"Epoch {epoch} Training "
     metrics = metrics.to_dict()

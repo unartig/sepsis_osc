@@ -9,6 +9,7 @@ from optax import GradientTransformation, OptState
 
 from sepsis_osc.ldm.ae import make_decoder, make_encoder
 from sepsis_osc.ldm.latent_dynamics import LatentDynamicsModel
+from sepsis_osc.ldm.gru import make_predictor
 
 logger = logging.getLogger(__name__)
 
