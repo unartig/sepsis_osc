@@ -92,16 +92,16 @@ class Encoder(eqx.Module):
         self.post_attention_dropout = eqx.nn.Dropout(dropout_rate)
 
         # Final encoder layers
-        self.final_linear1 = eqx.nn.Linear(enc_hidden + input_dim, enc_hidden, key=key_lin4, dtype=dtype)
-        self.final_norm1 = eqx.nn.LayerNorm(enc_hidden, dtype=dtype)
+        self.final_linear1 = eqx.nn.Linear(enc_hidden + input_dim, 64, key=key_lin4, dtype=dtype)
+        self.final_norm1 = eqx.nn.LayerNorm(64, dtype=dtype)
         self.dropout3 = eqx.nn.Dropout(dropout_rate)
-        self.final_linear2 = eqx.nn.Linear(enc_hidden, enc_hidden, key=key_lin5, dtype=dtype)
+        self.final_linear2 = eqx.nn.Linear(64, 32, key=key_lin5, dtype=dtype)
 
         # Output heads
-        self.alpha_layer = eqx.nn.Linear(enc_hidden, 1, key=key_alpha, dtype=dtype)
-        self.beta_layer = eqx.nn.Linear(enc_hidden, 1, key=key_beta, dtype=dtype)
-        self.sigma_layer = eqx.nn.Linear(enc_hidden, 1, key=key_sigma, dtype=dtype)
-        self.h_layer = eqx.nn.Linear(enc_hidden, pred_hidden, key=key_sigma, dtype=dtype)
+        self.alpha_layer = eqx.nn.Linear(32, 1, key=key_alpha, dtype=dtype)
+        self.beta_layer = eqx.nn.Linear(32, 1, key=key_beta, dtype=dtype)
+        self.sigma_layer = eqx.nn.Linear(32, 1, key=key_sigma, dtype=dtype)
+        self.h_layer = eqx.nn.Linear(32, pred_hidden, key=key_sigma, dtype=dtype)
 
     @jaxtyped(typechecker=typechecker)
     def __call__(
@@ -133,6 +133,7 @@ class Encoder(eqx.Module):
 
         # === Final Layers ===
         x_final_enc = self.final_linear1(x_combined)
+
         x_final_enc = self.final_norm1(x_final_enc)
         x_final_enc = jax.nn.swish(x_final_enc)
         x_final_enc = self.dropout3(x_final_enc, key=k4)
@@ -141,9 +142,9 @@ class Encoder(eqx.Module):
         x_final_enc = jax.nn.swish(x_final_enc)
 
         return (
-            jax.nn.sigmoid(self.alpha_layer(x_final_enc)),
-            jax.nn.sigmoid(self.beta_layer(x_final_enc)),
-            jax.nn.sigmoid(self.sigma_layer(x_final_enc)),
+            self.alpha_layer(x_final_enc),
+            self.beta_layer(x_final_enc),
+            self.sigma_layer(x_final_enc),
             jax.nn.tanh(self.h_layer(x_final_enc)),
         )
 
@@ -156,16 +157,19 @@ class Decoder(eqx.Module):
     dec_hidden: int
 
     def __init__(self, key, input_dim: int, latent_dim: int, dec_hidden: int, dtype: jnp.dtype = jnp.float32):
-        key1, key2 = jax.random.split(key, 2)
+        key1, key2, key3, key4 = jax.random.split(key, 4)
 
         self.input_dim = input_dim
         self.latent_dim = latent_dim
         self.dec_hidden = dec_hidden
         self.layers = [
-            eqx.nn.Linear(in_features=latent_dim, out_features=dec_hidden, key=key1, dtype=dtype),
-            jax.nn.relu,
-            eqx.nn.Linear(in_features=dec_hidden, out_features=input_dim, key=key2, dtype=dtype),
-            jax.nn.tanh,
+            eqx.nn.Linear(in_features=latent_dim, out_features=16, key=key1, dtype=dtype),
+            jax.nn.swish,
+            eqx.nn.Linear(in_features=16, out_features=32, key=key2, dtype=dtype),
+            jax.nn.swish,
+            eqx.nn.Linear(in_features=32, out_features=dec_hidden, key=key3, dtype=dtype),
+            jax.nn.swish,
+            eqx.nn.Linear(in_features=dec_hidden, out_features=input_dim, key=key4, dtype=dtype),
         ]
 
     @jaxtyped(typechecker=typechecker)
