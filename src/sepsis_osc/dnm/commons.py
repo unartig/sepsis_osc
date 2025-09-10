@@ -27,3 +27,12 @@ def phase_entropy(phis, num_bins=36) -> jnp.ndarray:
     # Shannon entropy
     entropy = -jnp.sum(hist * jnp.log(hist) * (bin_edges[1] - bin_edges[0]))  # bin width is constant
     return entropy
+
+def entropy(x, num_bins=100) -> jnp.ndarray:
+    hist, bin_edges = jnp.histogram(x, bins=num_bins, range=(0, 2), density=True)
+
+    hist = jnp.clip(hist, 1e-10, 1)
+
+    # Shannon entropy
+    entropy = -jnp.sum(hist * jnp.log(hist) * (bin_edges[1] - bin_edges[0]))  # bin width is constant
+    return entropy

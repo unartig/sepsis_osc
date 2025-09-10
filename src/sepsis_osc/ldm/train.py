@@ -291,7 +291,6 @@ def loss(
     aux.infection_loss_t = jax.vmap(binary_loss)(infection_pred, infection_true)
     infection_err = infection_pred - (infection_true > 0)
 
-    mask =jnp.triu(jnp.ones((x.shape[1], x.shape[1])), k=1).astype(bool) 
     aux.sofa_d2_p = jax.vmap(sofa_event_prob, in_axes=(0, None, None, None, None, None))(
         # sofa_pred, ordinal_thresholds, model.label_temperature, mask, jnp.array([0.5]), 2.0
         sofa_pred, ordinal_thresholds, model.label_temperature, mask, model.delta_temperature, 2.0
