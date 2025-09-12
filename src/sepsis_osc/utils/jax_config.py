@@ -1,3 +1,6 @@
+EPS = 1e-7
+
+
 def setup_jax(simulation: bool = True):
     import os
     import jax
@@ -7,19 +10,19 @@ def setup_jax(simulation: bool = True):
         jax.config.update("jax_enable_x64", True)  #  MATLAB defaults to double precision
     # jax.config.update("jax_platform_name", "cpu")
     # jax.config.update("jax_disable_jit", True)
-    jax.config.update("jax_debug_nans", False)
-    jax.config.update("jax_debug_infs", False)
+    jax.config.update("jax_debug_nans", True)
+    # jax.config.update("jax_debug_infs", False)
 
     # cpu/gpu flags
-    # if simulation:
-    os.environ["XLA_FLAGS"] = (
+    xla_flags = (
         "--xla_gpu_enable_latency_hiding_scheduler=true "
         "--xla_gpu_enable_triton_gemm=true "
         "--xla_gpu_enable_cublaslt=true "
-        "--xla_gpu_autotune_level=4 "  # https://docs.nvidia.com/deeplearning/frameworks/tensorflow-user-guide/index.html#xla-autotune
-        "--xla_gpu_exhaustive_tiling_search=true "
         "--xla_gpu_enable_command_buffer='' "
-        
-        if simulation
-        else ""
     )
+    if simulation:
+        xla_flags += (
+            "--xla_gpu_exhaustive_tiling_search=true "
+            "--xla_gpu_autotune_level=4 "  # https://docs.nvidia.com/deeplearning/frameworks/tensorflow-user-guide/index.html#xla-autotune
+        )
+    os.environ["XLA_FLAGS"] = xla_flags
