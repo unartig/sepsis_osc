@@ -61,6 +61,7 @@ def make_objective(
             w_inf_gamma=trial.suggest_float("w_inf_gamma", 0, 100, log=False),
             w_sep3=0.0,  # trial.suggest_float("w_sep3", 0, 100, log=False),
             w_thresh=0.0,  # trial.suggest_float("w_thresh", 0, 100, log=False),
+            anneal_threshs_iter=0.0,  # trial.suggest_float("anneal_threshs", 1, 100, log=False) / train_conf.perc_train_set,
         )
 
         model_conf = ModelConfig(

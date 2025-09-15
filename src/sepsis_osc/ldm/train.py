@@ -169,6 +169,12 @@ def bound_z(z: Float[Array, "batch time latent_dim"]) -> Float[Array, "batch tim
     return jnp.concatenate([alpha, beta, sigma], axis=-1)
 
 
+def cosine_annealing(base_val: float, num_steps: int, current_step: jnp.int32) -> Float[Array, ""]:
+    step = jnp.clip(current_step, 0, num_steps)
+    cosine = 0.5 * (1 + jnp.cos(jnp.pi * step / num_steps))
+    return base_val + (1.0 - base_val) * (1.0 - cosine)
+
+
 def uncertainty_scale(loss: Float[Array, "*"], log_sigma: Float[Array, ""]) -> Float[Array, "*"]:
     sigma_sq = jnp.exp(2 * log_sigma)
     return ((loss / (2 * sigma_sq)) + log_sigma).squeeze()
@@ -231,6 +237,9 @@ def loss(
     params: LossesConfig,
 ) -> tuple[Array, AuxLosses]:
     aux = AuxLosses.empty()
+    # NOTE
+    # aux.anneal_threshs = cosine_annealing(0.0, int(params.anneal_threshs_iter * params.steps_per_epoch), step)
+    aux.anneal_threshs = cosine_annealing(0.0, int(params.anneal_threshs_iter * params.steps_per_epoch), jnp.array(0))
 
     ordinal_thresholds = model.ordinal_thresholds(aux.anneal_threshs)
 
@@ -271,7 +280,6 @@ def loss(
         sofa_pred, sofa_true, ordinal_thresholds, model.label_temperature, model.sofa_dist
     )
     sofa_score_pred = jnp.sum(sofa_pred[..., None] > ordinal_thresholds, axis=-1)
-    print(infection_pred.shape, infection_true.shape)
 
     aux.infection_loss_t = jax.vmap(focal_loss, in_axes=(0, 0))(
         infection_pred, infection_true, alpha=params.w_inf_alpha, gamma=params.w_inf_gamma
@@ -307,7 +315,7 @@ def loss(
     aux.hists_sofa_score = jax.lax.stop_gradient(sofa_score_pred)
     aux.hists_inf_prob = jax.lax.stop_gradient(infection_pred)
     aux.total_loss = (
-        (aux.recon_loss * params.w_recon * aux.anneal_recon)
+        (aux.recon_loss * params.w_recon)
         + jnp.mean(aux.infection_loss_t) * params.w_inf
         # SOFA only for first time point
         + jnp.mean(aux.sofa_loss_t[:, 0]) * params.w_sofa_classification
@@ -516,6 +524,7 @@ if __name__ == "__main__":
         w_inf_gamma=10.0,
         w_sep3=0.0,
         w_thresh=0.0,
+        anneal_threshs_iter=10 * 1 / train_conf.perc_train_set,
     )
     load_conf = LoadingConfig(from_dir="", epoch=0)
     save_conf = SaveConfig(save_every=10, perform=True)
