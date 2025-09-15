@@ -1,8 +1,18 @@
+from typing import Any
+
+import matplotlib.pyplot as plt
 import numpy as np
 from sklearn.metrics import average_precision_score, roc_auc_score
 
+from sepsis_osc.visualisations.viz_model_results import (
+    viz_heatmap_concepts,
+    viz_plane,
+    viz_progression,
+    viz_starter,
+)
 
-def flatten_dict(d, parent_key="", sep="_"):
+
+def flatten_dict(d: dict[str, Any], parent_key: str="", sep: str ="_")-> dict[str, Any]:
     return (
         {
             f"{k}" if parent_key else k: v
@@ -71,3 +81,44 @@ def log_val_metrics(metrics, y, epoch, writer):
                 writer.add_scalar(f"val_{k}/{metric_name}_mean", np.asarray(metric_values.mean()), epoch)
                 writer.add_scalar(f"val_{k}/{metric_name}_std", np.asarray(metric_values.std()), epoch)
     return log_msg
+
+
+def log_viz(metrics, y, lookup, epoch, writer):
+    metrics = metrics.to_dict()
+    fig, ax = plt.subplots(1, 1)
+    ax = viz_starter(metrics["latents"]["beta"][:, 0], metrics["latents"]["sigma"][:, 0], filename="", ax=ax)
+    writer.add_figure("Latents@0", fig, epoch, close=True)
+
+    fig, ax = plt.subplots(1, 2)
+    ax = viz_progression(
+        y[..., 0], y[..., 1], metrics["hists"]["sofa_score"], metrics["hists"]["inf_prob"], filename="", ax=ax
+    )
+    writer.add_figure("Progression", fig, epoch, close=True)
+
+    fig, ax = plt.subplots(1, 2)
+    ax = viz_plane(
+        true_sofa=y[0, 0, 0],
+        true_infs=y[0, 0, 1],
+        pred_sofa=metrics["hists"]["sofa_score"][0, 0],
+        pred_infs=metrics["hists"]["inf_prob"][0, 0],
+        alphas=metrics["latents"]["alpha"][0, 0],
+        betas=metrics["latents"]["beta"][0, 0],
+        sigmas=metrics["latents"]["sigma"][0, 0],
+        lookup=lookup,
+        cmaps=False,
+        filename="",
+        figax=(fig, ax),
+    )
+    writer.add_figure("In Param Space", fig, epoch, close=True)
+
+    fig, ax = plt.subplots(1, 2)
+    ax = viz_heatmap_concepts(
+        y[..., 0].flatten(),
+        y[..., 1].flatten(),
+        metrics["hists"]["sofa_score"].flatten(),
+        metrics["hists"]["inf_prob"].flatten(),
+        cmap=False,
+        filename="",
+        figax=(fig, ax),
+    )
+    writer.add_figure("Performance", fig, epoch, close=True)
