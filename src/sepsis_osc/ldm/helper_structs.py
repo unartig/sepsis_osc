@@ -32,6 +32,8 @@ class AuxLosses:
     sofa_loss_t: Array
     sep3_loss_t: Array
 
+    anneal_threshs: Array
+
     sofa_d2_p: Array
     susp_inf_p: Array
     sep3_p: Array
@@ -71,6 +73,9 @@ class AuxLosses:
                 "infection_t": self.infection_loss_t,
                 "sofa_t": self.sofa_loss_t,
                 "sep3_t": self.sep3_loss_t,
+            },
+            "cosine_annealings": {
+                "thresholds": self.anneal_threshs,
             },
             "sepsis_metrics": {
                 "sofa_d2_p": self.sofa_d2_p,
@@ -136,4 +141,5 @@ class LossesConfig:
     w_inf_gamma: float
     w_sep3: float
     w_thresh: float
+    anneal_threshs_iter: float
     steps_per_epoch: int = 0
