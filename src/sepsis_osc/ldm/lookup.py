@@ -95,7 +95,7 @@ class LatentLookup(eqx.Module):
     def hard_get_local(
         self,
         query_vectors: Float[Array, "batch latent"],
-        temperatures: Float[Array, "1"],  # placeholder to make compatible with soft get
+        temperatures: Float[Array, "1"] | Float[Array, "batch latent"],  # placeholder to make compatible with soft get
     ) -> Float[Array, "batch 2"]:
         orig_dtype = query_vectors.dtype
         query_vectors = query_vectors.astype(self.dtype)
@@ -118,7 +118,7 @@ class LatentLookup(eqx.Module):
     @filter_jit
     def soft_get_local(
         self,
-        query_vectors: Float[Array, "batch 3"],
+        query_vectors: Float[Array, "batch latent"],
         temperatures: Float[Array, "1"],
     ) -> Float[Array, "batch 2"]:
         orig_dtype = query_vectors.dtype
@@ -134,7 +134,7 @@ class LatentLookup(eqx.Module):
         neighbor_offsets = jnp.stack(jnp.meshgrid(offsets, offsets, offsets, indexing="ij"), axis=-1).reshape(-1, 3)
 
         @jaxtyped(typechecker=typechecker)
-        def gather_neighbors(vi: Int[Array, "batch 3"], q_point: Float[Array, "batch 3"]) -> Float[Array, "1"]:
+        def gather_neighbors(vi: Int[Array, "3"], q_point: Float[Array, "3"]) -> Float[Array, "2"]:
             coords = vi[None, :] + neighbor_offsets
             x, y, z = coords[:, 0], coords[:, 1], coords[:, 2]
 
