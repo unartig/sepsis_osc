@@ -1,10 +1,12 @@
 import logging
+from typing import Callable, TypeVar
 
 import equinox as eqx
 import jax
 import jax.numpy as jnp
 from beartype import beartype as typechecker
-from jaxtyping import Array, Float, jaxtyped
+from jaxtyping import Array, Float, jaxtyped, PyTree
+from numpy.typing import DTypeLike
 
 logger = logging.getLogger(__name__)
 
@@ -53,8 +55,8 @@ class Encoder(eqx.Module):
         enc_hidden: int,
         pred_hidden: int,
         dropout_rate: float = 0.2,
-        dtype=jnp.float32,
-    ):
+        dtype: DTypeLike = jnp.float32,
+    ) -> None:
         (
             key_lin1,
             key_lin2,
@@ -66,9 +68,7 @@ class Encoder(eqx.Module):
             key_alpha,
             key_beta,
             key_sigma,
-            key_sofa,
-            key_inf,
-        ) = jax.random.split(key, 12)
+        ) = jax.random.split(key, 10)
 
         self.input_dim = input_dim
         self.latent_dim = latent_dim
@@ -156,7 +156,9 @@ class Decoder(eqx.Module):
     latent_dim: int
     dec_hidden: int
 
-    def __init__(self, key, input_dim: int, latent_dim: int, dec_hidden: int, dtype: jnp.dtype = jnp.float32):
+    def __init__(
+        self, key: jnp.ndarray, input_dim: int, latent_dim: int, dec_hidden: int, dtype: jnp.dtype = jnp.float32
+    ) -> None:
         key1, key2, key3, key4 = jax.random.split(key, 4)
 
         self.input_dim = input_dim
@@ -182,6 +184,10 @@ class Decoder(eqx.Module):
         return z * 5
 
 
+EncDec = TypeVar("EncDec", Encoder, Decoder)
+InitFn = Callable[[Array, Array], Array]
+
+
 # He Uniform Initialization for ReLU activation
 def he_uniform_init(weight: Array, key: Array) -> Array:
     out, in_ = weight.shape
@@ -190,16 +196,16 @@ def he_uniform_init(weight: Array, key: Array) -> Array:
 
 
 # Bias initialization to target softplus output around 1
-def softplus_bias_init(bias: Array, key: Array, dtype=jnp.float32) -> Array:
+def softplus_bias_init(bias: Array, _key: jnp.ndarray) -> Array:
     return jnp.full(bias.shape, jnp.log(jnp.exp(1.0) - 1.0), dtype=bias.dtype)
 
 
-def zero_bias_init(bias: Array, key: Array) -> Array:
+def zero_bias_init(bias: Array, _key: jnp.ndarray) -> Array:
     return jnp.zeros_like(bias, dtype=bias.dtype)
 
 
-def apply_initialization(model, init_fn_weight, init_fn_bias, key):
-    def is_linear(x):
+def apply_initialization(model: EncDec, init_fn_weight: InitFn, init_fn_bias: InitFn, key: jnp.ndarray) -> EncDec:
+    def is_linear(x: PyTree) -> bool:
         return isinstance(x, eqx.nn.Linear)
 
     linear_weights = [x.weight for x in jax.tree_util.tree_leaves(model, is_leaf=is_linear) if is_linear(x)]
@@ -222,47 +228,45 @@ def apply_initialization(model, init_fn_weight, init_fn_bias, key):
     )
 
     new_biases = [init_fn_bias(b, subkey) for b, subkey in zip(linear_biases, jax.random.split(key_biases, num_biases))]
-    model = eqx.tree_at(
+    return eqx.tree_at(
         lambda m: [
             x.bias for x in jax.tree_util.tree_leaves(m, is_leaf=is_linear) if is_linear(x) and x.bias is not None
         ],
         model,
         new_biases,
     )
-    return model
 
 
-def init_encoder_weights(encoder: Encoder, key: jnp.ndarray, dtype=jnp.float32):
+def init_encoder_weights(encoder: Encoder, key: jnp.ndarray) -> Encoder:
     encoder = apply_initialization(encoder, he_uniform_init, zero_bias_init, key)
 
     key_alpha_b, key_beta_b, key_sigma_b, _ = jax.random.split(key, 4)
     encoder = eqx.tree_at(
         lambda e: e.alpha_layer.bias,
         encoder,
-        softplus_bias_init(jnp.asarray(encoder.alpha_layer.bias), key_alpha_b, dtype=dtype),
+        softplus_bias_init(jnp.asarray(encoder.alpha_layer.bias), key_alpha_b),
     )
     encoder = eqx.tree_at(
         lambda e: e.beta_layer.bias,
         encoder,
-        softplus_bias_init(jnp.asarray(encoder.beta_layer.bias), key_beta_b, dtype=dtype),
+        softplus_bias_init(jnp.asarray(encoder.beta_layer.bias), key_beta_b),
     )
-    encoder = eqx.tree_at(
+    return eqx.tree_at(
         lambda e: e.sigma_layer.bias,
         encoder,
-        softplus_bias_init(jnp.asarray(encoder.sigma_layer.bias), key_sigma_b, dtype=dtype),
+        softplus_bias_init(jnp.asarray(encoder.sigma_layer.bias), key_sigma_b),
     )
 
-    return encoder
+
+def init_decoder_weights(decoder: Decoder, key: jnp.ndarray) -> Decoder:
+    return apply_initialization(decoder, he_uniform_init, zero_bias_init, key)
 
 
-def init_decoder_weights(decoder: Decoder, key: jnp.ndarray):
-    decoder = apply_initialization(decoder, he_uniform_init, zero_bias_init, key)
-    return decoder
+def make_encoder(
+    key: jnp.ndarray, input_dim: int, latent_dim: int, enc_hidden: int, pred_hidden: int, dropout_rate: float
+) -> Encoder:
+    return Encoder(key, input_dim, latent_dim, enc_hidden, pred_hidden=pred_hidden, dropout_rate=dropout_rate)
 
 
-def make_encoder(key, input_dim: int, latent_dim: int, enc_hidden: int, pred_hidden: int, dropout_rate: float):
-    return Encoder(key, input_dim, latent_dim, enc_hidden,pred_hidden=pred_hidden, dropout_rate=dropout_rate)
-
-
-def make_decoder(key, input_dim: int, latent_dim: int, dec_hidden: int):
+def make_decoder(key: jnp.ndarray, input_dim: int, latent_dim: int, dec_hidden: int) -> Decoder:
     return Decoder(key, input_dim, latent_dim, dec_hidden)

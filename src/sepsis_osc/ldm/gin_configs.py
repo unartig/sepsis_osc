@@ -2,10 +2,10 @@
 
 file_names = {"DYNAMIC": "dyn.parquet", "OUTCOME": "outc.parquet", "STATIC": "sta.parquet"}
 
-vars = {
+new_vars = {
     "GROUP": "stay_id",
     "SEQUENCE": "time",
-    "LABEL": ["sep3_alt", "sofa", "susp_inf_alt"],
+    "LABEL": ["sep3_alt", "sofa", "susp_inf_alt", "susp_inf_ramp"],
     "DYNAMIC": [
         "alb",
         "alp",
@@ -58,6 +58,8 @@ vars = {
     ],
     "STATIC": ["age", "sex", "height", "weight"],
 }
+paper_vars = new_vars.copy()
+paper_vars["LABEL"] = ["label"]
 
 modality_mapping = {
     "DYNAMIC": [

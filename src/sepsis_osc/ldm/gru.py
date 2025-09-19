@@ -1,9 +1,9 @@
 import equinox as eqx
-import jax
 import jax.numpy as jnp
 import jax.random as jr
 from beartype import beartype as typechecker
 from jaxtyping import Array, Float, jaxtyped
+from numpy.typing import DTypeLike
 
 
 class GRUPredictor(eqx.Module):
@@ -12,8 +12,8 @@ class GRUPredictor(eqx.Module):
 
     hidden_dim: int = eqx.field(static=True)
 
-    def __init__(self, key, dim: int, hidden_dim: int, dtype=jnp.float32):
-        key1, key2, key3 = jr.split(key, 3)
+    def __init__(self, key: jnp.ndarray, dim: int, hidden_dim: int, dtype: DTypeLike = jnp.float32) -> None:
+        key1, key2 = jr.split(key, 2)
         self.hidden_dim = hidden_dim
 
         self.gru_cell = eqx.nn.GRUCell(dim, hidden_dim, key=key1, dtype=dtype)
@@ -30,5 +30,5 @@ class GRUPredictor(eqx.Module):
         return z_pred, h_next
 
 
-def make_predictor(key, dim, hidden_dim):
+def make_predictor(key: jnp.ndarray, dim: int, hidden_dim: int) -> GRUPredictor:
     return GRUPredictor(key, dim, hidden_dim)

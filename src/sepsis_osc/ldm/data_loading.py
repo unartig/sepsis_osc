@@ -5,25 +5,23 @@ from icu_benchmarks.data.split_process_data import preprocess_data
 from icu_benchmarks.constants import RunMode
 from icu_benchmarks.data.preprocessor import PolarsRegressionPreprocessor
 import polars as pl
-from jaxtyping import Array, Float
 import jax.numpy as jnp
 import numpy as np
 import jax.random as jr
 
 from sepsis_osc.utils.logger import setup_logging
 from sepsis_osc.utils.config import yaib_data_dir, sequence_files
-from sepsis_osc.ldm.gin_configs import file_names, vars, modality_mapping
-import os
+from sepsis_osc.ldm.gin_configs import file_names, new_vars, modality_mapping
 
 logger = logging.getLogger(__name__)
 
 data_dir = Path(yaib_data_dir)
 
 
-def get_raw_data():
-    logger.info(f"Searching for sequence_files in {data_dir}")
+def get_raw_data(_data_dir: Path = data_dir, yaib_vars: dict[str, str | list[str]] = new_vars) -> dict[str, pl.DataFrame]:
+    logger.info(f"Searching for sequence_files in {_data_dir}")
     data = preprocess_data(
-        data_dir=data_dir,
+        data_dir=_data_dir,
         file_names=file_names,
         preprocessor=PolarsRegressionPreprocessor,
         seed=666,
@@ -37,13 +35,13 @@ def get_raw_data():
         fold_index=0,
         pretrained_imputation_model=None,
         runmode=RunMode.regression,
-        vars=vars,
+        vars=yaib_vars,
         modality_mapping=modality_mapping,
         complete_train=False,
     )
 
     for si, s in data.items():
-        for k, df in s.items():
+        for k in s:
             data[si][k] = data[si][k].sort(by=["stay_id", "time"])
     return data
 
@@ -54,7 +52,8 @@ def prepare_batches(
     batch_size: int,
     key: jnp.ndarray,
     perc: float = 1.0,
-    shuffle=True,
+    *,
+    shuffle: bool =True,
 ) -> tuple[np.ndarray, np.ndarray, int]:
     num_samples = int(perc * x_data.shape[0])
     num_features = x_data.shape[1:]
@@ -117,9 +116,9 @@ def prepare_sequences(
 
 
 def get_data_sets(
-    window_len=6, dtype=jnp.float32
+    window_len: int =6, dtype: jnp.dtype =jnp.float32
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
-    if os.path.exists(sequence_files + f"len_{window_len}.npz"):
+    if Path(sequence_files + f"len_{window_len}.npz").exists():
         logger.info("Processed sequence files found. Loading data from disk...")
         loaded = np.load(sequence_files + f"len_{window_len}.npz")
         train_x, train_y = loaded["train_x"], loaded["train_y"]

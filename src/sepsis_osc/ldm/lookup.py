@@ -1,14 +1,14 @@
+import equinox as eqx
 import jax
 import jax.numpy as jnp
-import equinox as eqx
+import numpy as np
 from beartype import beartype as typechecker
 from equinox import field, filter_jit
-from jaxtyping import Array, Float, jaxtyped
+from jaxtyping import Array, Float, Int, jaxtyped
 from numpy.typing import DTypeLike
-from sepsis_osc.utils.jax_config import EPS
-import numpy as np
 
 from sepsis_osc.dnm.abstract_ode import MetricBase
+from sepsis_osc.utils.jax_config import EPS
 
 
 @jaxtyped(typechecker=typechecker)
@@ -38,7 +38,7 @@ class LatentLookup(eqx.Module):
         indices_3d: Float[Array, "na nb ns 3"],
         grid_spacing: Float[Array, "3"],
         dtype: DTypeLike = jnp.float32,
-    ):
+    ) -> None:
         object.__setattr__(self, "metrics", metrics.astype(dtype))
         object.__setattr__(self, "indices_T", indices.T.astype(dtype))
         relevant_metrics = self.extract_relevant(metrics)
@@ -62,21 +62,20 @@ class LatentLookup(eqx.Module):
         sofa_metric = _metrics.s_1
         inf_metric = _metrics.s_2
 
-        stacked = jnp.concatenate(
+        return jnp.concatenate(
             [
                 (sofa_metric - sofa_metric.min()) / (sofa_metric.max() - sofa_metric.min()) + 1e-12,
                 (inf_metric - inf_metric.min()) / (inf_metric.max() - inf_metric.min()) + 1e-12,
             ],
             axis=-1,
         )
-        return stacked
 
     @jaxtyped(typechecker=typechecker)
     @filter_jit
     def hard_get(
         self,
         query_vectors: Float[Array, "batch latent"],
-        temperatures,  # placeholder to make compatible with soft get
+        temperatures: Float[Array, "1"],  # placeholder to make compatible with soft get
     ) -> Float[Array, "batch 2"]:
         orig_dtype = query_vectors.dtype
         query_vectors = jax.lax.stop_gradient(query_vectors)
@@ -96,7 +95,7 @@ class LatentLookup(eqx.Module):
     def hard_get_local(
         self,
         query_vectors: Float[Array, "batch latent"],
-        temperatures,  # placeholder to make compatible with soft get
+        temperatures: Float[Array, "1"],  # placeholder to make compatible with soft get
     ) -> Float[Array, "batch 2"]:
         orig_dtype = query_vectors.dtype
         query_vectors = query_vectors.astype(self.dtype)
@@ -134,7 +133,8 @@ class LatentLookup(eqx.Module):
         offsets = jnp.array([-1, 0, 1])  # orig 1
         neighbor_offsets = jnp.stack(jnp.meshgrid(offsets, offsets, offsets, indexing="ij"), axis=-1).reshape(-1, 3)
 
-        def gather_neighbors(vi, q_point):
+        @jaxtyped(typechecker=typechecker)
+        def gather_neighbors(vi: Int[Array, "batch 3"], q_point: Float[Array, "batch 3"]) -> Float[Array, "1"]:
             coords = vi[None, :] + neighbor_offsets
             x, y, z = coords[:, 0], coords[:, 1], coords[:, 2]
 
@@ -145,14 +145,13 @@ class LatentLookup(eqx.Module):
             dists = jnp.sum((q_point - neighbor_xyz) ** 2, axis=-1)
 
             weights = jax.nn.softmax(-dists / (temp + EPS), axis=-1)
-            weighted = jnp.sum(weights[:, None] * neighbor_metrics, axis=0)
+            return jnp.sum(weights[:, None] * neighbor_metrics, axis=0)
 
-            return weighted
 
         pred_c = jax.vmap(gather_neighbors)(voxel_idx, q)
         return pred_c.astype(orig_dtype)
 
-    def round_ste(self, x):
+    def round_ste(self, x: Float[Array, "batch 3"]) -> Float[Array, "batch 3"]:
         return x + jax.lax.stop_gradient(jnp.round(x) - x)
 
 

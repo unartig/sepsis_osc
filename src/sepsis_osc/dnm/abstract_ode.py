@@ -1,26 +1,26 @@
 from abc import ABC, abstractmethod
 from dataclasses import fields
 from typing import Callable, TypeVar
-import msgpack
-import msgpack_numpy as mnp
 
 import equinox as eqx
 import jax.numpy as jnp
+import msgpack
+import msgpack_numpy as mnp
 import numpy as np
 from diffrax import (
     Event,
     NoProgressMeter,
     ODETerm,
     PIDController,
+    RecursiveCheckpointAdjoint,
     SaveAt,
     TqdmProgressMeter,
-    Tsit5,
-    RecursiveCheckpointAdjoint,
     diffeqsolve,
 )
 from jax import tree as jtree
+from jaxtyping import Array, Bool, Float
 from numpy.typing import DTypeLike
-
+from diffrax import AbstractSolver, Solution
 
 mnp.patch()
 
@@ -46,14 +46,14 @@ class ConfigBase(ABC, eqx.Module):
 
     @staticmethod
     @abstractmethod
-    def batch_as_index(*args, **kwargs) -> jnp.ndarray:
+    def batch_as_index() -> jnp.ndarray:
         raise NotImplementedError
         return jnp.empty(())
 
 
 class TreeBase(eqx.Module):
     @property
-    def shape(self):
+    def shape(self) -> tuple[dict[str, tuple[int, ...]]]:
         return jtree.map(lambda x: x.shape if x is not None else None, self.__dict__)
 
     @property
@@ -77,16 +77,13 @@ class TreeBase(eqx.Module):
         return cls(**{f.name: getattr(cls, f.name) for f in fields(cls)})
 
     def remove_infs(self) -> "TreeBase":
-        def inf_mask(x):
+        def inf_mask(x: Float[Array, "*"]) -> Bool[Array, "*"] | None:
             if not hasattr(x, "shape"):
                 return jnp.zeros((x.shape[0],), dtype=bool) if hasattr(x, "shape") else None
             axes = tuple(range(1, x.ndim))
             return jnp.isinf(x).any(axis=axes)
 
-        masks = []
-        for leaf in jtree.leaves(self):
-            if hasattr(leaf, "shape") and leaf.ndim > 0:
-                masks.append(inf_mask(leaf))
+        masks = [inf_mask(leaf) for leaf in jtree.leaves(self) if hasattr(leaf, "shape") and leaf.ndim > 0]
 
         combined_mask = ~jnp.logical_or.reduce(jnp.asarray(masks))
 
@@ -117,15 +114,16 @@ class MetricBase(ABC, TreeBase):
 
     def insert_at(self, index: tuple[int, ...], other: MetricT) -> MetricT:
         if not isinstance(other, type(self)):
-            raise TypeError(f"Expected type {type(self)}, but got {type(other)}")
+            raise TypeError(f"Expected type {type(self)}, but got {type(other)}")  # noqa: TRY003
 
-        def insert_leaf(self_leaf, other_leaf):
+        def insert_leaf(self_leaf: Float[Array, "*"], other_leaf: Float[Array, "*"]) -> Float[Array, "*"] | None:
             if isinstance(self_leaf, np.ndarray):
                 self_leaf[index] = other_leaf
-            elif isinstance(self_leaf, jnp.ndarray):
+                return None
+            if isinstance(self_leaf, jnp.ndarray):
                 return self_leaf.at[index].set(other_leaf)
-            else:
-                raise ValueError("Unexpected Leaf Type")
+            raise ValueError("Unexpected Leaf Type")  # noqa: TRY003
+            return None
 
         return jtree.map(insert_leaf, self, other)
 
@@ -133,12 +131,13 @@ class MetricBase(ABC, TreeBase):
 class ODEBase(ABC):
     def __init__(
         self,
+        step_rtol: float = 1e-3,
+        step_atol: float = 1e-6,
+        *,
         full_save: bool = False,
         steady_state_check: bool = False,
         progress_bar: bool = True,
-        step_rtol: float = 1e-3,
-        step_atol: float = 1e-6,
-    ):
+    ) -> None:
         deriv = self.system_deriv
         self.init_sampler = self.generate_init_sampler()
         self.term = ODETerm(deriv)
@@ -147,35 +146,39 @@ class ODEBase(ABC):
         self.pid_controller = PIDController(rtol=step_rtol, atol=step_atol)
         self.progress_bar = TqdmProgressMeter() if progress_bar else NoProgressMeter()
 
+    @abstractmethod
     def generate_init_sampler(self) -> Callable:
         raise NotImplementedError
 
+    @abstractmethod
     def system_deriv(self) -> Callable:
         raise NotImplementedError
 
+    @abstractmethod
     def generate_metric_save(self) -> Callable:
         raise NotImplementedError
 
+    @abstractmethod
     def generate_full_save(self) -> Callable:
         raise NotImplementedError
 
+    @abstractmethod
     def generate_steady_state_check(self) -> Callable:
         raise NotImplementedError
 
-    # @eqx.filter_jit
-    # @eqx.debug.assert_max_traces(max_traces=10)
+    @eqx.filter_jit
     def integrate(
         self,
-        config,
+        config: ConfigBase,
         *,
-        M,
-        key,
-        T_init,
-        T_max,
-        T_step,
-        solver,
-    ):
-        result = diffeqsolve(
+        M: int,
+        key: jnp.ndarray,
+        T_init: float,
+        T_max: float,
+        T_step: float,
+        solver: AbstractSolver,
+    ) -> Solution:
+        return diffeqsolve(
             self.term,
             solver,
             y0=self.init_sampler(config, M, key),
@@ -188,6 +191,5 @@ class ODEBase(ABC):
             saveat=SaveAt(t0=True, ts=jnp.arange(T_init, T_max, T_step), fn=self.save_method),
             progress_meter=self.progress_bar,
             event=self.steady_state_check,
-            adjoint=RecursiveCheckpointAdjoint(checkpoints=1)
+            adjoint=RecursiveCheckpointAdjoint(checkpoints=1),
         )
-        return result

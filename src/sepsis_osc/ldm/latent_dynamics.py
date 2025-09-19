@@ -1,10 +1,13 @@
 import equinox as eqx
-import jax.numpy as jnp
 import jax
+import jax.numpy as jnp
 from jaxtyping import Array, Float
 
 from sepsis_osc.ldm.ae import Decoder, Encoder
 from sepsis_osc.ldm.gru import GRUPredictor
+
+ones_24 = jnp.ones((24))
+ones_25 = jnp.ones((25))
 
 
 class LatentDynamicsModel(eqx.Module):
@@ -33,9 +36,9 @@ class LatentDynamicsModel(eqx.Module):
         encoder: Encoder,
         predictor: GRUPredictor,
         decoder: Decoder,
-        ordinal_deltas: Float[Array, "25"] = jnp.ones((25)),
-        sofa_dist: Float[Array, "24"] = jnp.ones((24)),
-    ):
+        ordinal_deltas: Float[Array, "25"] = ones_25,
+        sofa_dist: Float[Array, "24"] = ones_24,
+    ) -> None:
         self.encoder = encoder
         self.predictor = predictor
         self.decoder = decoder
@@ -55,7 +58,6 @@ class LatentDynamicsModel(eqx.Module):
         self._sofa_lsigma = jnp.zeros((1,), dtype=jnp.float32)
         self._inf_lsigma = jnp.zeros((1,), dtype=jnp.float32)
         self._sep3_lsigma = jnp.zeros((1,), dtype=jnp.float32)
-
 
     @property
     def learned_deltas(self) -> Float[Array, "25"]:
@@ -77,11 +79,10 @@ class LatentDynamicsModel(eqx.Module):
     def delta_temperature(self) -> Float[Array, "1"]:
         return jnp.exp(self._delta_temperature)
 
-    def ordinal_thresholds(self, lam) -> Float[Array, "24"]:
+    def ordinal_thresholds(self, lam: Float[Array, "1"]) -> Float[Array, "24"]:
         combined_deltas = lam * self._learned_deltas + (1.0 - lam) * self._prior_deltas
 
-        ordinal_thresholds = jnp.cumsum(jax.nn.softmax(combined_deltas))[:-1]
-        return ordinal_thresholds
+        return jnp.cumsum(jax.nn.softmax(combined_deltas))[:-1]
 
     @property
     def sofa_exp(self) -> Float[Array, "1"]:
