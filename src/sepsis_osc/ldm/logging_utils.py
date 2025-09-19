@@ -89,8 +89,7 @@ def log_val_metrics(aux_losses: AuxLosses, y: np.ndarray, epoch: int, writer: Su
     return log_msg
 
 
-def log_viz(aux_losses: AuxLosses, y_np: np.ndarray, lookup: LatentLookup, epoch: int, writer: SummaryWriter) -> None:
-    y = jnp.asarray(y_np)
+def log_viz(aux_losses: AuxLosses, y: np.ndarray, lookup: LatentLookup, epoch: int, writer: SummaryWriter) -> None:
     metrics = aux_losses.to_dict()
     fig, ax = plt.subplots(1, 1)
     ax = viz_starter(metrics["latents"]["beta"][:, 0], metrics["latents"]["sigma"][:, 0], filename="", ax=ax)
