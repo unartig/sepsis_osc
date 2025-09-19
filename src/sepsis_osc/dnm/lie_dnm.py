@@ -1,8 +1,7 @@
-from typing import Callable, Optional
+from typing import Optional
 
 import equinox as eqx
 import jax.numpy as jnp
-import jax.tree as jtree
 from jax.debug import print as jprint
 import numpy as np
 from beartype import beartype as typechecker
@@ -11,7 +10,7 @@ from jaxlie import SO2
 from jaxtyping import Array, Float, Int, ScalarLike, jaxtyped
 
 from sepsis_osc.dnm.abstract_ode import ConfigBase, ConfigArgBase
-from sepsis_osc.dnm.dynamic_network_model import DNMConfig, DNMConfigArgs, DNMMetrics, DNMState, DynamicNetworkModel
+from sepsis_osc.dnm.dynamic_network_model import DNMMetrics, DNMState, DynamicNetworkModel
 
 @jaxtyped(typechecker=typechecker)
 class LieDNMConfigArgs(ConfigArgBase):
@@ -46,7 +45,7 @@ class LieDNMConfig(ConfigBase):
     T_step: Optional[int] = None
 
     @property
-    def as_args(self):
+    def as_args(self) -> LieDNMConfigArgs:
         diag = (jnp.ones((self.N, self.N)) - jnp.eye(self.N))[None, :]
         return LieDNMConfigArgs(
             N=self.N,
@@ -104,18 +103,18 @@ class LieDNMConfig(ConfigBase):
         return batch_indices.squeeze()
 
 class LieDynamicNetworkModel(DynamicNetworkModel):
-    def __init__(self, full_save: bool = False, **kwargs):
+    def __init__(self, **kwargs) -> None:
         super().__init__(**kwargs)
 
     @staticmethod
     @jaxtyped(typechecker=typechecker)
     @eqx.filter_jit
     def system_deriv(
-        t: ScalarLike,
+        _t: ScalarLike,
         y: DNMState,
         args: LieDNMConfigArgs,
     ) -> DNMState:
-        def single_system_deriv(y) -> DNMState:
+        def single_system_deriv(y: DNMState) -> DNMState:
             R_1 = SO2.from_radians(y.phi_1)
             R_2 = SO2.from_radians(y.phi_2)
             R1_diff = SO2(R_1.unit_complex[None, :, :]).inverse() @ SO2(R_1.unit_complex[:, None, :])
@@ -161,9 +160,8 @@ class LieDynamicNetworkModel(DynamicNetworkModel):
                 v_2=((dkmean2 - y.m_2) ** 2 - y.v_2) / args.tau,
             )
 
-        batched_results = vmap(single_system_deriv)(y)
+        return vmap(single_system_deriv)(y)
 
-        return batched_results
 
 
 if __name__ == "__main__":

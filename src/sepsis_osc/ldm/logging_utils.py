@@ -1,9 +1,14 @@
 from typing import Any
 
+import jax.numpy as jnp
 import matplotlib.pyplot as plt
 import numpy as np
+from jaxtyping import Array, Float
 from sklearn.metrics import average_precision_score, roc_auc_score
+from torch.utils.tensorboard.writer import SummaryWriter
 
+from sepsis_osc.ldm.helper_structs import AuxLosses
+from sepsis_osc.ldm.lookup import LatentLookup
 from sepsis_osc.visualisations.viz_model_results import (
     viz_heatmap_concepts,
     viz_plane,
@@ -12,7 +17,7 @@ from sepsis_osc.visualisations.viz_model_results import (
 )
 
 
-def flatten_dict(d: dict[str, Any], parent_key: str="", sep: str ="_")-> dict[str, Any]:
+def flatten_dict(d: dict[str, Any], parent_key: str = "", sep: str = "_") -> dict[str, Any]:
     return (
         {
             f"{k}" if parent_key else k: v
@@ -24,25 +29,26 @@ def flatten_dict(d: dict[str, Any], parent_key: str="", sep: str ="_")-> dict[st
     )
 
 
-def log_train_metrics(metrics, model_params, epoch, writer):
+def log_train_metrics(
+    aux_losses: AuxLosses, model_params: dict[str, Float[Array, "1"]], epoch: int, writer: SummaryWriter
+) -> str:
     log_msg = f"Epoch {epoch} Training "
-    metrics = metrics.to_dict()
+    metrics = aux_losses.to_dict()
     metrics = {**metrics, "model_params": {**model_params}}
     for group_key, metrics_group in metrics.items():
         if group_key in ("hists", "mult", "sepsis_metrics"):
             continue
         for metric_name, metric_values in metrics_group.items():
-            metric_values = np.asarray(metric_values)
             if metric_name in ("total_loss", "sofa", "infection", "sepsis-3"):
                 log_msg += f"{metric_name}={float(metric_values.mean()):.4f}({float(metric_values.std()):.2f}), "
             writer.add_scalar(f"train_{group_key}/{metric_name}_mean", np.asarray(metric_values.mean()), epoch)
     return log_msg
 
 
-def log_val_metrics(metrics, y, epoch, writer):
+def log_val_metrics(aux_losses: AuxLosses, y: np.ndarray, epoch: int, writer: SummaryWriter) -> str:
     log_msg = f"Epoch {epoch} Valdation "
-    metrics = metrics.to_dict()
-    for k in metrics.keys():
+    metrics = aux_losses.to_dict()
+    for k in metrics:
         if k == "hists":
             writer.add_histogram(
                 "SOFA Score", np.asarray(metrics["hists"]["sofa_score"][:, 0].flatten()), epoch, bins=25
@@ -83,8 +89,9 @@ def log_val_metrics(metrics, y, epoch, writer):
     return log_msg
 
 
-def log_viz(metrics, y, lookup, epoch, writer):
-    metrics = metrics.to_dict()
+def log_viz(aux_losses: AuxLosses, y_np: np.ndarray, lookup: LatentLookup, epoch: int, writer: SummaryWriter) -> None:
+    y = jnp.asarray(y_np)
+    metrics = aux_losses.to_dict()
     fig, ax = plt.subplots(1, 1)
     ax = viz_starter(metrics["latents"]["beta"][:, 0], metrics["latents"]["sigma"][:, 0], filename="", ax=ax)
     writer.add_figure("Latents@0", fig, epoch, close=True)

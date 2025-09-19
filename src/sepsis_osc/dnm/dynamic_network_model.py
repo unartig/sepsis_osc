@@ -9,7 +9,7 @@ from beartype import beartype as typechecker
 from jax import vmap
 from jax.debug import print as jprint
 
-from jaxtyping import Array, Float, Int, ScalarLike, jaxtyped
+from jaxtyping import Array, Bool, Float, Int, ScalarLike, jaxtyped
 
 from sepsis_osc.dnm.abstract_ode import ConfigArgBase, ConfigBase, MetricBase, ODEBase, StateBase
 from sepsis_osc.dnm.commons import diff_angle, entropy, mean_angle, phase_entropy, std_angle
@@ -53,7 +53,7 @@ class DNMConfig(ConfigBase):
 
     @property
     @timing
-    def as_args(self):
+    def as_args(self) -> DNMConfigArgs:
         diag = (jnp.ones((self.N, self.N)) - jnp.eye(self.N))[None, :]
         return DNMConfigArgs(
             N=self.N,
@@ -225,12 +225,13 @@ class DNMMetrics(MetricBase):
             tt=new.tt.max() if new.tt is not None else None,
         )
 
+
 class DynamicNetworkModel(ODEBase):
-    def __init__(self, **kwargs):
+    def __init__(self, **kwargs) -> None:
         super().__init__(**kwargs)
 
-    def generate_init_sampler(self):
-        def init_sampler(config, M, key) -> DNMState:
+    def generate_init_sampler(self) -> Callable:
+        def init_sampler(config: DNMConfig, M: int, key: jnp.ndarray) -> DNMState:
             C = int(config.C * config.N)
 
             def sample(key: jnp.ndarray) -> DNMState:
@@ -260,17 +261,18 @@ class DynamicNetworkModel(ODEBase):
 
             rand_keys = jr.split(key, M)
             return vmap(sample)(rand_keys)
+
         return init_sampler
 
     @staticmethod
     @jaxtyped(typechecker=typechecker)
     @eqx.filter_jit
     def system_deriv(
-        t: ScalarLike,
+        _t: ScalarLike,
         y: DNMState,
         args: DNMConfigArgs,
     ) -> DNMState:
-        def single_system_deriv(y) -> DNMState:
+        def single_system_deriv(y: DNMState) -> DNMState:
             # sin/cos in radians
             # https://mediatum.ub.tum.de/doc/1638503/1638503.pdf
             sin_phi_1, cos_phi_1 = jnp.sin(y.phi_1), jnp.cos(y.phi_1)
@@ -314,14 +316,12 @@ class DynamicNetworkModel(ODEBase):
                 v_2=((dkmean2 - y.m_2) ** 2 - y.v_2) / args.tau,
             )
 
-        batched_results = vmap(single_system_deriv)(y)
-
-        return batched_results
+        return vmap(single_system_deriv)(y)
 
     @timing
-    def generate_metric_save(self, deriv) -> Callable:
+    def generate_metric_save(self, deriv: Callable) -> Callable:
         @eqx.filter_jit
-        def metric_save(t: ScalarLike, y: DNMState, args: DNMConfigArgs):
+        def metric_save(_t: ScalarLike, y: DNMState, args: DNMConfigArgs) -> DNMMetrics:
             y = y.enforce_bounds()
 
             ###### Kuramoto Order Parameter
@@ -387,10 +387,10 @@ class DynamicNetworkModel(ODEBase):
 
     @timing
     def generate_full_save(
-        self, deriv, dtype: jnp.dtype = jnp.float16, save_y: bool = True, save_dy: bool = True
+        self, deriv: Callable, dtype: jnp.dtype = jnp.float16, *, save_y: bool = True, save_dy: bool = True
     ) -> Callable:
         def full_compressed_save(
-            t: ScalarLike, y: DNMState, args: Optional[DNMConfigArgs]
+            _t: ScalarLike, y: DNMState, args: Optional[DNMConfigArgs]
         ) -> tuple[DNMState, DNMState] | DNMState:
             y.enforce_bounds()
             if save_y and not save_dy:
@@ -403,16 +403,16 @@ class DynamicNetworkModel(ODEBase):
         return full_compressed_save
 
     @timing
-    def generate_steady_state_check(self, eps_m=1e-10, eps_v=1e-3, t_min=1.0):
+    def generate_steady_state_check(self, eps_m: float = 1e-10, eps_v: float = 1e-3, t_min: float = 1.0) -> Callable:
         @eqx.filter_jit
-        def check(t, y, args, **kwargs):
+        def check(t: ScalarLike, y: DNMState, _args: tuple)-> Bool[Array, "1"]:
             is_late = t > t_min
 
             # Compute errors per batch
-            is_const = (jnp.abs(y.m_1).max() < eps_m) & (jnp.abs(y.m_2).max()  < eps_m)
-            is_hom =(y.v_1.max() < eps_v) & (y.v_2.max() < eps_v)
+            is_const = (jnp.abs(y.m_1).max() < eps_m) & (jnp.abs(y.m_2).max() < eps_m)
+            is_hom = (y.v_1.max() < eps_v) & (y.v_2.max() < eps_v)
 
-            return ((is_hom & is_const)) & is_late
+            return (is_hom & is_const) & is_late
 
         return check
 
@@ -430,7 +430,7 @@ if __name__ == "__main__":
     logger = logging.getLogger(__name__)
 
     rand_key = jr.key(jax_random_seed)
-    num_parallel_runs = 100
+    num_parallel_runs = 25
 
     beta_step = 0.01
     beta_step = 0.1
@@ -450,7 +450,7 @@ if __name__ == "__main__":
     dnm = DynamicNetworkModel(full_save=False, steady_state_check=True, progress_bar=True)
     solver = Tsit5()
 
-    db_str = "Small100"
+    db_str = "Small200_25"
     storage = Storage(
         key_dim=9,
         metrics_kv_name=f"data/{db_str}SepsisMetrics.db/",
@@ -463,7 +463,7 @@ if __name__ == "__main__":
     for alpha in alphas:
         for beta in betas:
             for sigma in sigmas:
-                N = 100
+                N = 200
                 run_conf = DNMConfig(
                     N=N,
                     alpha=float(alpha),  # phase lage
@@ -471,7 +471,7 @@ if __name__ == "__main__":
                     sigma=float(sigma),
                 )
                 logger.info(f"New config {run_conf.as_index}")
-                logger.info(f" ~~~~~~~~~~~ {i}/{total} - {i/total * 100:.4f}% ~~~~~~~~~~~ ")
+                logger.info(f" ~~~~~~~~~~~ {i}/{total} - {i / total * 100:.4f}% ~~~~~~~~~~~ ")
                 if storage.read_result(run_conf.as_index, DNMMetrics, 0.0) is None or overwrite:
                     logger.info("Starting solve")
                     sol = dnm.integrate(
@@ -486,7 +486,9 @@ if __name__ == "__main__":
                     logger.info(f"Solved in {sol.stats['num_steps']} steps")
                     if sol.ys:
                         logger.info("Saving Result")
-                        storage.add_result(run_conf.as_index, sol.ys.remove_infs().as_single().serialise(), overwrite=overwrite)
+                        storage.add_result(
+                            run_conf.as_index, sol.ys.remove_infs().as_single().serialise(), overwrite=overwrite
+                        )
                 i += 1
         storage.write()
 
