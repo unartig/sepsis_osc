@@ -2,13 +2,12 @@ import equinox as eqx
 import jax
 import jax.numpy as jnp
 import numpy as np
-from beartype import beartype as typechecker
 from equinox import field, filter_jit
 from jaxtyping import Array, Float, Int, jaxtyped
 from numpy.typing import DTypeLike
 
 from sepsis_osc.dnm.abstract_ode import MetricBase
-from sepsis_osc.utils.jax_config import EPS
+from sepsis_osc.utils.jax_config import EPS, typechecker
 
 
 @jaxtyped(typechecker=typechecker)

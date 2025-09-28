@@ -1,9 +1,10 @@
 import equinox as eqx
 import jax.numpy as jnp
 import jax.random as jr
-from beartype import beartype as typechecker
 from jaxtyping import Array, Float, jaxtyped
 from numpy.typing import DTypeLike
+
+from sepsis_osc.utils.jax_config import typechecker
 
 
 class GRUPredictor(eqx.Module):

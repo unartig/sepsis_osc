@@ -1,16 +1,19 @@
+from beartype import beartype as typechecker
+
+
 EPS = 1e-7
 
 
-def setup_jax(simulation: bool = True):
+def setup_jax(*, simulation: bool = True) -> None:
     import os
     import jax
 
     # jax flags
     if simulation:
-        jax.config.update("jax_enable_x64", True)  #  MATLAB defaults to double precision
+        jax.config.update("jax_enable_x64", val=True)  #  MATLAB defaults to double precision
     # jax.config.update("jax_platform_name", "cpu")
     # jax.config.update("jax_disable_jit", True)
-    jax.config.update("jax_debug_nans", True)
+    jax.config.update("jax_debug_nans", val=True)
     # jax.config.update("jax_debug_infs", False)
 
     # cpu/gpu flags
