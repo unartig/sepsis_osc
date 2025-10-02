@@ -6,7 +6,7 @@ from equinox import field, filter_jit
 from jaxtyping import Array, Float, Int, jaxtyped
 from numpy.typing import DTypeLike
 
-from sepsis_osc.dnm.abstract_ode import MetricBase
+from sepsis_osc.dnm.dynamic_network_model import MetricBase
 from sepsis_osc.utils.jax_config import EPS, typechecker
 
 
@@ -74,7 +74,7 @@ class LatentLookup(eqx.Module):
     def hard_get(
         self,
         query_vectors: Float[Array, "batch latent"],
-        temperatures: Float[Array, "1"],  # placeholder to make compatible with soft get
+        temperature: Float[Array, "1"],  # placeholder to make compatible with soft get
     ) -> Float[Array, "batch 2"]:
         orig_dtype = query_vectors.dtype
         query_vectors = jax.lax.stop_gradient(query_vectors)
@@ -91,38 +91,34 @@ class LatentLookup(eqx.Module):
 
     @jaxtyped(typechecker=typechecker)
     @filter_jit
-    def hard_get_local(
+    def hard_get_fsq(
         self,
         query_vectors: Float[Array, "batch latent"],
-        temperatures: Float[Array, "1"] | Float[Array, "batch latent"],  # placeholder to make compatible with soft get
+        temperature: Float[Array, "1"] | Float[Array, "batch latent"],  # placeholder to make compatible with soft get
     ) -> Float[Array, "batch 2"]:
-        orig_dtype = query_vectors.dtype
-        query_vectors = query_vectors.astype(self.dtype)
         rel_pos = (query_vectors - self.grid_origin) / self.grid_spacing
-        center_idx = jnp.round(rel_pos).astype(jnp.int32)
+        center_idx = self.round_ste(rel_pos).astype(jnp.int32)
 
-        offsets = jnp.array([-1, 0, 1])
-        neighbor_offsets = jnp.stack(jnp.meshgrid(offsets, offsets, offsets, indexing="ij"), axis=-1).reshape(-1, 3)
-        neighbor_coords = center_idx[:, None, :] + neighbor_offsets[None, :, :]
-        neighbor_coords = jnp.clip(neighbor_coords, 1, jnp.array(self.grid_shape) - 2)
-        x, y, z = neighbor_coords[..., 0], neighbor_coords[..., 1], neighbor_coords[..., 2]
-        neighbor_xyz = self.indices_3d[x, y, z]
-        neighbor_metrics = self.relevant_metrics_3d[x, y, z]
-        dists = jnp.sum((query_vectors[:, None, :] - neighbor_xyz) ** 2, axis=-1)
-        best_idx = jnp.argmin(dists, axis=-1)
-        pred_c = jnp.take_along_axis(neighbor_metrics, best_idx[:, None, None], axis=1).squeeze(1)
-        return pred_c.astype(orig_dtype)
+        @jaxtyped(typechecker=typechecker)
+        def index_single(center_idx_row: Int[Array, " latent"]) -> Float[Array, "2"]:
+            return self.relevant_metrics_3d[
+                center_idx_row[0],
+                center_idx_row[1],
+                center_idx_row[2],
+            ]
+
+        return jax.vmap(index_single)(center_idx)
 
     @jaxtyped(typechecker=typechecker)
     @filter_jit
     def soft_get_local(
         self,
         query_vectors: Float[Array, "batch latent"],
-        temperatures: Float[Array, "1"],
+        temperature: Float[Array, "1"],
     ) -> Float[Array, "batch 2"]:
         orig_dtype = query_vectors.dtype
         q = query_vectors.astype(self.dtype)
-        temp = temperatures.astype(self.dtype)
+        temp = temperature.astype(self.dtype)
 
         # Convert query points into fractional voxel coordinates
         rel_pos = (q - self.grid_origin) / self.grid_spacing
@@ -146,9 +142,97 @@ class LatentLookup(eqx.Module):
             weights = jax.nn.softmax(-dists / (temp + EPS), axis=-1)
             return jnp.sum(weights[:, None] * neighbor_metrics, axis=0)
 
+        return jax.vmap(gather_neighbors)(voxel_idx, q).astype(orig_dtype)
 
-        pred_c = jax.vmap(gather_neighbors)(voxel_idx, q)
-        return pred_c.astype(orig_dtype)
+    @jaxtyped(typechecker=typechecker)
+    @filter_jit
+    def soft_get_local_slice(
+        self,
+        query_vectors: Float[Array, "batch latent"],
+        temperature: Float[Array, "1"],
+        *,
+        kernel_size: int = 11,
+    ) -> Float[Array, "batch 2"]:
+        orig_dtype = query_vectors.dtype
+        q = query_vectors.astype(self.dtype)
+        temp = temperature.astype(self.dtype)
+
+        rel_pos = (q - self.grid_origin) / self.grid_spacing
+        voxel_idx = self.round_ste(rel_pos).astype(jnp.int32)
+
+        alpha_idx = jnp.clip(voxel_idx[:, 0], 0, self.grid_shape[0] - 1)
+
+        radius = kernel_size // 2
+        offsets = jnp.arange(-radius, radius + 1)
+        beta_sigma_idx =jnp.clip(voxel_idx[:, 1:], radius, self.grid_shape[1:] - radius -1)
+
+        offsets = jnp.arange(-radius, radius)
+        neighbor_offsets = jnp.stack(
+            jnp.meshgrid(offsets, offsets, indexing="ij"), axis=-1
+        ).reshape(-1, 2)
+
+        @jaxtyped(typechecker=typechecker)
+        def gather_neighbors(bs_idx: Int[Array, "2"], q_point: Float[Array, "3"], a_idx: Int[Array, ""]) -> Float[Array, "2"]:
+            coords = bs_idx[None, :] + neighbor_offsets
+            x, y = coords[:, 0], coords[:, 1]
+
+            neighbor_xyz = self.indices_3d[a_idx, x, y, :]
+            neighbor_metrics = self.relevant_metrics_3d[a_idx, x, y, :]
+
+            dists = jnp.sum((q_point - neighbor_xyz) ** 2, axis=-1)
+
+            weights = jax.nn.softmax(-dists / (temp + EPS), axis=-1)
+            return jnp.sum(weights[:, None] * neighbor_metrics, axis=0)
+
+        return jax.vmap(gather_neighbors)(beta_sigma_idx, q, alpha_idx).astype(orig_dtype)
+
+
+    @jaxtyped(typechecker=typechecker)
+    @filter_jit
+    def soft_get_global(
+        self, query_vectors: Float[Array, "batch latent"], temperature: Float[Array, "1"]
+    ) -> Float[Array, "batch 2"]:
+        orig_dtype = query_vectors.dtype
+        q = query_vectors.astype(self.dtype)
+
+        @jaxtyped(typechecker=typechecker)
+        def per_query(q: Float[Array, " latent"]) -> Float[Array, "2"]:
+            q_norm = jnp.sum(q**2, axis=-1, keepdims=True)
+
+            dot_prod = q @ self.indices_T  # (num_indices,)
+            dists = q_norm + self.i_norm - 2 * dot_prod
+
+            weights = jax.nn.softmax(-dists / (temperature + EPS), axis=-1).squeeze()
+            return jnp.sum(weights[:, None] * self.relevant_metrics, axis=0)
+
+        return jax.vmap(per_query)(q).astype(orig_dtype)
+
+    @jaxtyped(typechecker=typechecker)
+    @filter_jit
+    def soft_get_global_slice(
+        self, query_vectors: Float[Array, "batch latent"], temperature: Float[Array, "1"]
+    ) -> Float[Array, "batch 2"]:
+        orig_dtype = query_vectors.dtype
+        q = query_vectors.astype(self.dtype)
+
+        rel_pos = (q - self.grid_origin) / self.grid_spacing
+        voxel_idx = self.round_ste(rel_pos).astype(jnp.int32)
+
+        alpha_idx = voxel_idx[:, 0]
+        q_beta_sigma = q[:, 1:]
+
+        @jaxtyped(typechecker=typechecker)
+        def per_example(q_bs: Float[Array, "2"], a_idx: Int[Array, ""]) -> Float[Array, "2"]:
+            slice_vals = self.relevant_metrics_3d[a_idx]
+
+            diffs = self.indices_3d[a_idx, :, :, 1:] - q_bs[None, None, :]
+            squared_distances = jnp.sum(diffs**2, axis=-1)
+
+            weights = jax.nn.softmax(-squared_distances / (temperature + EPS), axis=None)  # flattened
+
+            return jnp.sum(weights[..., None] * slice_vals, axis=(0, 1))  # (2,)
+
+        return jax.vmap(per_example)(q_beta_sigma, alpha_idx).astype(orig_dtype)
 
     def round_ste(self, x: Float[Array, "batch 3"]) -> Float[Array, "batch 3"]:
         return x + jax.lax.stop_gradient(jnp.round(x) - x)
