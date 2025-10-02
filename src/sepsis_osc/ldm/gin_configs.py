@@ -5,7 +5,7 @@ file_names = {"DYNAMIC": "dyn.parquet", "OUTCOME": "outc.parquet", "STATIC": "st
 new_vars = {
     "GROUP": "stay_id",
     "SEQUENCE": "time",
-    "LABEL": ["sep3_alt", "sofa", "susp_inf_alt", "susp_inf_ramp"],
+    "LABEL": ["sep3_alt", "sep3_ramp", "sofa", "susp_inf_alt", "susp_inf_ramp"],
     "DYNAMIC": [
         "alb",
         "alp",

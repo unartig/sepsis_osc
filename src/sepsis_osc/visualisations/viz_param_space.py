@@ -50,7 +50,7 @@ def space_plot(
 
     im = ax.imshow(metric.T[::-1, :], cmap="viridis")
 
-    ax.set_title(f"{title}\nParenchymal Layer", fontsize=14)
+    ax.set_title(title, fontsize=14)
     ax.set_ylabel(r"$\sigma$", fontsize=12)
     ax.set_xlabel(r"$\beta / \pi$", fontsize=12)
 

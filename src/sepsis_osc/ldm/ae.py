@@ -4,9 +4,10 @@ from typing import Callable, TypeVar
 import equinox as eqx
 import jax
 import jax.numpy as jnp
-from beartype import beartype as typechecker
 from jaxtyping import Array, Float, jaxtyped, PyTree
 from numpy.typing import DTypeLike
+
+from sepsis_osc.utils.jax_config import typechecker
 
 logger = logging.getLogger(__name__)
 
@@ -34,9 +35,11 @@ class Encoder(eqx.Module):
     final_linear2: eqx.nn.Linear
 
     # Output heads
-    alpha_layer: eqx.nn.Linear
     beta_layer: eqx.nn.Linear
     sigma_layer: eqx.nn.Linear
+
+    vsofa_layer: eqx.nn.Linear
+    vinf_layer: eqx.nn.Linear
 
     h_layer: eqx.nn.Linear
 
@@ -98,15 +101,19 @@ class Encoder(eqx.Module):
         self.final_linear2 = eqx.nn.Linear(64, 32, key=key_lin5, dtype=dtype)
 
         # Output heads
-        self.alpha_layer = eqx.nn.Linear(32, 1, key=key_alpha, dtype=dtype)
         self.beta_layer = eqx.nn.Linear(32, 1, key=key_beta, dtype=dtype)
         self.sigma_layer = eqx.nn.Linear(32, 1, key=key_sigma, dtype=dtype)
+
+        self.vsofa_layer = eqx.nn.Linear(32, 1, key=key_alpha, dtype=dtype)
+        self.vinf_layer = eqx.nn.Linear(32, 1, key=key_alpha, dtype=dtype)
         self.h_layer = eqx.nn.Linear(32, pred_hidden, key=key_sigma, dtype=dtype)
 
     @jaxtyped(typechecker=typechecker)
     def __call__(
         self, x: Float[Array, " input_dim"], *, dropout_keys: jnp.ndarray
-    ) -> tuple[Float[Array, "1"], Float[Array, "1"], Float[Array, "1"], Float[Array, " pred_hidden"]]:
+    ) -> tuple[
+        Float[Array, "1"], Float[Array, "1"], Float[Array, "1"], Float[Array, "1"], Float[Array, " pred_hidden"]
+    ]:
         k1, k2, k3, k4 = dropout_keys
 
         # === Initial Layers ===
@@ -142,9 +149,10 @@ class Encoder(eqx.Module):
         x_final_enc = jax.nn.swish(x_final_enc)
 
         return (
-            self.alpha_layer(x_final_enc),
             self.beta_layer(x_final_enc),
             self.sigma_layer(x_final_enc),
+            self.vsofa_layer(x_final_enc),
+            self.vinf_layer(x_final_enc),
             jax.nn.tanh(self.h_layer(x_final_enc)),
         )
 
@@ -240,12 +248,7 @@ def apply_initialization(model: EncDec, init_fn_weight: InitFn, init_fn_bias: In
 def init_encoder_weights(encoder: Encoder, key: jnp.ndarray) -> Encoder:
     encoder = apply_initialization(encoder, he_uniform_init, zero_bias_init, key)
 
-    key_alpha_b, key_beta_b, key_sigma_b, _ = jax.random.split(key, 4)
-    encoder = eqx.tree_at(
-        lambda e: e.alpha_layer.bias,
-        encoder,
-        softplus_bias_init(jnp.asarray(encoder.alpha_layer.bias), key_alpha_b),
-    )
+    key_beta_b, key_sigma_b, _ = jax.random.split(key, 3)
     encoder = eqx.tree_at(
         lambda e: e.beta_layer.bias,
         encoder,

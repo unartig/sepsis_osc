@@ -5,7 +5,6 @@ import jax.numpy as jnp
 import jax.random as jr
 import jax.tree as jtree
 import numpy as np
-from beartype import beartype as typechecker
 from jax import vmap
 from jax.debug import print as jprint
 
@@ -14,6 +13,7 @@ from jaxtyping import Array, Bool, Float, Int, ScalarLike, jaxtyped
 from sepsis_osc.dnm.abstract_ode import ConfigArgBase, ConfigBase, MetricBase, ODEBase, StateBase
 from sepsis_osc.dnm.commons import diff_angle, entropy, mean_angle, phase_entropy, std_angle
 from sepsis_osc.utils.utils import timing
+from sepsis_osc.utils.jax_config import typechecker
 
 
 @jaxtyped(typechecker=typechecker)
@@ -130,7 +130,7 @@ class DNMState(StateBase):
         return DNMState(
             phi_1=self.phi_1 % (2 * jnp.pi),
             phi_2=self.phi_2 % (2 * jnp.pi),
-            kappa_1=self.kappa_1,  # or clipped if you want
+            kappa_1=self.kappa_1,  #  in the paper they say they clip, but they dont
             kappa_2=self.kappa_2,
             m_1=self.m_1,
             m_2=self.m_2,
@@ -433,13 +433,11 @@ if __name__ == "__main__":
     num_parallel_runs = 25
 
     beta_step = 0.01
-    beta_step = 0.1
     betas = np.arange(0.0, 1.0, beta_step)
-    sigma_step = 0.01
-    sigma_step = 0.1
+    sigma_step = 0.015
     sigmas = np.arange(0.0, 1.5, sigma_step)
-    alpha_step = 0.1
-    alphas = jnp.array([-0.28])  # jnp.array([-1.0, -0.76, -0.52, -0.28, 0.0, 0.28, 0.52, 0.76, 1.0])
+    alpha_step = 0.28
+    alphas = jnp.arange(-0.84, 0.84+alpha_step, alpha_step)
     T_max_base = 2000
     T_step_base = 100
     total = len(betas) * len(sigmas) * len(alphas)
@@ -450,7 +448,7 @@ if __name__ == "__main__":
     dnm = DynamicNetworkModel(full_save=False, steady_state_check=True, progress_bar=True)
     solver = Tsit5()
 
-    db_str = "Small200_25"
+    db_str = "Daisy2"
     storage = Storage(
         key_dim=9,
         metrics_kv_name=f"data/{db_str}SepsisMetrics.db/",

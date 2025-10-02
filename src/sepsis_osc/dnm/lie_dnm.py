@@ -2,15 +2,16 @@ from typing import Optional
 
 import equinox as eqx
 import jax.numpy as jnp
-from jax.debug import print as jprint
 import numpy as np
-from beartype import beartype as typechecker
 from jax import vmap
+from jax.debug import print as jprint
 from jaxlie import SO2
 from jaxtyping import Array, Float, Int, ScalarLike, jaxtyped
 
-from sepsis_osc.dnm.abstract_ode import ConfigBase, ConfigArgBase
+from sepsis_osc.dnm.abstract_ode import ConfigArgBase, ConfigBase
 from sepsis_osc.dnm.dynamic_network_model import DNMMetrics, DNMState, DynamicNetworkModel
+from sepsis_osc.utils.jax_config import typechecker
+
 
 @jaxtyped(typechecker=typechecker)
 class LieDNMConfigArgs(ConfigArgBase):

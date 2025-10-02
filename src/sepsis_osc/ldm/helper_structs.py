@@ -18,19 +18,22 @@ class AuxLosses:
 
     total_loss: Array
     recon_loss: Array
-    directional_loss: Array
     tc_loss: Array
     accel_loss: Array
     diff_loss: Array
     thresh_loss: Array
+    matching_loss: Array
 
     hists_sofa_score: Array
     hists_sofa_metric: Array
     hists_inf_prob: Array
 
-    infection_loss_t: Array
     sofa_loss_t: Array
-    sep3_loss_t: Array
+    sofa_d2_p_loss: Array
+    infection_p_loss_t: Array
+    sep3_p_loss: Array
+    directional_loss: Array
+    trend_loss: Array
 
     anneal_threshs: Array
 
@@ -51,18 +54,21 @@ class AuxLosses:
                 "sigma": self.sigma,
             },
             "concepts": {
+                "directional_loss": self.directional_loss,
+                "trend_loss": self.trend_loss,
                 "sofa": self.sofa_loss_t,
-                "infection": self.infection_loss_t,
-                "sepsis-3": self.sep3_loss_t,
+                "sofa_d2": self.sofa_d2_p_loss,
+                "infection": self.infection_p_loss_t,
+                "sepsis-3": self.sep3_p_loss,
             },
             "losses": {
                 "total_loss": self.total_loss,
                 "recon_loss": self.recon_loss,
-                "directional_loss": self.directional_loss,
                 "tc_loss": self.tc_loss,
                 "accel_loss": self.accel_loss,
                 "diff_loss": self.diff_loss,
                 "thresh_loss": self.thresh_loss,
+                "matching_loss": self.matching_loss,
             },
             "hists": {
                 "sofa_score": self.hists_sofa_score,
@@ -70,9 +76,8 @@ class AuxLosses:
                 "inf_prob": self.hists_inf_prob,
             },
             "mult": {
-                "infection_t": self.infection_loss_t,
+                "infection_t": self.infection_p_loss_t,
                 "sofa_t": self.sofa_loss_t,
-                "sep3_t": self.sep3_loss_t,
             },
             "cosine_annealings": {
                 "thresholds": self.anneal_threshs,
@@ -87,11 +92,13 @@ class AuxLosses:
 
 @dataclass
 class ModelConfig:
-    latent_dim: int
+    z_latent_dim: int
+    v_latent_dim: int
     input_dim: int
     enc_hidden: int
     dec_hidden: int
-    predictor_hidden: int
+    predictor_z_hidden: int
+    predictor_v_hidden: int
     dropout_rate: float
 
 
@@ -135,11 +142,14 @@ class LossesConfig:
     w_accel: float
     w_diff: float
     w_sofa_direction: float
+    w_sofa_trend: float
     w_sofa_classification: float
+    w_sofa_d2: float
     w_inf: float
     w_inf_alpha: float
     w_inf_gamma: float
     w_sep3: float
+    w_matching: float
     w_thresh: float
     anneal_threshs_iter: float
     steps_per_epoch: int = 0

@@ -5,7 +5,7 @@ import plotly.graph_objects as go
 import numpy as np
 import polars as pl
 
-from sepsis_osc.dnm.data_classes import SystemConfig, SystemMetrics
+from sepsis_osc.dnm.dynamic_network_model import DNMConfig, DNMMetrics
 from sepsis_osc.storage.storage_interface import Storage
 from sepsis_osc.utils.logger import setup_logging
 
@@ -117,7 +117,7 @@ if __name__ ==  "__main__":
         for y, sigma in enumerate(sigmas):
             for z, alpha in enumerate(alphas):
                 N = 100
-                run_conf = SystemConfig(
+                run_conf = DNMConfig(
                     N=100,
                     C=int(0.2 * N),
                     omega_1=0.0,
