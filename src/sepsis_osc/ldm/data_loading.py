@@ -10,7 +10,7 @@ import numpy as np
 import jax.random as jr
 
 from sepsis_osc.utils.logger import setup_logging
-from sepsis_osc.utils.config import yaib_data_dir, sequence_files
+from sepsis_osc.utils.config import yaib_data_dir, sequence_files, np_rng
 from sepsis_osc.ldm.gin_configs import file_names, new_vars, modality_mapping
 
 logger = logging.getLogger(__name__)
@@ -18,7 +18,9 @@ logger = logging.getLogger(__name__)
 data_dir = Path(yaib_data_dir)
 
 
-def get_raw_data(_data_dir: Path = data_dir, yaib_vars: dict[str, str | list[str]] = new_vars) -> dict[str, pl.DataFrame]:
+def get_raw_data(
+    _data_dir: Path = data_dir, yaib_vars: dict[str, str | list[str]] = new_vars
+) -> dict[str, pl.DataFrame]:
     logger.info(f"Searching for sequence_files in {_data_dir}")
     data = preprocess_data(
         data_dir=_data_dir,
@@ -53,38 +55,33 @@ def prepare_batches(
     key: jnp.ndarray,
     perc: float = 1.0,
     *,
-    shuffle: bool =True,
+    shuffle: bool = True,
+    pos_fraction: float = -1.0,
 ) -> tuple[np.ndarray, np.ndarray, int]:
     num_samples = int(perc * x_data.shape[0])
-    num_features = x_data.shape[1:]
-    num_targets = y_data.shape[1:]
+    pos_mask = y_data.sum(axis=-1) > 0
+    pos_idx, neg_idx = np.where(pos_mask)[0], np.where(~pos_mask)[0]
 
-    # Shuffle data
-    if shuffle:
-        perm = jr.permutation(key, num_samples)
-        x_shuffled = x_data[perm]
-        y_shuffled = y_data[perm]
+    if pos_fraction == -1.0:
+        idx = jr.permutation(key, num_samples) if shuffle else np.arange(num_samples)
     else:
-        x_shuffled = x_data[:num_samples]
-        y_shuffled = y_data[:num_samples]
+        n_pos = int(num_samples * pos_fraction)
+        n_neg = num_samples - n_pos
+        pos_idx = np_rng.choice(pos_idx, n_pos, replace=True)
+        neg_idx = np_rng.choice(neg_idx, n_neg, replace=n_neg > len(neg_idx))
+        idx = np.concatenate([pos_idx, neg_idx])
+        if shuffle:
+            np_rng.shuffle(idx)
 
-    # Ensure full batches only
-    num_full_batches = num_samples // batch_size
-    x_truncated = x_shuffled[: num_full_batches * batch_size]
-    y_truncated = y_shuffled[: num_full_batches * batch_size]
-
-    # Reshape into batches
-    x_batched = x_truncated.reshape(num_full_batches, batch_size, *num_features)
-    y_batched = y_truncated.reshape(num_full_batches, batch_size, *num_targets)
-
-    return x_batched, y_batched, num_full_batches
+    x, y = x_data[idx], y_data[idx]
+    n_batches = x.shape[0] // batch_size
+    x = x[: n_batches * batch_size].reshape(n_batches, batch_size, *x.shape[1:])
+    y = y[: n_batches * batch_size].reshape(n_batches, batch_size, *y.shape[1:])
+    return x, y, n_batches
 
 
 def prepare_sequences(
-    x_df: pl.DataFrame,
-    y_df: pl.DataFrame,
-    window_len: int,
-    time_step: int = 1
+    x_df: pl.DataFrame, y_df: pl.DataFrame, window_len: int, time_step: int = 1
 ) -> tuple[np.ndarray, np.ndarray]:
     # Sort and group only once
     x_df = x_df.sort(["stay_id", "time"])
@@ -94,7 +91,7 @@ def prepare_sequences(
     y_seqs = []
 
     for pid in x_df["stay_id"].unique():
-        times = x_df.filter(pl.col("stay_id")==pid)["time"].to_numpy()
+        times = x_df.filter(pl.col("stay_id") == pid)["time"].to_numpy()
         x_group = x_df.filter(pl.col("stay_id") == pid).drop(["stay_id", "time"])
         y_group = y_df.filter(pl.col("stay_id") == pid).drop(["stay_id", "time"])
 
@@ -105,8 +102,9 @@ def prepare_sequences(
         if n < window_len:
             continue
 
+        # only fully consecutive sequences
         for i in range(n - window_len + 1):
-            if np.all(np.diff(times[i:i+window_len]) == time_step):
+            if np.all(np.diff(times[i : i + window_len]) == time_step):
                 x_seqs.append(x_np[i : i + window_len])
                 y_seqs.append(y_np[i : i + window_len])
 
@@ -116,7 +114,7 @@ def prepare_sequences(
 
 
 def get_data_sets(
-    window_len: int =6, dtype: jnp.dtype =jnp.float32
+    window_len: int = 6, dtype: jnp.dtype = jnp.float32
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     if Path(sequence_files + f"len_{window_len}.npz").exists():
         logger.info("Processed sequence files found. Loading data from disk...")
@@ -128,11 +126,13 @@ def get_data_sets(
     else:
         logger.warning("Processed sequence files not found, reading YAIB-data.")
         train_y, train_x, val_y, val_x, test_y, test_x = [
-            v.drop([
-                col
-                for col in v.columns
-                if col.startswith("Missing") or col in {"__index_level_0__", "los_icu", "susp_inf_alt"}
-            ])
+            v.drop(
+                [
+                    col
+                    for col in v.columns
+                    if col.startswith("Missing") or col in {"__index_level_0__", "los_icu", "susp_inf_alt", "sep3_alt"}
+                ]
+            )
             for inner in get_raw_data().values()
             for v in inner.values()
         ]
@@ -155,11 +155,11 @@ def get_data_sets(
     # reorder for (sofa, susp_inf_ramp, sep3_alt)
     return (
         train_x.astype(dtype),
-        train_y[:, :, [0, 2, 1]].astype(dtype),
+        train_y.astype(dtype),
         val_x.astype(dtype),
-        val_y[:, :, [0, 2, 1]].astype(dtype),
+        val_y.astype(dtype),
         test_x.astype(dtype),
-        test_y[:, :, [0, 2, 1]].astype(dtype),
+        test_y.astype(dtype),
     )
 
 

@@ -8,28 +8,49 @@ from sepsis_osc.utils.jax_config import typechecker
 
 
 class GRUPredictor(eqx.Module):
-    gru_cell: eqx.nn.GRUCell
-    proj_out: eqx.nn.Linear
+    z_gru_cell: eqx.nn.GRUCell
+    z_proj_out: eqx.nn.Linear
+    v_gru_cell: eqx.nn.GRUCell
+    v_proj_out: eqx.nn.Linear
 
-    hidden_dim: int = eqx.field(static=True)
+    z_hidden_dim: int = eqx.field(static=True)
+    v_hidden_dim: int = eqx.field(static=True)
 
-    def __init__(self, key: jnp.ndarray, dim: int, hidden_dim: int, dtype: DTypeLike = jnp.float32) -> None:
-        key1, key2 = jr.split(key, 2)
-        self.hidden_dim = hidden_dim
+    def __init__(
+        self,
+        key: jnp.ndarray,
+        z_dim: int,
+        v_dim: int,
+        z_hidden_dim: int,
+        v_hidden_dim: int,
+        dtype: DTypeLike = jnp.float32,
+    ) -> None:
+        keyz, keyv = jr.split(key, 2)
 
-        self.gru_cell = eqx.nn.GRUCell(dim, hidden_dim, key=key1, dtype=dtype)
-        self.proj_out = eqx.nn.Linear(hidden_dim, dim, key=key2, dtype=dtype)
+        self.z_hidden_dim = z_hidden_dim
+        self.v_hidden_dim = v_hidden_dim
+
+        self.z_gru_cell = eqx.nn.GRUCell(z_dim, z_hidden_dim, key=keyz, dtype=dtype)
+        self.v_gru_cell = eqx.nn.GRUCell(v_dim, v_hidden_dim, key=keyv, dtype=dtype)
+        self.z_proj_out = eqx.nn.Linear(z_hidden_dim, z_dim, key=keyz, dtype=dtype)
+        self.v_proj_out = eqx.nn.Linear(v_hidden_dim, v_dim, key=keyv, dtype=dtype)
 
     @jaxtyped(typechecker=typechecker)
     def __call__(
         self,
-        z_t: Float[Array, " latent_dim"],
+        zv_t: Float[Array, " latent_dim"],
         h_prev: Float[Array, " pred_hidden"],
     ) -> tuple[Float[Array, " latent_dim"], Float[Array, " pred_hidden"]]:
-        h_next = self.gru_cell(z_t, h_prev)
-        z_pred = self.proj_out(h_next)
-        return z_pred, h_next
+        hz_prev, hv_prev = h_prev[: self.z_hidden_dim], h_prev[self.z_hidden_dim :]
+        z_t, v_t = zv_t[: self.z_proj_out.out_features], zv_t[self.z_proj_out.out_features :]
+
+        hz_next = self.z_gru_cell(z_t, hz_prev)
+        z_pred = self.z_proj_out(hz_next)
+
+        hv_next = self.v_gru_cell(v_t, hv_prev)
+        v_pred = self.v_proj_out(hv_next)
+        return jnp.concat([z_pred, v_pred]), jnp.concat([hz_next, hv_next])
 
 
-def make_predictor(key: jnp.ndarray, dim: int, hidden_dim: int) -> GRUPredictor:
-    return GRUPredictor(key, dim, hidden_dim)
+def make_predictor(key: jnp.ndarray, z_dim: int, v_dim: int, z_hidden_dim: int, v_hidden_dim: int) -> GRUPredictor:
+    return GRUPredictor(key, z_dim, v_dim, z_hidden_dim, v_hidden_dim, v_hidden_dim)

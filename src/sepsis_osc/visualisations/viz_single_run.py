@@ -3,23 +3,19 @@ import numpy as np
 from matplotlib.animation import FuncAnimation, PillowWriter
 import matplotlib.pyplot as plt
 
-from sepsis_osc.dnm.data_classes import SystemConfig, SystemState
-
-# import fastplotlib as fpl
-# from PIL import Image
-# import time
+from sepsis_osc.dnm.dynamic_network_model import DNMConfig, DNMState
 
 SMALL_SIZE = 12
 MEDIUM_SIZE = 14
 BIGGER_SIZE = 14
 
-plt.rc('font', size=SMALL_SIZE)          # controls default text sizes
-plt.rc('axes', titlesize=SMALL_SIZE)     # fontsize of the axes title
-plt.rc('axes', labelsize=MEDIUM_SIZE)    # fontsize of the x and y labels
-plt.rc('xtick', labelsize=SMALL_SIZE)    # fontsize of the tick labels
-plt.rc('ytick', labelsize=SMALL_SIZE)    # fontsize of the tick labels
-plt.rc('legend', fontsize=SMALL_SIZE)    # legend fontsize
-plt.rc('figure', titlesize=BIGGER_SIZE)  # fontsize of the figure title
+plt.rc("font", size=SMALL_SIZE)  # controls default text sizes
+plt.rc("axes", titlesize=SMALL_SIZE)  # fontsize of the axes title
+plt.rc("axes", labelsize=MEDIUM_SIZE)  # fontsize of the x and y labels
+plt.rc("xtick", labelsize=SMALL_SIZE)  # fontsize of the tick labels
+plt.rc("ytick", labelsize=SMALL_SIZE)  # fontsize of the tick labels
+plt.rc("legend", fontsize=SMALL_SIZE)  # legend fontsize
+plt.rc("figure", titlesize=BIGGER_SIZE)  # fontsize of the figure title
 
 
 def get_grid(n: int) -> tuple[int, int]:
@@ -40,7 +36,7 @@ def plot_phase_snapshot(phis_1: np.ndarray, phis_2: np.ndarray, t: int = -1, der
         _, ax = plt.subplots(1, 1)
     n = phis_1.shape[-1]
 
-    print(np.arange(n).shape, np.sort(phis_1[t, :] / np.pi).shape)    
+    print(np.arange(n).shape, np.sort(phis_1[t, :] / np.pi).shape)
     ax.scatter(np.arange(n), np.sort(phis_1[t, :] / np.pi), s=5, label="Parenchymal Cells")
     ax.scatter(np.arange(n) + n, np.sort(phis_2[t, :] / np.pi), s=5, label="Immune Cells", c="tab:red")
 
@@ -62,7 +58,7 @@ def plot_phase_progression(phis_1: np.ndarray, phis_2: np.ndarray, ts: list[int]
     return axes
 
 
-def plot_snapshot(ys: SystemState, dys: SystemState, t: int = -1):
+def plot_snapshot(ys: DNMState, dys: DNMState, t: int = -1):
     fig, axes = plt.subplots(1, 2, squeeze=True, figsize=(5, 2))
     axes = axes.flatten()
     plot_phase_snapshot(np.asarray(ys.phi_1), np.asarray(ys.phi_2), t, False, axes[0])
@@ -196,60 +192,43 @@ if __name__ == "__main__":
     import jax.numpy as jnp
     import jax.random as jr
     from diffrax import Tsit5, Dopri5, Dopri8, ODETerm, PIDController
-    from jax import vmap
 
-    from sepsis_osc.utils.run_simulation import solve
-    from sepsis_osc.dnm.simulation import (
-        generate_init_conditions_fixed,
-        make_full_compressed_save,
-        system_deriv,
-    )
+    from sepsis_osc.dnm.dynamic_network_model import DynamicNetworkModel
     from sepsis_osc.utils.config import jax_random_seed
 
     rand_key = jr.key(jax_random_seed + 1)
     num_parallel_runs = 1
     rand_keys = jr.split(rand_key, num_parallel_runs)
-    full_save = make_full_compressed_save(system_deriv, jnp.float32)
-    term = ODETerm(system_deriv)
     solver = Dopri8()
-    stepsize_controller = PIDController(rtol=1e-3, atol=1e-6)
+    stepsize_controller = PIDController(rtol=1e-9, atol=1e-12)
 
     #### Parameters
     N = 200
     # sync -0.28, 0.46, 1
     # desync -0.28, 0.666, 0.42
     # splay -0.28, 1, 1
-    run_conf = SystemConfig(
+    run_conf = DNMConfig(
         N=N,
-        C=int(0.2 * N),  # local infection
+        C=0.2,  # local infection
         omega_1=0.0,
         omega_2=0.0,
         a_1=1.0,
         epsilon_1=0.03,  # adaption rate
         epsilon_2=0.3,  # adaption rate
-        alpha=-0.28,  # -0.28,  # phase lage
-        beta=0.666,  # 0.5,  # age parameter
-        sigma=42,
+        alpha=-0.28,  # phase lage
+        beta=1.0,  # age parameter
+        sigma=1.0,
     )
-    T_init, T_trans, T_max = 0, 0, 1500
-    T_step = 10
-    generate_init_conditions = generate_init_conditions_fixed(run_conf.N, run_conf.beta, run_conf.C)
+    T_init, T_max = 0, 1500
+    T_step = 1
     print(run_conf.as_index)
-    init_conditions = vmap(generate_init_conditions)(rand_keys)
-    sol = solve(
-        T_init,
-        T_trans,
-        T_max,
-        T_step,
-        init_conditions.copy(),
-        run_conf.as_args,
-        solver,
-        term,
-        stepsize_controller,
-        full_save,
-    )
+
+    dnm = DynamicNetworkModel(full_save=True, steady_state_check=False)
+    sol = dnm.integrate(config=run_conf, M=num_parallel_runs, key=rand_key, T_init=0, T_max=T_max, T_step=T_step)
+
     if not sol.ys:
         exit(0)
+
     ys, dys = sol.ys
     print(ys.shape, dys.shape)
     ys, dys = ys.remove_infs().squeeze().enforce_bounds(), dys.remove_infs().squeeze()

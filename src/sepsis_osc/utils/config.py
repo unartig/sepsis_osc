@@ -1,6 +1,9 @@
+from numpy.random import default_rng
+
 # Random seeds
 jax_random_seed = 123
 np_random_seed = 123
+np_rng = default_rng(np_random_seed)
 random_seed = 123
 
 # Workers
@@ -24,12 +27,20 @@ sequence_files = "data/sequence_"
 # ALPHA_SPACE = (-1.0, 1.0, 0.04)
 # BETA_SPACE = (0.2, 1.0, 0.02)
 # SIGMA_SPACE = (0.0, 1.5, 0.04)
-# ALPHA_SPACE = (-0.28, -0.27, 0.01)
+
+ALPHA_SPACE = (-0.28 -0.001, -0.28 + 0.001, 0.001)  # only original slice
+# BETA_SPACE = (0.4, 0.7, 0.01)  # only original area
 # BETA_SPACE = (0.0, 1.0, 0.01)
 # SIGMA_SPACE = (0.0, 1.5, 0.01)
+# SIGMA_SPACE = (0.0, 1.0, 0.01)  # only original area
 
 # DAISY 2
-# ALPHA_SPACE = (-0.84, 0.84+0.28, 0.28)
-ALPHA_SPACE = (-0.84, -0.84+3*0.28, 0.28)
+# ALPHA_SPACE = (-0.84, 0.84+0.28, 0.28)  # full with mirror
+# ALPHA_SPACE = (-0.84, -0.84+3*0.28, 0.28)  # only negative slice
 BETA_SPACE = (0.0, 1.0, 0.01)
 SIGMA_SPACE = (0.0, 1.5, 0.015)
+
+# DAISY HALF
+# BETA_SPACE = (0.0, 1.0, 0.01 * 2)
+# SIGMA_SPACE = (0.0, 1.5, 0.015 * 2)
+
