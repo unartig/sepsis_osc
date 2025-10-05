@@ -71,9 +71,7 @@ def log_val_metrics(
     fig, ax = plt.subplots(1, 2)
     idx = np.argmax(y[0, :, :, 2].sum(axis=-1))
 
-    print("AZZ", y.shape ,idx)
     ax = viz_plane(
-        
         true_sofa=y[0, idx, :, 0],
         true_infs=y[0, idx, :, 1],
         pred_sofa=metrics["hists"]["sofa_score"][0, idx],
