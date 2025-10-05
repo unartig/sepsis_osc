@@ -25,10 +25,11 @@ class Storage:
         key_dim: int = 9,
         parameter_k_name: str = "",
         metrics_kv_name: str = "",
+        *,
         use_mem_cache: bool = True,
     ):
-        parameter_k_name = db_parameter_keys if not parameter_k_name else parameter_k_name
-        metrics_kv_name = db_metrics_key_value if not metrics_kv_name else metrics_kv_name
+        parameter_k_name = parameter_k_name if parameter_k_name else db_parameter_keys
+        metrics_kv_name = metrics_kv_name if metrics_kv_name else db_metrics_key_value
         logger.info(f"Got {parameter_k_name} and {metrics_kv_name}")
 
         # FAISS stores the Parameter vectors for fast NN retrieval
@@ -52,7 +53,7 @@ class Storage:
     def __setup_faiss(
         self,
         db_name: str,
-    ):
+    ) -> faiss.IndexFlatL2:
         key_index = faiss.IndexFlatL2(self.key_dim)  # L2 (Euclidean) distance
         try:
             key_index = faiss.read_index(self.parameter_k_name)
@@ -61,9 +62,9 @@ class Storage:
             logger.info("No existing FAISS index, starting fresh.")
         return key_index
 
-    def __setup_rocksdb(self, db_name: str):
+    def __setup_rocksdb(self, db_name: str) -> tuple[rock.RocksDB, int]:
         opts = rock.Option()
-        opts.create_if_missing(True)
+        opts.create_if_missing(create_if_missing=True)
         opts.set_allow_mmap_reads(True)
 
         rocksdb = rock.open(db_name, opts=opts)
@@ -89,7 +90,7 @@ class Storage:
     def add_faiss(
         self,
         key: np.ndarray,
-    ):
+    ) -> None:
         logger.info(f"Adding key {pprint_key(key[0])} to FAISS index as [{self.current_idx}] ")
         self.__db_keys.add(key)
 
@@ -111,7 +112,7 @@ class Storage:
         self,
         packed_data: Optional[bytes],
         index: str = "",
-    ):
+    ) -> None:
         if not index:
             logger.error("Cannot save empty key in MemoryCache")
             return
@@ -149,6 +150,7 @@ class Storage:
         self,
         params: tuple[int | float, ...] | np.ndarray,
         packed_metric: bytes,
+        *,
         overwrite: bool = False,
     ) -> bool:
         np_params = np.array([params], dtype=np.float32)
@@ -173,7 +175,7 @@ class Storage:
         self,
         params: tuple[int | float, ...] | np.ndarray,
         proto_metric: MetricT,
-        threshold=np.inf,
+        threshold: np.float32 =np.inf,
     ) -> Optional[MetricT]:
         logger.info(f"Getting Metrics for {pprint_key(params)}")
         np_params = np.array([params], dtype=np.float32)
@@ -242,7 +244,7 @@ class Storage:
         logger.info("Successfuly retrieved bulk metrics")
         return res, distances
 
-    def write(self):
+    def write(self) -> None:
         logger.info(f"Writing FAISS index to {self.parameter_k_name}")
         faiss.write_index(self.__db_keys, self.parameter_k_name)
         logger.info(f"Writing RocksDB to {self.metrics_kv_name}")
@@ -255,7 +257,7 @@ class Storage:
 
     def close(
         self,
-    ):
+    ) -> None:
         if self.use_mem_cache and len(self.__new_indices) != 0:
             self.write()
         self.__db_metric.close()
@@ -264,6 +266,7 @@ class Storage:
         self,
         other: "Storage",
         proto_metric: MetricT,
+        *,
         overwrite: bool = False,
     ) -> "Optional[Storage]":
         # Merges other into self
