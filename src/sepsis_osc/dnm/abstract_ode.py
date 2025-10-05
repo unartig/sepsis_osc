@@ -53,7 +53,7 @@ class ConfigBase(ABC, eqx.Module):
 
 class TreeBase(eqx.Module):
     @property
-    def shape(self) -> tuple[dict[str, tuple[int, ...]]]:
+    def shape(self) -> dict[str, tuple[int, ...]]:
         return jtree.map(lambda x: x.shape if x is not None else None, self.__dict__)
 
     @property
