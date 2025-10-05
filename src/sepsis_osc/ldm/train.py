@@ -28,9 +28,9 @@ from sepsis_osc.ldm.helper_structs import (
 )
 from sepsis_osc.ldm.latent_dynamics import LatentDynamicsModel, update_betas
 from sepsis_osc.ldm.logging_utils import flatten_dict, log_train_metrics, log_val_metrics
-from sepsis_osc.ldm.lookup import LatentLookup, as_3d_indices
+from sepsis_osc.ldm.lookup import LatentLookup, as_2d_indices, as_3d_indices
 from sepsis_osc.storage.storage_interface import Storage
-from sepsis_osc.utils.config import ALPHA_SPACE, BETA_SPACE, SIGMA_SPACE, jax_random_seed
+from sepsis_osc.utils.config import ALPHA, ALPHA_SPACE, BETA_SPACE, SIGMA_SPACE, jax_random_seed
 from sepsis_osc.utils.jax_config import EPS, setup_jax, typechecker
 from sepsis_osc.utils.logger import setup_logging
 from sepsis_osc.utils.utils import timing
@@ -194,8 +194,23 @@ def calc_directional_loss(
 ) -> Float[Array, " time-1"]:
     tdelta = true_sofa[1:] - true_sofa[:-1]
     pdelta = pred_sofa[1:] - pred_sofa[:-1]
-    return jax.nn.softplus(-pdelta * tdelta)
+    return jax.nn.softplus(-pdelta * tdelta) * jax.nn.relu(tdelta)
 
+@jaxtyped(typechecker=typechecker)
+def calc_directional_tau_loss(
+    pred_sofa: Int[Array, " time"] | Float[Array, " time"], true_sofa: Float[Array, " time"], tau: Float[Array,"1"]
+) -> Float[Array, ""]:
+    T = pred_sofa.shape[0]
+    # pairwise differences (T, T)
+    dp = pred_sofa[None,:] - pred_sofa[:,None]   # pred[j] - pred[i]
+    dt = true_sofa[None,:] - true_sofa[:,None]
+    mask = jnp.triu(jnp.ones((T,T)), k=1)  # only j>i
+    # directional penalty
+    penalty = jax.nn.softplus(-dp * dt)
+    # weight: only care about positive true changes > tau
+    weight = jnp.abs(dt)
+    loss_mat = penalty * weight * mask
+    return loss_mat.sum()
 
 @jaxtyped(typechecker=typechecker)
 def calc_trend_loss(
@@ -244,8 +259,8 @@ def cosine_annealing(base_val: float, num_steps: int, num_dead_steps: int, curre
 
 def uncertainty_scale(loss: Float[Array, "*"], log_sigma: Float[Array, ""]) -> Float[Array, "*"]:
     return loss
-    sigma_sq = jnp.exp(2 * log_sigma)
-    return ((loss / (2 * sigma_sq)) + log_sigma).squeeze()
+    # sigma_sq = jnp.exp(2 * log_sigma)
+    # return ((loss / (2 * sigma_sq)) + log_sigma).squeeze()
 
 
 @jaxtyped(typechecker=typechecker)
@@ -313,9 +328,9 @@ def loss(
     #     0.0, int(params.anneal_threshs_iter * params.steps_per_epoch), params.steps_per_epoch * 10, step
     # )
     aux.anneal_threshs = cosine_annealing(
-        base_val=0.0,
-        num_steps=int(100 * params.steps_per_epoch),
-        num_dead_steps=params.steps_per_epoch * 100,
+        base_val=0.01,
+        num_steps=int(200 * params.steps_per_epoch),
+        num_dead_steps=params.steps_per_epoch * 125,
         current_step=step,
     )
     # ordinal_thresholds = model.ordinal_thresholds(aux.anneal_threshs)
@@ -360,19 +375,23 @@ def loss(
     # aux.sofa_loss_t = jax.vmap(ordinal_loss, in_axes=(0, 0, None, None, None))(
     #     sofa_pred, sofa_true, ordinal_thresholds, model.label_temperature, model.sofa_dist
     # )
-    aux.sofa_loss_t = (sofa_pred - (sofa_true / 24.0)) ** 2
-    sofa_score_pred = jnp.sum(sofa_pred[..., None] > ordinal_thresholds, axis=-1)
-
-    # sofa_increase_p = jax.vmap(sofa_increase_probs, in_axes=(0, None, None, None, None))(
+    class_weights = jnp.log(1.0 + 1.0 / (model.sofa_dist + EPS))
+    weights_per_sample = 1 + class_weights[sofa_true.astype(jnp.int32)]  # [B]
+    aux.sofa_loss_t = ((sofa_pred - (sofa_true / 24.0)) ** 2) * weights_per_sample
+    # aux.sofa_loss_t = optax.sigmoid_focal_loss(sofa_pred, sofa_true/24.0, alpha=0.99, gamma=1.0)
+    # aux.sofa_d2_p = (jnp.diff(sofa_pred, axis=-1) > 1/25).sum(axis=-1).astype(jnp.float32)
+    aux.sofa_d2_p = (jnp.diff(sofa_pred, axis=-1) > 1/25).any(axis=-1).astype(jnp.float32) ##################
+    # sofa_increase_p= jax.vmap(sofa_increase_probs, in_axes=(0, None, None, None, None))(
     #     sofa_pred,
     #     ordinal_thresholds,
     #     model.label_temperature,
     #     model.delta_temperature,
     #     0.0,
     # )
-    sofa_increase_p = jax.vmap(organ_failure_increase_probs, in_axes=(0, None, None))(
-        sofa_pred, model.delta_temperature, 0.0
-    )
+    # aux.sofa_d2_p = 1.0 - jnp.prod(1.0 - sofa_increase_p, axis=-1)
+    # sofa_increase_p = jax.vmap(organ_failure_increase_probs, in_axes=(0, None, None))(
+    #     sofa_pred, model.delta_temperature, 0.0
+    # )
     # sofa_increase_p = jax.vmap(sofa_event_prob_any_future, in_axes=(0, None, None, None, None))(
     #     sofa_pred,
     #     ordinal_thresholds,
@@ -386,13 +405,14 @@ def loss(
     # aux.sofa_d2_p_loss = optax.sigmoid_focal_loss(
     #     binary_logits(sofa_increase_p), (jnp.diff(sofa_true, axis=-1) > 1.0).astype(jnp.int32), alpha=0.75, gamma=2.0
     # )
-    # 
+    #
     aux.sofa_d2_p_loss = optax.sigmoid_focal_loss(
-        binary_logits(sofa_increase_p), (jnp.diff(sofa_true, axis=-1) > 0.0).astype(jnp.int32), alpha=0.99, gamma=1.0
+        binary_logits(aux.sofa_d2_p), jnp.clip(jnp.diff(sofa_true / 24.0, axis=-1), 0, jnp.inf).sum(axis=-1), alpha=0.99, gamma=1.0
     )
     # aux.sofa_d2_p = sofa_increase_p.max(axis=-1)
-    aux.sofa_d2_p = 1.0 - jnp.prod(1.0 - sofa_increase_p, axis=-1)
+    # aux.sofa_d2_p = 1.0 - jnp.prod(1.0 - sofa_increase_p, axis=-1)
 
+    # aux.infection_p_loss_t = (infection_true - infection_pred)**2
     aux.infection_p_loss_t = jax.vmap(optax.sigmoid_focal_loss, in_axes=(0, 0, None, None))(
         binary_logits(infection_pred), infection_true, params.w_inf_alpha, params.w_inf_gamma
     )
@@ -404,23 +424,27 @@ def loss(
         binary_logits(aux.sep3_p), (sepsis_true == 1.0).any(axis=-1), alpha=0.99, gamma=1.0
     )
     # --------- Directional Loss
-    # aux.directional_loss = jnp.mean(jax.vmap(calc_directional_loss)(sofa_pred, sofa_true))
+    aux.directional_loss = jnp.mean(jax.vmap(calc_directional_tau_loss, in_axes=(0, 0, None))(sofa_pred, sofa_true/24.0, model.delta_temperature))
+    # aux.directional_loss = jnp.mean(jax.vmap(calc_directional_loss)(sofa_pred, sofa_true/24.0))
     # aux.trend_loss = jnp.mean(jax.vmap(calc_trend_loss)(sofa_pred, sofa_true))
 
     # --------- Total Loss
+    sofa_score_pred = jnp.sum(sofa_pred[..., None] > ordinal_thresholds, axis=-1)
     aux.hists_sofa_metric = jax.lax.stop_gradient(pred_metrics[..., 0].reshape(-1))
     aux.hists_sofa_score = jax.lax.stop_gradient(sofa_score_pred)
     aux.hists_inf_prob = jax.lax.stop_gradient(infection_pred)
     aux.total_loss = (
         aux.recon_loss * params.w_recon
         # + uncertainty_scale(jnp.mean(aux.sofa_d2_p_loss) * params.w_sofa_d2, model.sofa_lsigma)
-        + uncertainty_scale(jnp.mean(aux.infection_p_loss_t) * params.w_inf, model.inf_lsigma)
+        + uncertainty_scale(jnp.mean(aux.infection_p_loss_t) * params.w_inf, model.inf_lsigma) * aux.anneal_threshs
         # SOFA only for first time point
         # + uncertainty_scale(jnp.mean(aux.sofa_loss_t) * params.w_sofa_classification, model.sep3_lsigma)
+        # + uncertainty_scale(jnp.mean(aux.sofa_loss_t[:, 0:2]) * params.w_sofa_classification, model.sep3_lsigma)
+        + uncertainty_scale(jnp.mean(aux.sofa_loss_t) * params.w_sofa_classification, model.sofa_lsigma)
         # + jnp.mean(aux.sofa_loss_t * jnp.array([1.0, 1.0, 0.5, 0.25, 0.125, 0.0625])[None, :])* params.w_sofa_classification
-        # + jnp.mean(aux.sep3_p_loss) * params.w_sep3 * aux.anneal_threshs
+        + uncertainty_scale(aux.directional_loss * params.w_sofa_direction, model.sep3_lsigma)
+        # + jnp.mean(aux.sep3_p_loss) * params.w_sep3 # * aux.anneal_threshs
         # + aux.matching_loss * params.w_matching
-        # + aux.directional_loss * params.w_sofa_direction
         # + aux.trend_loss * params.w_sofa_trend
         # + aux.tc_loss * params.w_tc
         # + aux.accel_loss * params.w_accel
@@ -617,18 +641,18 @@ if __name__ == "__main__":
         predictor_v_hidden=32,
         dropout_rate=0.2,
     )
-    train_conf = TrainingConfig(batch_size=1024, window_len=6, epochs=100000, perc_train_set=1.0, validate_every=5)
+    train_conf = TrainingConfig(batch_size=1024, window_len=6, epochs=int(3e3), perc_train_set=1.0, validate_every=5)
     lr_conf = LRConfig(init=0.0, peak=5e-3, peak_decay=0.5, end=5e-6, warmup_epochs=100, enc_wd=1e-3, grad_norm=0.9)
     loss_conf = LossesConfig(
         w_recon=1e-3,
         w_tc=0,
         w_accel=0.0,
         w_diff=0.0,
-        w_sofa_direction=0.0,
+        w_sofa_direction=500.0,
         w_sofa_trend=0.0,
-        w_sofa_classification=0.0,
+        w_sofa_classification=50.0,
         w_sofa_d2=0.0,
-        w_inf=50.0,
+        w_inf=100.0,
         w_inf_alpha=0.99,
         w_inf_gamma=1.0,
         w_sep3=0.0,
@@ -658,12 +682,14 @@ if __name__ == "__main__":
     )
     sim_storage.close()
 
-    a, b, s = as_3d_indices(ALPHA_SPACE, BETA_SPACE, SIGMA_SPACE)
-    indices_3d = jnp.concatenate([a, b, s], axis=-1)
-    spacing_3d = jnp.array([ALPHA_SPACE[2], BETA_SPACE[2], SIGMA_SPACE[2]])
+    b, s = as_2d_indices(BETA_SPACE, SIGMA_SPACE)
+    a = np.ones_like(b) * ALPHA
+    indices_3d = jnp.concatenate([a[..., np.newaxis], b[..., np.newaxis], s[..., np.newaxis]], axis=-1)[np.newaxis, ...]
+
+    spacing_3d = jnp.array([0.0, BETA_SPACE[2], SIGMA_SPACE[2]])
     params = DNMConfig.batch_as_index(a, b, s, 0.2)
-    metrics_3d, _ = sim_storage.read_multiple_results(np.asarray(params), proto_metric=DNMMetrics, threshold=jnp.inf)
-    metrics_3d = metrics_3d.to_jax()
+    metrics_3d, _ = sim_storage.read_multiple_results(params, proto_metric=DNMMetrics, threshold=0.0)
+    metrics_3d = metrics_3d.to_jax().reshape([1, *metrics_3d.shape["r_1"]])
     lookup_table = LatentLookup(
         metrics=metrics_3d.reshape((-1, 1)),
         indices=indices_3d.reshape((-1, 3)),  # since param space only alpha beta sigma
@@ -726,7 +752,7 @@ if __name__ == "__main__":
         encoder=encoder,
         predictor=gru,
         decoder=decoder,
-        alpha=-0.28,
+        alpha=ALPHA,
         ordinal_deltas=deltas,
         sofa_dist=sofa_dist[:-1],
     )
@@ -799,7 +825,7 @@ if __name__ == "__main__":
             y_data=y_shuffled,
             update=optimizer.update,
             key=key,
-            lookup_func=lookup_table.soft_get_local,
+            lookup_func=lookup_table.soft_get_global,
             loss_params=loss_conf,
         )
         model = eqx.combine(params_model, static_model)

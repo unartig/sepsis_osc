@@ -29,6 +29,7 @@ sequence_files = "data/sequence_"
 # SIGMA_SPACE = (0.0, 1.5, 0.04)
 
 ALPHA_SPACE = (-0.28 -0.001, -0.28 + 0.001, 0.001)  # only original slice
+ALPHA = -0.28
 # BETA_SPACE = (0.4, 0.7, 0.01)  # only original area
 # BETA_SPACE = (0.0, 1.0, 0.01)
 # SIGMA_SPACE = (0.0, 1.5, 0.01)
