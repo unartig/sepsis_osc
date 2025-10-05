@@ -197,7 +197,7 @@ def update_betas(
     def loss_fn(betas: Float[Array, "4"], args: tuple[Float[Array, " samples"], ...]) -> ScalarLike:
         p_sofa, p_inf, y = args
         logits = model.get_sepsis_logits(p_sofa, p_inf, betas)
-        return jnp.mean(optax.sigmoid_binary_cross_entropy(logits, (y == 1.0).any(axis=-1).astype(jnp.float32)))
+        return jnp.mean(optax.sigmoid_binary_cross_entropy(logits, y.astype(jnp.float32)))
 
     solver = BFGS(rtol=1e-8, atol=1e-8)
 
