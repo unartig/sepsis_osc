@@ -19,7 +19,8 @@
     "EHR": "Electronic Health Record",
     "YAIB": "Yet Another ICU Benchmark",
     "FSQ": "Finite Scalar Quantization",
-    "RL": "Reinforcement Learning",
+    "SI": "Suspected Infection",
+    "ABX": "Antibiotics",
   ),
   bibliography: bibliography("bibliography.bib"),
   // acknowledgements: [
@@ -41,6 +42,10 @@
 #let TODO = inline-note
 
 = Notes
+#TODO[actual functional model
+  what is learned
+  connecting parts
+]
 == Base ODE-System
 $
   dot(phi)^1_i =& omega^1 - 1/N sum^N_(j=1) lr({ (a^1_(i j) + kappa^1_(i j))sin(phi^1_i - phi^1_j + alpha^(11)) }) - sigma sin(phi^1_i - phi^2_i + alpha^(12)) #<odep1> \
@@ -126,7 +131,7 @@ In the setting of structured latent variational learning we want to approximate 
   The options:
   #list(
     [Add more classes like resilient/vulnerable... maybe even the full spectrum? #list([need to be modeled by $R$])],
-    [Introduce the time/action component as additional information (like the #acr("RL") environment?)],
+    // [Introduce the time/action component as additional information (like the #acr("RL") environment?)],
   )
 ]
 
@@ -146,101 +151,74 @@ Increases in SOFA score $>=2$ could then be used as definition for sepsis.
 = Preliminaries
 == Sepsis
 As the most extreme course of an infectious disease, sepsis poses a serious health threat, with a high mortality rate and frequent long-term consequences for survivors.
-In 2017, an estimated 48.9 million people worldwide suffered from sepsis and the same year, 11.0 million deaths were associated with sepsis @rudd2020global.
+In 2017, an estimated 48.9 million people worldwide suffered from sepsis and the same year, 11.0 million deaths were associated with sepsis @rudd2020global, making it the most common cause of in-hospital deaths.
 Untreated, the disease is always fatal and even with successful treatment, around 75\% of those affected suffer long-term consequences.
 Highlighting the importance of early recognition and treatment of infections in patients with pre-existing health conditions.
 Overall, untreated septic diseases in particular represent an enormous burden on the global healthcare system.
 
-The triggers for sepsis are varied, but almost half of all sepsis-related deaths occur as a secondary complication of an underlying injury or non-communicable, also known as chronic disease @fleischmann2022sepsis.
+The triggers for sepsis are varied, but almost half of all sepsis-related deaths occur as a secondary complication of an underlying injury or a non-communicable, also known as chronic disease @fleischmann2022sepsis.
 Faster recognition of a septic condition significantly increases the chance of survival @seymour2017time, it urges to develop accurate and robust detection and prediction methods, i.e. reducing the time to receive the appropriate medical attention.
 
-A most broad definition describes sepsis a host overreaction to an infection causing life-threatening organ dysfunction.
+Per definition, sepsis is a "life-threatening organ dysfunction caused by a
+dysregulated host response to infection" @Sepsis3.
 There are multiple (now historic) more specific definitions available and sometimes blurry terminology used when dealing with the sepsis and septic shocks.
-The following chapter @sepsis3-def gives a more detailed introduction to the most commonly used sepsis definition, which is referred to as Sepsis-3, additionally the chapter provides a short explanation of both the pathology and biology of sepsis
+The following chapter @sec:sep3def gives a more detailed introduction to the most commonly used sepsis definition, which is referred to as Sepsis-3.
+Additionally, the chapter @sec:sepbio provides a short introduction of both the pathology and biology of sepsis and @sec:sepwhy talks about the need for reliable sepsis prediction systems.
 
-=== Sepsis-3 definition <sepsis3-def>
-Out of the need for an update of an outdated and partly misleading sepsis model a task force led by the "Society of Critical Care Medicine and the European Society of Intensive Care Medicine", was formed.
-Their "Third International Consensus Definitions for Sepsis and Septic Shock" @Sepsis3 from 2016 provides until today the most up to date and most widely used sepsis definition and guidance for sepsis identification.
+=== Sepsis-3 definition <sec:sep3def>
+Out of the need for an update of an outdated and partly misleading sepsis model a task force led by the "Society of Critical Care Medicine and the European Society of Intensive Care Medicine", was formed in 2016.
+Their resolution, named "Third International Consensus Definitions for Sepsis and Septic Shock" @Sepsis3, provides until today the most up to date and most widely used sepsis definition and guidance on sepsis identification.
 
-In general sepsis does not classify as a specific illness, rather a condition of "physiologic, pathologic, and biochemical abnormalities" @Sepsis3, where the original causes are still uncertain.
-The Sepsis-3 defines a condition as septic when a patient exhibits an abnormal host reaction against a documented or suspected infection, i.e. an immune system overreaction to some kind of infection or inflammation harmful to the body and organ system.
+In general sepsis does not classify as a specific illness, rather a condition of "physiologic, pathologic, and biochemical abnormalities" @Sepsis3, where the original causes are still mostly uncertain.
+Most commonly the underlying cause of sepsis is diarrhoeal disease, road traffic injury the most common underlying injury and maternal disorders the most common non-communicable disease causing sepsis @rudd2020global.
 
-In clinical practice any patient prescribed with antibiotics or has body fluids sampled for cultivation is characterized with a suspected infection.
-A responses dysregulation is measured by the change of organ functionality over time.
-Capturing the #acr("SOFA") score @SOFAscore is regularly used to evaluate the severity of an illness and helps to guide treatment decisions and predict the risk of mortality outside of a sepsis context.
-The SOFA score is calculated at least every 24 hours and assess six different organ systems and assigns a score from 0 (normal function) to 4 (high degree of dysfunction) each, as stated in @tab:sofa.
-While the magnitude or baseline of a patients initials #acr("SOFA") score captures preexisting organ dysfunction, an increase in SOFA score $>=2$ between measurements indicates an acute organ dysfunction and a drastic worsening in the patients condition.
+According to Sepsis-3, sepsis is defined by two criteria: a documented or #acr("SI") and the presence of a dysregulated host response.
+This combination represents an exaggerated immune reaction that results in organ dysfunction and potential harm to the body.
+When infection is first suspected, even modest organ dysfunction is linked to a 10% increase of in-hospital mortality.
+
+Regarding the first criterion, in clinical practice any patient prescribed with antibiotics followed by the cultivation of body fluids, or the other way around, is characterized with a suspected infection.
+The timings of prescription and fluid samplings play a crucial role.
+If the antibiotics were administered first, then the cultivation has to be done in the first 24h after first prescription, if the cultivation happened first, the antibiotics have to be prescribed in the following 72h @Sepsis3.
+This can be seen in the lower part of figure @fig:ricu, where antibiotics is abbreviated with ABX.
+Regardless which happened first, the earlier of the two times is treated as the time of suspected infection onset time.
+
+Regarding the second criterion, a responses dysregulation is characterized by the worsening of organ functionality over time.
+For this purpose, the Sepsis-3 consensus has introduced the #acr("SOFA") score (@SOFAscore@Sepsis3#todo[can we fix please?]) and which is now regularly used to evaluate the functionality of organ systems and helps to predict the risk of mortality, also outside of a sepsis context.
+The #acr("SOFA") score is calculated at least every 24 hours and assess six different organ systems by assigning a score from 0 (normal function) to 4 (high degree of dysfunction) to each.
+The overall score is calculated as sum of each individual system.
+It includes the respiratory system, the coagulation/clotting of blood, i.e. changing from liquid to gel, the liver system, the cardiovascular system, the central nervous system and the renal system/kidney function.
+A more detailed listing of corresponding markers for each organ assessment can be found in table @tab:sofa in the @sec:appendix.
+While the magnitude or baseline of a patients initials #acr("SOFA") score captures preexisting organ dysfunction, an increase in SOFA score $>=2$ between measurements indicates an acute worsening of organ functionalities and a drastic worsening in the patients condition.
+
+An increase of #acr("SOFA") $>=2$ in the 48h before or 24h after the #acr("SI") time, the so called #acr("SI")-window, is per Sepsis-3 definition the "sepsis onset time".
+A schematic of all timings is show in figure @fig:ricu.
+With respect to which value the increase in #acr("SOFA") is measured is not clearly stated in the consensus and leaves room for interpretation.
+Common approaches are the minimal value inside the #acr("SI")-window before the #acr("SOFA") increase, the first value of the #acr("SI")-window, or the lowest value of the 24h previous to the increase.
+Differences in precise definitions greatly influence the (retrospective) detection of sepsis, which are used for prevalence estimates for example #todo[cite].
+Using the lowest #acr("SOFA") score as baseline the increase $>=2$ for patients with inspected infection was associated with an 18% higher mortality rate.
 
 #figure(
-  table(
-    columns: (1fr, auto, auto, auto, auto, auto),
-    inset: 10pt,
-    align: horizon,
-    table.header([Category], [Indicator], [1], [2], [3], [4]),
-    [Respiration],
-    [$"PaO"_2$/$"FiO"_2$ [mmHg]],
-    [< 400],
-    [< 300],
-    [< 200],
-    [< 100],
+  image("images/sofa-sep-3-1.png", width: 100%),
+  caption: [
+    Graphical representation of the timings in the Sepsis-3 definition, taken from @ricufig
+  ],
+)<fig:ricu>
 
-    [], [Mechanical Ventilation], [], [], [yes], [yes],
-    [Coagulation],
-    [Platelets [$times 10^3/"mm"^3$]],
-    [< 150],
-    [< 100],
-    [< 50],
-    [< 20],
-
-    [Liver],
-    [Bilirubin [$"mg"/"dl"$]],
-    [1.2-1.9],
-    [2.0-5.9],
-    [6.0-11.9],
-    [> 12.0],
-
-    [Cardiovascular #footnote("Adrenergica agents administered for at least 1h (doses given are in [μg/kg · min]")],
-    [MAP [mmHg]],
-    [< 70],
-    [],
-    [],
-    [],
-
-    [], [or Dopamine], [], [$<=$ 5], [> 5], [> 15],
-    [], [or Dobutamine], [], [any dose], [], [],
-    [], [or Epinephrine], [], [], [$<=$ 0.1], [> 0.1],
-    [], [or Noepinephrine], [], [], [$<=$ 0.1], [> 0.1],
-    [Central Nervous System],
-    [Glasgow Coma Score],
-    [13-14],
-    [10-12],
-    [6-9],
-    [< 6],
-
-    [Renal],
-    [Creatinine [$"mg"/"dl"$]],
-    [1.2-1.9],
-    [2.0-3.4],
-    [3.5-4.9],
-    [> 5.0],
-
-    [], [or Urine Output [$"ml"/"day"$]], [], [], [< 500], [< 200],
-  ),
-) <tab:sofa>
-
-#todo[label]
-Also newly introduced in @SOFAscore a bedside clinical score termed #acr("qSOFA"):
-#list(
-  [Respiratory rate >= 22/min],
-  [Altered mentation],
-  [Systolic blood pressure <= 100 mm Hg],
+Up until today some of the markers used in #acr("SOFA") are not everywhere available to measure at all not at every 24h @moreno2023sofaupdate.
+For a faster bedside assessment @SOFAscore also introduced a clinical score termed #acr("qSOFA"), with highly reduced marker number and complexity, it includes:
+#(
+  list(
+    [Respiratory rate $>=$ 22/min],
+    [Altered mentation],
+    [Systolic blood pressure $<=$ 100 mm Hg],
+  )
 )
-If a patient fulfills at least two of these criteria have an increased risk of organ failure, but it is not as accurate as the #acr("SOFA") score and is designed as a fast patient screening tool.
+Patients fulfilling at least two of these criteria have an increased risk of organ failure.
+The #acr("qSOFA") is not as accurate as the #acr("SOFA") score, meaning it has less statistical significance i.e. #acr("qSOFA") $P<0.01$ vs. #acr("SOFA") $P<0.001$, but is designed as a fast patient screening tool.
 #todo[risk increase by classification]
-#todo[dynamic]
 
-== Biology and Cytokine Storms
-== The need for sepsis prediction
+== Biology and Cytokine Storms <sec:sepbio>
+== The need for sepsis prediction <sec:sepwhy>
 == Maybe Treatment
 
 The Parenchymal (@odep1 and @odek1) and Immune (@odep2 and @odek2) layer and their respective states of the dynamical system naturally are consistent with the two cornerstones of the Sepsis-3 definition @Sepsis3, i.e. #acr("SOFA") score and suspicion of an infection.
@@ -300,7 +278,62 @@ Another piece of finding of the same study was the preference of trajectories ov
 
 = Conclusion
 
+= Appendix
+<sec:appendix>
+#figure(
+  table(
+    columns: (1fr, auto, auto, auto, auto, auto),
+    inset: 10pt,
+    align: horizon,
+    table.header([Category], [Indicator], [1], [2], [3], [4]),
+    [Respiration],
+    [$"PaO"_2$/$"FiO"_2$ [mmHg]],
+    [< 400],
+    [< 300],
+    [< 200],
+    [< 100],
 
-// actual functional model
-// what is learned
-// connecting parts
+    [], [Mechanical Ventilation], [], [], [yes], [yes],
+    [Coagulation],
+    [Platelets [$times 10^3/"mm"^3$]],
+    [< 150],
+    [< 100],
+    [< 50],
+    [< 20],
+
+    [Liver],
+    [Bilirubin [$"mg"/"dl"$]],
+    [1.2-1.9],
+    [2.0-5.9],
+    [6.0-11.9],
+    [> 12.0],
+
+    [Cardiovascular #footnote("Adrenergica agents administered for at least 1h (doses given are in [μg/kg · min]")],
+    [MAP [mmHg]],
+    [< 70],
+    [],
+    [],
+    [],
+
+    [], [or Dopamine], [], [$<=$ 5], [> 5], [> 15],
+    [], [or Dobutamine], [], [any dose], [], [],
+    [], [or Epinephrine], [], [], [$<=$ 0.1], [> 0.1],
+    [], [or Noepinephrine], [], [], [$<=$ 0.1], [> 0.1],
+    [Central Nervous System],
+    [Glasgow Coma Score],
+    [13-14],
+    [10-12],
+    [6-9],
+    [< 6],
+
+    [Renal],
+    [Creatinine [$"mg"/"dl"$]],
+    [1.2-1.9],
+    [2.0-3.4],
+    [3.5-4.9],
+    [> 5.0],
+
+    [], [or Urine Output [$"ml"/"day"$]], [], [], [< 500], [< 200],
+  ),
+) <tab:sofa>
+#todo[caption]
