@@ -1,6 +1,7 @@
 from typing import Callable, Optional
 
 import equinox as eqx
+from equinox.debug import assert_max_traces
 import jax.numpy as jnp
 import jax.random as jr
 import jax.tree as jtree
@@ -12,7 +13,6 @@ from jaxtyping import Array, Bool, Float, Int, ScalarLike, jaxtyped
 
 from sepsis_osc.dnm.abstract_ode import ConfigArgBase, ConfigBase, MetricBase, ODEBase, StateBase
 from sepsis_osc.dnm.commons import diff_angle, entropy, mean_angle, phase_entropy, std_angle
-from sepsis_osc.utils.utils import timing
 from sepsis_osc.utils.jax_config import typechecker
 
 
@@ -37,9 +37,9 @@ class DNMConfigArgs(ConfigArgBase):
 @jaxtyped(typechecker=typechecker)
 class DNMConfig(ConfigBase):
     N: int  # number of oscillators per layer
-    alpha: float  # phase lag
     beta: float  # plasticity (age parameter)
     sigma: float  # interlayer coupling
+    alpha: float = -0.28  # phase lag
     C: float = 0.2  # number of infected cells
     omega_1: float = 0.0  # natural frequency parenchymal layer
     omega_2: float = 0.0  # natural frequency immune layer
@@ -52,7 +52,6 @@ class DNMConfig(ConfigBase):
     T_step: Optional[int] = None
 
     @property
-    @timing
     def as_args(self) -> DNMConfigArgs:
         diag = (jnp.ones((self.N, self.N)) - jnp.eye(self.N))[None, :]
         return DNMConfigArgs(
@@ -318,7 +317,6 @@ class DynamicNetworkModel(ODEBase):
 
         return vmap(single_system_deriv)(y)
 
-    @timing
     def generate_metric_save(self, deriv: Callable) -> Callable:
         @eqx.filter_jit
         def metric_save(_t: ScalarLike, y: DNMState, args: DNMConfigArgs) -> DNMMetrics:
@@ -385,7 +383,6 @@ class DynamicNetworkModel(ODEBase):
 
         return metric_save
 
-    @timing
     def generate_full_save(
         self, deriv: Callable, dtype: jnp.dtype = jnp.float16, *, save_y: bool = True, save_dy: bool = True
     ) -> Callable:
@@ -402,10 +399,10 @@ class DynamicNetworkModel(ODEBase):
 
         return full_compressed_save
 
-    @timing
-    def generate_steady_state_check(self, eps_m: float = 1e-10, eps_v: float = 1e-3, t_min: float = 1.0) -> Callable:
-        @eqx.filter_jit
-        def check(t: ScalarLike, y: DNMState, _args: tuple)-> Bool[Array, "1"]:
+    def generate_steady_state_check(
+        self, eps_m: float = 1e-10, eps_v: float = 1e-3, t_min: float = 1.0
+    ) -> Callable[..., Bool[Array, "1"]]:
+        def check(t: ScalarLike, y: DNMState, _args: tuple, **kwargs) -> Bool[Array, "1"]:
             is_late = t > t_min
 
             # Compute errors per batch
@@ -430,25 +427,25 @@ if __name__ == "__main__":
     logger = logging.getLogger(__name__)
 
     rand_key = jr.key(jax_random_seed)
-    num_parallel_runs = 25
+    num_parallel_runs = 50
 
-    beta_step = 0.01
+    beta_step = 0.01 * 2
     betas = np.arange(0.0, 1.0, beta_step)
-    sigma_step = 0.015
+    sigma_step = 0.015 * 2
     sigmas = np.arange(0.0, 1.5, sigma_step)
-    alpha_step = 0.28
-    alphas = jnp.arange(-0.84, 0.84+alpha_step, alpha_step)
+    C_step = 0.05
+    Cs = jnp.arange(0, 0.2, C_step)
     T_max_base = 2000
     T_step_base = 100
-    total = len(betas) * len(sigmas) * len(alphas)
+    total = len(betas) * len(sigmas) * len(Cs)
     logger.info(
-        f"Starting to map parameter space of {len(betas)} beta, {len(sigmas)} sigma, {len(alphas)} alpha, total {total}"
+        f"Starting to map parameter space of {len(betas)} beta, {len(sigmas)} sigma, {len(Cs)} alpha, total {total}"
     )
 
     dnm = DynamicNetworkModel(full_save=False, steady_state_check=True, progress_bar=True)
     solver = Tsit5()
 
-    db_str = "Daisy2"
+    db_str = "Daisy0"
     storage = Storage(
         key_dim=9,
         metrics_kv_name=f"data/{db_str}SepsisMetrics.db/",
@@ -458,13 +455,13 @@ if __name__ == "__main__":
     overwrite = False
 
     i = 0
-    for alpha in alphas:
+    for C in Cs:
         for beta in betas:
             for sigma in sigmas:
                 N = 200
                 run_conf = DNMConfig(
                     N=N,
-                    alpha=float(alpha),  # phase lage
+                    C=float(C),  # phase lage
                     beta=float(beta),  # age parameter
                     sigma=float(sigma),
                 )
