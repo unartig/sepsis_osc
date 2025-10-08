@@ -8,19 +8,22 @@ import msgpack
 import msgpack_numpy as mnp
 import numpy as np
 from diffrax import (
+    AbstractSolver,
     Event,
     NoProgressMeter,
     ODETerm,
     PIDController,
     RecursiveCheckpointAdjoint,
     SaveAt,
+    Solution,
     TqdmProgressMeter,
     diffeqsolve,
 )
 from jax import tree as jtree
 from jaxtyping import Array, Bool, Float
 from numpy.typing import DTypeLike
-from diffrax import AbstractSolver, Solution
+
+from sepsis_osc.utils.utils import timing
 
 mnp.patch()
 
@@ -141,7 +144,7 @@ class ODEBase(ABC):
         deriv = self.system_deriv
         self.init_sampler = self.generate_init_sampler()
         self.term = ODETerm(deriv)
-        self.save_method = self.generate_full_save(deriv) if full_save else self.generate_metric_save(deriv)
+        self.save_method = self.generate_full_save() if full_save else self.generate_metric_save(deriv)
         self.steady_state_check = Event(cond_fn=self.generate_steady_state_check()) if steady_state_check else None
         self.pid_controller = PIDController(rtol=step_rtol, atol=step_atol)
         self.progress_bar = TqdmProgressMeter() if progress_bar else NoProgressMeter()
@@ -166,7 +169,7 @@ class ODEBase(ABC):
     def generate_steady_state_check(self) -> Callable:
         raise NotImplementedError
 
-    @eqx.filter_jit
+    @timing
     def integrate(
         self,
         config: ConfigBase,
