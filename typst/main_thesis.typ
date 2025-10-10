@@ -148,8 +148,8 @@ Increases in SOFA score $>=2$ could then be used as definition for sepsis.
 
 = Introduction
 
-= Preliminaries
-== Sepsis
+= Medical Background (Sepsis)
+
 As the most extreme course of an infectious disease, sepsis poses a serious health threat, with a high mortality rate and frequent long-term consequences for survivors.
 In 2017, an estimated 48.9 million people worldwide suffered from sepsis and the same year, 11.0 million deaths were associated with sepsis @rudd2020global, making it the most common cause of in-hospital deaths.
 Untreated, the disease is always fatal and even with successful treatment, around 75\% of those affected suffer long-term consequences.
@@ -165,7 +165,7 @@ There are multiple (now historic) more specific definitions available and someti
 The following chapter @sec:sep3def gives a more detailed introduction to the most commonly used sepsis definition, which is referred to as Sepsis-3.
 Additionally, the chapter @sec:sepbio provides a short introduction of both the pathology and biology of sepsis and @sec:sepwhy talks about the need for reliable sepsis prediction systems.
 
-=== Sepsis-3 definition <sec:sep3def>
+== Sepsis-3 definition <sec:sep3def>
 Out of the need for an update of an outdated and partly misleading sepsis model a task force led by the "Society of Critical Care Medicine and the European Society of Intensive Care Medicine", was formed in 2016.
 Their resolution, named "Third International Consensus Definitions for Sepsis and Septic Shock" @Sepsis3, provides until today the most up to date and most widely used sepsis definition and guidance on sepsis identification.
 
@@ -204,7 +204,7 @@ Using the lowest #acr("SOFA") score as baseline the increase $>=2$ for patients 
   ],
 )<fig:ricu>
 
-Up until today some of the markers used in #acr("SOFA") are not everywhere available to measure at all not at every 24h @moreno2023sofaupdate.
+Up until today, even though #acr("SOFA") was created as a clinical bedside score, some of the markers used in it are not always available to measure or at least not at every 24h @moreno2023sofaupdate.
 For a faster bedside assessment @SOFAscore also introduced a clinical score termed #acr("qSOFA"), with highly reduced marker number and complexity, it includes:
 #(
   list(
@@ -214,10 +214,30 @@ For a faster bedside assessment @SOFAscore also introduced a clinical score term
   )
 )
 Patients fulfilling at least two of these criteria have an increased risk of organ failure.
-The #acr("qSOFA") is not as accurate as the #acr("SOFA") score, meaning it has less statistical significance i.e. #acr("qSOFA") $P<0.01$ vs. #acr("SOFA") $P<0.001$, but is designed as a fast patient screening tool.
+The #acr("qSOFA") is not as accurate as the #acr("SOFA") score, meaning it has less statistical significance i.e. #acr("qSOFA") $P<0.01$ vs. #acr("SOFA") $P<0.001$ in a two sided t-test @SOFAscore #todo[against what?].
 #todo[risk increase by classification]
 
-== Biology and Cytokine Storms <sec:sepbio>
+#pagebreak()
+== Biology of sepsis and Cytokine Storms <sec:sepbio>
+The hosts dysregulated response to an infection connected to the septic condition is driven by the release of an unreasonable amount of certain signaling proteins, so called _cytokines_ @Jarczak2022storm.
+Cytokines a general family of cells play a special role in the communication and interaction effects between other, both neighboring and distant, cells @Zhang2007cyto.
+They are an integrate part of the innate immune system, i.e. the body's first line of non-specific defense @InnateImmuneSystemWiki, where they act as mediators and are required to regulate the elimination of pathogens and trigger the healing process right after.
+
+There are plenty of different specific cytokines, some acting pro- and others anti-inflammatory, but all having the common characteristic of signal mediation @Jarczak2022storm.
+One specialty of these relatively simple cells is that they can be produced by immune cells or non-immune cells, with different cells being able to produce the same cytokine.
+Further, cytokines are redundant, meaning targeted cells can show identical responses to different cytokines @House2007cyto, this feature seems to fulfill a kind of safety mechanism to guarantee the vital communication flow.
+Together after production both have a short half-life (only a few minutes) but through cascading-effects the cytokines can have substantial impact on their micro-environment.
+Out of all cytokines, only a very small subset or secondary markers can be measured blood samples to evaluate increased cytokine activity.
+This makes them hard to study and little useful as direct indicators of pathogenesis or prediction purposes.
+
+
+In certain scenarios a disturbance to the regulatory mechanisms triggers a chain reaction, followed by a massive release of cytokines, coupled with self-reinforcement of other regulatory mechanisms @Jarczak2022storm.
+This overreaction, called _cytokine storm_, is often harmful to the hosts body and can lead to multi organ failure, like in sepsis, or even death.
+In these cases, the damage done by the immune system's reaction is magnitudes greater than the triggering infection iteself.
+Even though the quantity of cytokines roughly correlates with disease severity, concentrations of cytokines vary between patients and even different body-parts making a distinction between an appropriate reaction and a harmful one almost impossible @Jarczak2022storm.
+Since the 90s there has been a lot of research focused on cytokines and their role in the innit immune system and overall activation behviour, but to this day no breakthrough has been done and underlying principles have not been uncovered.
+
+
 == The need for sepsis prediction <sec:sepwhy>
 == Maybe Treatment
 
