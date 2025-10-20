@@ -3,7 +3,7 @@
 #import "@preview/drafting:0.2.2": (
   inline-note, margin-note, note-outline, set-margin-note-defaults,
 )
-#import "tree.typ": tree_figure
+#import "figures/tree.typ": tree_figure
 
 #show: thesis.with(
   title: "Comprehensive Guidelines and Templates for Thesis Writing",
