@@ -66,58 +66,71 @@ $R^mu_2=0$ splay-state and $R^mu_2=1$ is fully synchronized.
 = Medical Background (Sepsis)
 
 As the most extreme course of an infectious disease, sepsis poses a serious health threat, with a high mortality rate and frequent long-term consequences for survivors.
-In 2017, an estimated 48.9 million people worldwide suffered from sepsis and the same year, 11.0 million deaths were associated with sepsis @rudd2020global, making it the most common cause of in-hospital deaths.
-Untreated, the disease is always fatal and even with successful treatment, around 75\% of those affected suffer long-term consequences.
-Highlighting the importance of early recognition and treatment of infections in patients with pre-existing health conditions.
-Overall, untreated septic diseases in particular represent an enormous burden on the global healthcare system.
+In 2017, an estimated 48.9 million people worldwide suffered from sepsis and the same year, 11.0 million deaths were associated with sepsis @rudd2020global, which makes up 19.7% of yearly deaths.
+Sepsis is also the most common cause of in-hospital deaths.
+Untreated, the disease is always fatal and even with successful treatment, around 40\% of those affected suffer long-term consequences, such as cognitive, physical or physiological problems, the so called _post-sepsis syndrome_ @vanderSlikke2020post.
+Overall, treated and untreated septic diseases in particular represent an enormous burden on the global healthcare system.
 
 The triggers for sepsis are varied, but almost half of all sepsis-related deaths occur as a secondary complication of an underlying injury or a non-communicable, also known as chronic disease @fleischmann2022sepsis.
-Faster recognition of a septic condition significantly increases the chance of survival @seymour2017time, it urges to develop accurate and robust detection and prediction methods, i.e. reducing the time to receive the appropriate medical attention.
+A recent study @seymour2017time highlights the importance of early recognition and subsequent treatment of infections in patients, reducing the mortality risk caused from sepsis.
+Each hour of earlier detection can significantly increase the chance of survival @seymour2017time, it urges to develop accurate and robust detection and prediction methods, i.e. reducing the time to receive the appropriate medical attention.
 
 Per definition, sepsis is a "life-threatening organ dysfunction caused by a
 dysregulated host response to infection" @Sepsis3.
 There are multiple (now historic) more specific definitions available and sometimes blurry terminology used when dealing with the sepsis and septic shocks.
-The following chapter @sec:sep3def gives a more detailed introduction to the most commonly used sepsis definition, which is referred to as Sepsis-3.
-Additionally, the chapter @sec:sepbio provides a short introduction of both the pathology and biology of sepsis and @sec:sepwhy talks about the need for reliable sepsis prediction systems.
+The following @sec:sep3def gives a more detailed introduction to the most commonly used sepsis definition, which is referred to as Sepsis-3.
+Additionally, @sec:sepbio provides a short introduction of both the pathology and biology of sepsis and @sec:sepwhy talks about the need for reliable sepsis prediction systems.
 
 == Sepsis-3 definition <sec:sep3def>
 Out of the need for an update of an outdated and partly misleading sepsis model a task force led by the "Society of Critical Care Medicine and the European Society of Intensive Care Medicine", was formed in 2016.
-Their resolution, named "Third International Consensus Definitions for Sepsis and Septic Shock" @Sepsis3, provides until today the most up to date and most widely used sepsis definition and guidance on sepsis identification.
+Their resolution, named "Third International Consensus Definitions for Sepsis and Septic Shock" @Sepsis3, provides until today the most widely used sepsis definition and guidance on sepsis identification.
 
-In general sepsis does not classify as a specific illness, rather a condition of "physiologic, pathologic, and biochemical abnormalities" @Sepsis3, where the original causes are still mostly uncertain.
+In general, sepsis does not classify as a specific illness, rather a multifaceted condition of "physiologic, pathologic, and biochemical abnormalities" @Sepsis3, where the original causes are mostly uncertain.
 Most commonly the underlying cause of sepsis is diarrhoeal disease, road traffic injury the most common underlying injury and maternal disorders the most common non-communicable disease causing sepsis @rudd2020global.
 
-According to Sepsis-3, sepsis is defined by two criteria: a documented or #acr("SI") and the presence of a dysregulated host response, for a more detailed explanation see @sec:sepbio.
-This combination represents an exaggerated immune reaction that results in organ dysfunction and potential harm to the body.
-When infection is first suspected, even modest organ dysfunction is linked to a 10% increase of in-hospital mortality.
+According to the Sepsis-3 definition, a patient is in a septic condition if the following two criteria are fulfilled:
+#(
+  align(center, list(
+    align(left, [a documented or #acr("SI") and]),
+    align(left, [the presence of a dysregulated host response]),
+  ))
+)
+The combination of the two criteria represents an exaggerated immune reaction that results in organ dysfunction, when infection is first suspected, even modest organ dysfunction is linked to a 10% increase of in-hospital mortality.
+A more pathobiological explanation of what a "dysregulated host response" means is given in the next @sec:sepbio.
 
-Regarding the first criterion, it is suggested to characterize any patient prescribed with antibiotics followed by the cultivation of body fluids, or the other way around, with a suspected infection.
+*Confirmed or Suspected Infection* is suggested to characterize any patient prescribed with #acr("ABX") followed by the cultivation of body fluids, or the other way around, with a suspected infection.
 The timings of prescription and fluid samplings play a crucial role.
-If the antibiotics were administered first, then the cultivation has to be done in the first 24h after first prescription, if the cultivation happened first, the antibiotics have to be prescribed in the following 72h @Sepsis3.
-This can be seen in the lower part of figure @fig:ricu, where antibiotics is abbreviated with ABX.
+If the antibiotics were administered first, then the cultivation has to be done in the first 24h after first prescription, if the cultivation happened first, the #acr("ABX") have to be prescribed in the following 72h @Sepsis3.
+This can be seen in the lower part of figure @fig:ricu, with the abbreviated #acr("ABX").
 Regardless which happened first, the earlier of the two times is treated as the time of suspected infection onset time.
 
-Regarding the second criterion, a responses dysregulation is characterized by the worsening of organ functionality over time.
-Since there is no gold standard for measuring "dysregulation" the Sepsis-3 consensus relies on the #acr("SOFA")-score introduced in (@SOFAscore@Sepsis3#todo[can we fix please?]).
+*Dysregulated Host Response* is characterized by the worsening of organ functionality over time.
+Since there is no gold standard for measuring the amount of "dysregulation" the Sepsis-3 consensus relies on the #acr("SOFA")-score introduced in (@SOFAscore@Sepsis3#todo[can we fix please?]).
 The score is now regularly used to evaluate the functionality of organ systems and helps to predict the risk of mortality, also outside of a sepsis context.
 The #acr("SOFA") score is calculated at least every 24 hours and assess six different organ systems by assigning a score from 0 (normal function) to 4 (high degree of dysfunction) to each.
 The overall score is calculated as sum of each individual system.
 It includes the respiratory system, the coagulation/clotting of blood, i.e. changing from liquid to gel, the liver system, the cardiovascular system, the central nervous system and the renal system/kidney function.
 A more detailed listing of corresponding markers for each organ assessment can be found in table @tab:sofa in the @sec:appendix.
 The magnitude of a patients initial #acr("SOFA")-score captures preexisting organ dysfunction.
-An increase in SOFA score $>=2$ between measurements indicates an acute worsening of organ functionalities and a drastic worsening in the patients condition, the indicator for a dysregulated response.
+An increase in SOFA score $>=2$ corresponds to an acute worsening of organ functionalities and a drastic worsening in the patients condition, the indicator for a dysregulated response.
 
+=== Sepsis Classification
+The Sepsis-3 definition not only provides the clinical critera of septic conditions, but also introduces the necessary time windows for sepsis classification.
 An increase of #acr("SOFA") $>=2$ in the 48h before or 24h after the #acr("SI") time, the so called #acr("SI")-window, is per Sepsis-3 definition the "sepsis onset time".
-A schematic of all timings is show in figure @fig:ricu.
+A schematic of the timings is shown in figure @fig:ricu.
+
 With respect to which value the increase in #acr("SOFA") is measured, i.e. the baseline score, is not clearly stated in the consensus and leaves room for interpretation, commonly used approaches include:
 #(
-  list(
-    [the minimal value inside the #acr("SI")-window before the #acr("SOFA") increase,],
-    [the first value of the #acr("SI")-window,],
-    [or the lowest value of the 24h previous to the increase.],
-  )
+  align(center, list(
+    align(
+      left,
+      [the minimal value inside the #acr("SI")-window before the #acr("SOFA") increase,],
+    ),
+    align(left, [the first value of the #acr("SI")-window,]),
+    align(left, [or the lowest value of the 24h previous to the increase.]),
+  ))
 )
-Differences in definitions greatly influence the detection of sepsis, which are used for prevalence estimates for example #todo[cite].
+Differences in definitions greatly influence the detection of sepsis, which are used for prevalence estimates for example @Johnsons2018Data.
 Using the lowest #acr("SOFA") score as baseline, the increase $>=2$ for patients with inspected infection was associated with an 18% higher mortality rate according to @SOFAscore a retrospective #acr("ICU")-data analysis.
 
 #figure(
@@ -130,38 +143,39 @@ Using the lowest #acr("SOFA") score as baseline, the increase $>=2$ for patients
 Up until today, even though #acr("SOFA") was created as a clinical bedside score, some of the markers used in it are not always available to measure or at least not at every 24h @moreno2023sofaupdate.
 For a faster bedside assessment @SOFAscore also introduced a clinical score termed #acr("qSOFA"), with highly reduced marker number and complexity, it includes:
 #(
-  list(
-    [Respiratory rate $>=$ 22/min],
-    [Altered mentation],
-    [Systolic blood pressure $<=$ 100 mm Hg],
-  )
+  align(center, list(
+    align(left, [Respiratory rate $>=$ 22/min]),
+    align(left, [Altered mentation]),
+    align(left, [Systolic blood pressure $<=$ 100 mm Hg]),
+  ))
 )
 #todo[center]
 Patients fulfilling at least two of these criteria have an increased risk of organ failure.
-The #acr("qSOFA") is not as accurate as the #acr("SOFA") score, meaning it has less statistical significance i.e. #acr("qSOFA") $P<0.01$ vs. #acr("SOFA") $P<0.001$ in a two sided t-test @SOFAscore #todo[against what?].
-#todo[risk increase by classification]
-#todo[more on mortality]
+While the #acr("qSOFA") has a significantly reduced complexity and is faster to assess it is not as accurate as the #acr("SOFA") score, meaning it has less predictive validity for in-house mortality @SOFAscore.
 
-== Biology of sepsis and Cytokine Storms <sec:sepbio>
+== Biology of Sepsis and Cytokine Storms <sec:sepbio>
 The hosts dysregulated response to an infection connected to the septic condition is driven by the release of an unreasonable amount of certain signaling proteins, so called _cytokines_ @Jarczak2022storm.
-Cytokines a general family of cells play a special role in the communication and interaction effects between other, both neighboring and distant, cells @Zhang2007cyto.
-They are an important part of the innate immune system, i.e. the body's first line of non-specific defense @InnateImmuneSystemWiki.
-Inside the innate immune system they act as mediators between cells and are required to regulate the elimination of pathogens and trigger the healing process right after.
+Cytokines are a broad family of different cells which play a special role in the communication between other, both neighboring and distant, cells @Zhang2007cyto, this includes immune-cell to immune-cell or immune-cell to other cell types.
+In the innate immune system, i.e. the body's first line of non-specific defense @InnateImmuneSystemWiki they regulate the production of anti- and pro-inflammatory immune cells which help with the elimination of pathogens and trigger the healing process right after.
+They are also involved in the growing process of red and white blood cells.
 
-There are plenty of different specific cytokines, some acting pro- and others anti-inflammatory, but all having the common characteristic of signal mediation @Jarczak2022storm.
+// There are plenty of different specific cytokines, but all having the common characteristic of signal mediation @Jarczak2022storm.
 One specialty of these relatively simple cells is that they can be produced by immune cells or non-immune cells, with different cells being able to produce the same cytokine.
-Further, cytokines are redundant, meaning targeted cells can show identical responses to different cytokines @House2007cyto, this feature seems to fulfill a kind of safety mechanism to guarantee the vital communication flow.
-Together after production both have a short half-life (only a few minutes) but through cascading-effects the cytokines can have substantial impact on their micro-environment.
+Further, cytokines are redundant, meaning targeted cells can show identical responses to different cytokines @House2007cyto, these features seems to fulfill some kind of safety mechanism to guarantee vital communication flow.
+After coming to life cytokines have relatively a short half-life (only a few minutes) but through cascading-effects the cytokines can have substantial impact on their micro-environment.
+
+Normally, the release of inflammatory cytokines automatically fades out once the initial pathogen is controlled.
+In certain scenarios a disturbance to the regulatory mechanisms triggers a chain reaction, followed by a massive release of cytokines, coupled with self-reinforcement of other regulatory mechanisms @Jarczak2022storm, leading to a continuous and uncontrolled release of cytokines that fails to shut down.
+This overreaction, called _cytokine storm_, is often harmful to the hosts body and can lead to multi organ failure, like in sepsis, and subsequently death.
+In these cases, the damage done by the immune system's reaction is magnitudes greater than the triggering infection itself.
+
+Even though the quantity of cytokines roughly correlates with disease severity, concentrations of cytokines vary between patients and even different body-parts making a distinction between an appropriate reaction and a harmful one almost impossible @Jarczak2022storm.
 Out of all cytokines, only a very small subset or secondary markers can be measured blood samples to evaluate increased cytokine activity.
 This makes them hard to study and little useful as direct indicators of pathogenesis or prediction purposes.
-
-In certain scenarios a disturbance to the regulatory mechanisms triggers a chain reaction, followed by a massive release of cytokines, coupled with self-reinforcement of other regulatory mechanisms @Jarczak2022storm.
-This overreaction, called _cytokine storm_, is often harmful to the hosts body and can lead to multi organ failure, like in sepsis, or even death.
-In these cases, the damage done by the immune system's reaction is magnitudes greater than the triggering infection itself.
-Even though the quantity of cytokines roughly correlates with disease severity, concentrations of cytokines vary between patients and even different body-parts making a distinction between an appropriate reaction and a harmful one almost impossible @Jarczak2022storm.
 Since the 90s there has been a lot of research focused on cytokines and their role in the innit immune system and overall activation behavior.
 But to this day no breakthrough has been done and underlying principles have not been uncovered.
 
+#todo[what happens with the organs in the storm?]
 
 == The need for sepsis prediction <sec:sepwhy>
 == Maybe Treatment <sec:septreat>
@@ -175,10 +189,10 @@ As discussed in @sec:sepwhy, there is a substantial need for robust methods to i
 This work provides a proof of concept for such a prediction system.
 
 The increasing availability of high-quality medical data, i.e. multiple physiological markers with high temporal resolution, enables both classical statistical and #acr("ML") (including #acr("DL")) methods (see @sec:sota).
-While these purely data-driven approaches often achieve acceptable performance, the explainability of the prediction suffers and limits their adoption in clinical practice #todo[cite].
+While these purely data-driven approaches often achieve acceptable performance but the explainability of the prediction suffers and limits their adoption in clinical practice #todo[cite].
 
 In parallel, recent advances in the field of network physiology have introduced new ways to model physiological systems as interacting subsystems rather than isolated organs @Ivanonv2021Physiolome.
-The #acr("DNM") introduced in @osc1 allows for a functional description of organ failure in sepsis and shows realistic system behavior for specific configurations.
+The #acr("DNM") introduced in @osc1, allows for a functional description of organ failure in sepsis and shows realistic system behavior in preliminary analysis.
 An in-depth introduction to the #acr("DNM") is provided in @sec:dnm.
 But up until now the dynamic model has not yet been verified on real data, in this work we want to change that.
 However, this model has not yet been validated against real-world observations, which will be addressed in this work #todo[eher project???].
