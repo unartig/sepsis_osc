@@ -9,8 +9,9 @@ pyrightconfig.json
 /baselines/MaximilianoMolluraEtAl/*
 /storage/*SepsisMetrics.db/*
 /storage/other/*SepsisMetrics.db/*
-data/*
+data/
 matlab/
-figures/
+./figures/
 runs/
 typings/
+misc/
