@@ -1,7 +1,6 @@
 from typing import Callable, Optional
 
 import equinox as eqx
-from equinox.debug import assert_max_traces
 import jax.numpy as jnp
 import jax.random as jr
 import jax.tree as jtree
@@ -161,18 +160,21 @@ class DNMMetrics(MetricBase):
     # Ensemble phase entropy
     q_1: Float[Array, "*t"] | Float[Array, "... 1"] | np.ndarray
     q_2: Float[Array, "*t"] | Float[Array, "... 1"] | np.ndarray
+    # Frequency cluster ratio
+    f_1: Float[Array, "*t"] | Float[Array, "... 1"] | np.ndarray
+    f_2: Float[Array, "*t"] | Float[Array, "... 1"] | np.ndarray
     # Ensemble average Coupling Entropy
     cq_1: Float[Array, "*t"] | Float[Array, "... 1"] | np.ndarray
     cq_2: Float[Array, "*t"] | Float[Array, "... 1"] | np.ndarray
     # Ensemble average Coupling std
     cs_1: Float[Array, "*t"] | Float[Array, "... 1"] | np.ndarray
     cs_2: Float[Array, "*t"] | Float[Array, "... 1"] | np.ndarray
-    # Frequency cluster ratio
-    f_1: Float[Array, "*t"] | Float[Array, "... 1"] | np.ndarray
-    f_2: Float[Array, "*t"] | Float[Array, "... 1"] | np.ndarray
     # Splay State Ratio
     sr_1: Optional[Float[Array, "*t"] | Float[Array, "... 1"] | np.ndarray] = None
     sr_2: Optional[Float[Array, "*t"] | Float[Array, "... 1"] | np.ndarray] = None
+    # Splay State Ratio
+    cm_1: Optional[Float[Array, "*t"] | Float[Array, "... 1"] | np.ndarray] = None
+    cm_2: Optional[Float[Array, "*t"] | Float[Array, "... 1"] | np.ndarray] = None
     # Measured mean transient time
     tt: Optional[Float[Array, "*t"] | Float[Array, "... 1"] | np.ndarray] = None
 
@@ -193,6 +195,8 @@ class DNMMetrics(MetricBase):
                 cs_2=self.cs_2,
                 f_1=self.f_1,
                 f_2=self.f_2,
+                cm_1=self.cm_1,
+                cm_2=self.cm_2,
                 sr_1=jnp.sum(self.r_1 < 0.2, axis=-1) / self.r_1.shape[-1],
                 sr_2=jnp.sum(self.r_2 < 0.2, axis=-1) / self.r_2.shape[-1],
                 tt=jnp.array([self.r_1.shape[0]]) - 1,
@@ -219,6 +223,8 @@ class DNMMetrics(MetricBase):
             cs_2=jnp.mean(jnp.asarray(self.cs_2)[..., -1, :], axis=(-1,)),
             f_1=jnp.mean(jnp.asarray(self.f_1), axis=-1),
             f_2=jnp.mean(jnp.asarray(self.f_2), axis=-1),
+            cm_1=jnp.mean(jnp.asarray(self.cm_1)[..., -1, :], axis=(-1,)) if new.cm_1 is not None else None,
+            cm_2=jnp.mean(jnp.asarray(self.cm_2)[..., -1, :], axis=(-1,)) if new.cm_2 is not None else None,
             sr_1=new.sr_1[..., -1] if new.sr_1 is not None else None,
             sr_2=new.sr_2[..., -1] if new.sr_2 is not None else None,
             tt=new.tt.max() if new.tt is not None else None,
@@ -232,6 +238,7 @@ class DynamicNetworkModel(ODEBase):
     def generate_init_sampler(self) -> Callable:
         def init_sampler(config: DNMConfig, M: int, key: jnp.ndarray) -> DNMState:
             C = int(config.C * config.N)
+            m = np.sign(C)
 
             def sample(key: jnp.ndarray) -> DNMState:
                 keys = jr.split(key, 3)
@@ -245,6 +252,7 @@ class DynamicNetworkModel(ODEBase):
                 kappa_2_init = kappa_2_init.at[C:, :C].set(0.0)
                 kappa_2_init = kappa_2_init.at[:C, C:].set(0.0)
                 kappa_2_init = kappa_2_init.at[jnp.diag_indices(config.N)].set(0.0)
+                kappa_2_init = kappa_2_init * m
 
                 return DNMState(
                     phi_1=phi_1_init,
@@ -335,6 +343,8 @@ class DynamicNetworkModel(ODEBase):
             cq_2 = vmap(entropy, in_axes=(0, None))(y.kappa_2, 100)
             cs_1 = vmap(jnp.std)(y.kappa_1)
             cs_2 = vmap(jnp.std)(y.kappa_2)
+            cm_1 = vmap(jnp.mean)(y.kappa_1)
+            cm_2 = vmap(jnp.mean)(y.kappa_2)
 
             ######phase_ Ensemble average velocites and average of the standard deviations
             # For the derivatives we need to evaluate again ...
@@ -377,6 +387,8 @@ class DynamicNetworkModel(ODEBase):
                 cq_2=cq_2,
                 cs_1=cs_1,
                 cs_2=cs_2,
+                cm_1=cm_1,
+                cm_2=cm_2,
                 f_1=f_1,
                 f_2=f_2,
             )
@@ -422,16 +434,18 @@ if __name__ == "__main__":
     from sepsis_osc.storage.storage_interface import Storage
     from sepsis_osc.utils.config import jax_random_seed
     from sepsis_osc.utils.logger import setup_logging
+    from sepsis_osc.utils.jax_config import setup_jax
 
     setup_logging("info", console_log=True)
+    setup_jax(simulation=True)
     logger = logging.getLogger(__name__)
 
     rand_key = jr.key(jax_random_seed)
     num_parallel_runs = 50
 
-    beta_step = 0.01 * 2
+    beta_step = 0.01
     betas = np.arange(0.0, 1.0, beta_step)
-    sigma_step = 0.015 * 2
+    sigma_step = 0.015
     sigmas = np.arange(0.0, 1.5, sigma_step)
     C_step = 0.05
     Cs = jnp.arange(0, 0.2, C_step)
@@ -439,11 +453,11 @@ if __name__ == "__main__":
     T_step_base = 100
     total = len(betas) * len(sigmas) * len(Cs)
     logger.info(
-        f"Starting to map parameter space of {len(betas)} beta, {len(sigmas)} sigma, {len(Cs)} alpha, total {total}"
+        f"Starting to map parameter space of {len(betas)} beta, {len(sigmas)} sigma, {len(Cs)} Cs, total {total}"
     )
 
     dnm = DynamicNetworkModel(full_save=False, steady_state_check=True, progress_bar=True)
-    solver = Tsit5()
+    solver = Tsit5(scan_kind="bounded")
 
     db_str = "Daisy0"
     storage = Storage(
@@ -485,6 +499,6 @@ if __name__ == "__main__":
                             run_conf.as_index, sol.ys.remove_infs().as_single().serialise(), overwrite=overwrite
                         )
                 i += 1
-        storage.write()
+            storage.write()
 
     storage.close()
