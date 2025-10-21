@@ -203,7 +203,7 @@ class Storage:
         inds = np.unravel_index(np.arange(np.prod(original_shape)), original_shape)
         inds = list(zip(*inds))
 
-        metrics_shape = original_shape + (1,)
+        metrics_shape = (*original_shape, 1)
         res = proto_metric.np_empty(metrics_shape)
 
         def _get_value_or_key(ind: tuple[int, ...]):
