@@ -1,4 +1,5 @@
 import equinox as eqx
+import jax
 import jax.numpy as jnp
 import jax.random as jr
 from jaxtyping import Array, Float, jaxtyped
@@ -35,6 +36,10 @@ class GRUPredictor(eqx.Module):
         self.z_proj_out = eqx.nn.Linear(z_hidden_dim, z_dim, key=keyz, dtype=dtype)
         self.v_proj_out = eqx.nn.Linear(v_hidden_dim, v_dim, key=keyv, dtype=dtype)
 
+    @property
+    def n_params(self) -> int:
+        return sum(x.size if isinstance(x, jnp.ndarray) else 1 for x in jax.tree_util.tree_leaves(self))
+
     @jaxtyped(typechecker=typechecker)
     def __call__(
         self,
@@ -53,4 +58,4 @@ class GRUPredictor(eqx.Module):
 
 
 def make_predictor(key: jnp.ndarray, z_dim: int, v_dim: int, z_hidden_dim: int, v_hidden_dim: int) -> GRUPredictor:
-    return GRUPredictor(key, z_dim, v_dim, z_hidden_dim, v_hidden_dim, v_hidden_dim)
+    return GRUPredictor(key, z_dim, v_dim, z_hidden_dim, v_hidden_dim)

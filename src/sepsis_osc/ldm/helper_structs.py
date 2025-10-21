@@ -13,13 +13,12 @@ class AuxLosses:
     beta: Array
     sigma: Array
 
-    lookup_temperature: Array
-    label_temperature: Array
-
     total_loss: Array
     recon_loss: Array
+    sequence_loss: Array
     tc_loss: Array
-    accel_loss: Array
+    acceleration_loss: Array
+    velocity_loss: Array
     diff_loss: Array
     thresh_loss: Array
     matching_loss: Array
@@ -65,7 +64,9 @@ class AuxLosses:
                 "total_loss": self.total_loss,
                 "recon_loss": self.recon_loss,
                 "tc_loss": self.tc_loss,
-                "accel_loss": self.accel_loss,
+                "sequence_loss": self.sequence_loss,
+                "accel_loss": self.acceleration_loss,
+                "velocity_loss": self.velocity_loss,
                 "diff_loss": self.diff_loss,
                 "thresh_loss": self.thresh_loss,
                 "matching_loss": self.matching_loss,
@@ -138,8 +139,10 @@ class LRConfig:
 @dataclass
 class LossesConfig:
     w_recon: float
+    w_sequence: float
     w_tc: float
-    w_accel: float
+    w_acceleration: float
+    w_velocity: float
     w_diff: float
     w_sofa_direction: float
     w_sofa_trend: float
