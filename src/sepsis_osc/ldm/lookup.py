@@ -59,7 +59,7 @@ class LatentLookup(eqx.Module):
     @staticmethod
     def extract_relevant(_metrics: MetricBase) -> Float[Array, "na nb ns 2"] | Float[Array, "naxnbxns 2"]:
         sofa_metric = _metrics.s_1
-        inf_metric = _metrics.s_2
+        inf_metric = _metrics.cq_2
 
         return jnp.concatenate(
             [
@@ -75,6 +75,7 @@ class LatentLookup(eqx.Module):
         self,
         query_vectors: Float[Array, "batch latent"],
         temperature: Float[Array, "1"],  # placeholder to make compatible with soft get
+        kernel_size: int = 11,
     ) -> Float[Array, "batch 2"]:
         orig_dtype = query_vectors.dtype
         query_vectors = jax.lax.stop_gradient(query_vectors)
@@ -95,6 +96,7 @@ class LatentLookup(eqx.Module):
         self,
         query_vectors: Float[Array, "batch latent"],
         temperature: Float[Array, "1"] | Float[Array, "batch latent"],  # placeholder to make compatible with soft get
+        kernel_size: int = 11,
     ) -> Float[Array, "batch 2"]:
         rel_pos = (query_vectors - self.grid_origin) / self.grid_spacing
         center_idx = self.round_ste(rel_pos).astype(jnp.int32)
@@ -115,6 +117,7 @@ class LatentLookup(eqx.Module):
         self,
         query_vectors: Float[Array, "batch latent"],
         temperature: Float[Array, "1"],
+        kernel_size: int = 15,
     ) -> Float[Array, "batch 2"]:
         orig_dtype = query_vectors.dtype
         q = query_vectors.astype(self.dtype)
@@ -125,21 +128,22 @@ class LatentLookup(eqx.Module):
         voxel_idx = self.round_ste(rel_pos).astype(jnp.int32)
         voxel_idx = jnp.clip(voxel_idx, 1, self.grid_shape - 2)  # orig -2
 
-        offsets = jnp.array([-1, 0, 1])  # orig 1
+        radius = kernel_size // 2
+        offsets = jnp.arange(-radius, radius +1, dtype=jnp.int32)
         neighbor_offsets = jnp.stack(jnp.meshgrid(offsets, offsets, offsets, indexing="ij"), axis=-1).reshape(-1, 3)
 
         @jaxtyped(typechecker=typechecker)
         def gather_neighbors(vi: Int[Array, "3"], q_point: Float[Array, "3"]) -> Float[Array, "2"]:
-            coords = vi[None, :] + neighbor_offsets
+            coords = vi[None, :] + neighbor_offsets  # (num_neighbors, 3)
+
             x, y, z = coords[:, 0], coords[:, 1], coords[:, 2]
 
             neighbor_xyz = self.indices_3d[x, y, z]
             neighbor_metrics = self.relevant_metrics_3d[x, y, z]
 
-            # Compute distances to neighbors
-            dists = jnp.sum((q_point - neighbor_xyz) ** 2, axis=-1)
+            dists = (q_point - neighbor_xyz) ** 2
 
-            weights = jax.nn.softmax(-dists / (temp + EPS), axis=-1)
+            weights = jax.nn.softmax(jnp.sum(-dists / (temp + EPS), axis=-1), axis=-1)
             return jnp.sum(weights[:, None] * neighbor_metrics, axis=0)
 
         return jax.vmap(gather_neighbors)(voxel_idx, q).astype(orig_dtype)
@@ -150,8 +154,7 @@ class LatentLookup(eqx.Module):
         self,
         query_vectors: Float[Array, "batch latent"],
         temperature: Float[Array, "1"],
-        *,
-        kernel_size: int = 11,
+        kernel_size: int = 15,
     ) -> Float[Array, "batch 2"]:
         orig_dtype = query_vectors.dtype
         q = query_vectors.astype(self.dtype)
@@ -164,15 +167,15 @@ class LatentLookup(eqx.Module):
 
         radius = kernel_size // 2
         offsets = jnp.arange(-radius, radius + 1)
-        beta_sigma_idx =jnp.clip(voxel_idx[:, 1:], radius, self.grid_shape[1:] - radius -1)
+        beta_sigma_idx = jnp.clip(voxel_idx[:, 1:], radius, self.grid_shape[1:] - radius - 1)
 
         offsets = jnp.arange(-radius, radius)
-        neighbor_offsets = jnp.stack(
-            jnp.meshgrid(offsets, offsets, indexing="ij"), axis=-1
-        ).reshape(-1, 2)
+        neighbor_offsets = jnp.stack(jnp.meshgrid(offsets, offsets, indexing="ij"), axis=-1).reshape(-1, 2)
 
         @jaxtyped(typechecker=typechecker)
-        def gather_neighbors(bs_idx: Int[Array, "2"], q_point: Float[Array, "3"], a_idx: Int[Array, ""]) -> Float[Array, "2"]:
+        def gather_neighbors(
+            bs_idx: Int[Array, "2"], q_point: Float[Array, "3"], a_idx: Int[Array, ""]
+        ) -> Float[Array, "2"]:
             coords = bs_idx[None, :] + neighbor_offsets
             x, y = coords[:, 0], coords[:, 1]
 
@@ -186,11 +189,13 @@ class LatentLookup(eqx.Module):
 
         return jax.vmap(gather_neighbors)(beta_sigma_idx, q, alpha_idx).astype(orig_dtype)
 
-
     @jaxtyped(typechecker=typechecker)
     @filter_jit
     def soft_get_global(
-        self, query_vectors: Float[Array, "batch latent"], temperature: Float[Array, "1"]
+        self,
+        query_vectors: Float[Array, "batch latent"],
+        temperature: Float[Array, "1"],
+        kernel_size: int = 11,
     ) -> Float[Array, "batch 2"]:
         orig_dtype = query_vectors.dtype
         q = query_vectors.astype(self.dtype)
@@ -210,7 +215,10 @@ class LatentLookup(eqx.Module):
     @jaxtyped(typechecker=typechecker)
     @filter_jit
     def soft_get_global_slice(
-        self, query_vectors: Float[Array, "batch latent"], temperature: Float[Array, "1"]
+        self,
+        query_vectors: Float[Array, "batch latent"],
+        temperature: Float[Array, "1"],
+        kernel_size: int = 11,
     ) -> Float[Array, "batch 2"]:
         orig_dtype = query_vectors.dtype
         q = query_vectors.astype(self.dtype)

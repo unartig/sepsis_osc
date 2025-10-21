@@ -51,12 +51,16 @@ def log_val_metrics(
 ) -> str:
     metrics = aux_losses.to_dict()
 
-    true_sofa = np.asarray(jnp.diff(y[..., 0], axis=-1).max(axis=-1) > 0).flatten()
+    true_sofa = np.asarray(jnp.diff(y[..., 0], axis=-1) > 0).any(axis=-1).flatten()
     true_inf = np.asarray((y[..., 1] > 0).any(axis=-1)).flatten()
     true_sep3 = np.asarray((y[..., 2] == 1.0).any(axis=-1)).flatten()
     pred_sep3_p = np.asarray(metrics["sepsis_metrics"]["sep3_p"]).flatten()
     pred_sofa_d2_p = np.asarray(metrics["sepsis_metrics"]["sofa_d2_p"]).flatten()
     pred_susp_inf_p = np.asarray(metrics["sepsis_metrics"]["susp_inf_p"]).flatten()
+
+    print("lims sofa", pred_sofa_d2_p.min(), pred_sofa_d2_p.max())
+    print("lims inf ", pred_susp_inf_p.min(), pred_susp_inf_p.max())
+    print("lims sep ", pred_sep3_p.min(), pred_sep3_p.max())
 
     fig, ax = plt.subplots(1, 1)
     ax = viz_starter(metrics["latents"]["beta"][:, 0], metrics["latents"]["sigma"][:, 0], filename="", ax=ax)
@@ -69,7 +73,7 @@ def log_val_metrics(
     writer.add_figure("Progression", fig, epoch, close=True)
 
     fig, ax = plt.subplots(1, 2)
-    idx = np.argmax(y[0, :, :, 2].sum(axis=-1))
+    idx = np.argmax(y[0, :, :, 0].var(axis=-1))
 
     ax = viz_plane(
         true_sofa=y[0, idx, :, 0],
