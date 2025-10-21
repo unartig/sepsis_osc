@@ -11,7 +11,8 @@ pyrightconfig.json
 /storage/other/*SepsisMetrics.db/*
 data/
 matlab/
-./figures/
+figures/
+!typst/figures/
 runs/
 typings/
 misc/

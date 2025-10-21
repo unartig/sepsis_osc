@@ -40,6 +40,7 @@
 #let cmalpha(x) = text(fill: fuchsia, $#x$)
 #let cmbeta(x) = text(fill: purple, $#x$)
 #let cmsigma(x) = text(fill: orange, $#x$)
+#let cmred(x) = text(fill: red, $#x$)
 
 #let connect-layers(
   xoff_start,

@@ -8,7 +8,7 @@
 #let y-range = 4
 #let kernel-size = 1
 #let ratio = 1
-#let zc = (3.2, 2.4)
+#let zc = (2.8, 2.3)
 
 #let fsq_fig = canvas({
   content(
@@ -30,11 +30,15 @@
 
   // Draw kernel
   circle(
-    cround(zc),
+    zc,
     radius: 1.6,
     stroke: none,
     fill: gradient.radial(
-      ..color.map.viridis.rev(),
+      // ..color.map.viridis.rev(),
+      yellow,
+      lime,
+      aqua,
+      white,
       // TODO maybe after 0.13.1 update we can do this
       // red,
       // yellow,
@@ -43,30 +47,10 @@
     fill-opacity: 1%,
     name: "kernel",
   )
-
-  // Draw coordinate points
-  for x in range(0, x-range + 1) {
-    for y in range(0, y-range + 1) {
-      circle((x, ratio * y), radius: 2pt, fill: black)
-    }
-  }
-  for x in range(-kernel-size, kernel-size + 1) {
-    for y in range(-kernel-size, kernel-size + 1) {
-      circle(
-        cadd(cround(zc), (x, ratio * y)),
-        radius: 2pt,
-        fill: black,
-        stroke: blue,
-      )
-    }
-  }
-
-
   // Draw axes with arrows
   let arrow-style = (mark: (end: "stealth", fill: black))
   let x-end = (x-range + 0.5, 0)
   let y-end = (0, ratio * y-range + 0.5)
-
   line((0, 0), x-end, ..arrow-style)
   line((0, 0), y-end, ..arrow-style, name: "y-axis")
 
@@ -77,6 +61,34 @@
     $cmsigma(sigma)$,
     anchor: "north-east",
   )
+
+  // Draw coordinate points
+  for x in range(0, x-range + 1) {
+    for y in range(0, y-range + 1) {
+      circle(
+        (x, ratio * y),
+        radius: 2pt,
+        fill: gradient
+          .linear(..color.map.viridis)
+          .sample(calc.sin(x) * 50% + calc.sin(y) * 50%),
+        stroke: .5pt + black,
+      )
+    }
+  }
+  for x in range(-kernel-size, kernel-size + 1) {
+    for y in range(-kernel-size, kernel-size + 1) {
+      circle(
+        cadd(cround(zc), (x, ratio * y)),
+        radius: 2pt,
+        fill: none,
+        // fill: gradient
+        // .linear(..color.map.plasma)
+        // .sample(calc.cos(x) * 30% + calc.sin(y) * 50%),
+        stroke: .7pt + red,
+      )
+    }
+  }
+
 
   // Draw z
   dashed(zc, cround(zc), node-radius: 0, c: black)
@@ -109,15 +121,9 @@
     anchor: "north",
   )
 
-  line(
-    (x-range + 1, y-range / 2),
-    (x-range + 3, y-range / 2),
-    name: "flow2",
-    mark: emark,
-  )
   content(
-    (x-range + 6.5, y-range / 2),
-    $tilde(s)=sum_(x in cal(N)_(3 times 3)(tilde(z))) "softmax"(-(||tilde(z)-x||^2)/T)s_(cmbeta(beta), cmsigma(sigma))$,
+    (x-range / 2 + .5, -1),
+    $tilde(s)=sum_(x in cmred(cal(N)_(3 times 3))(tilde(z))) "softmax"(-(||z-x||^2)/T)s_(cmbeta(beta), cmsigma(sigma))$,
   )
 })
 #figure(fsq_fig)
