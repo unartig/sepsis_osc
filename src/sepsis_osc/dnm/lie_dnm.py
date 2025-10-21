@@ -24,16 +24,16 @@ class LieDNMConfigArgs(ConfigArgBase):
     epsilon_2: Float[Array, "broadcast N N"]
     adj: Float[Array, ""]
     R_alpha: SO2
-    R_beta: SO2
+    R_beta_inv: SO2
     sigma: Float[Array, ""]
     tau: Float[Array, ""]
 
 @jaxtyped(typechecker=typechecker)
 class LieDNMConfig(ConfigBase):
     N: int  # number of oscillators per layer
-    alpha: float  # phase lag
     beta: float  # plasticity (age parameter)
     sigma: float  # interlayer coupling
+    alpha: float = -0.28 # phase lag
     C: float = 0.2  # number of infected cells
     omega_1: float = 0.0  # natural frequency parenchymal layer
     omega_2: float = 0.0  # natural frequency immune layer
@@ -57,7 +57,7 @@ class LieDNMConfig(ConfigBase):
             epsilon_2=self.epsilon_2 * diag,
             adj=jnp.array(1 / (self.N - 1)),
             R_alpha=SO2.from_radians(self.alpha * jnp.pi),
-            R_beta=SO2.from_radians(self.beta * jnp.pi),
+            R_beta_inv=SO2.from_radians(self.beta * jnp.pi).inverse(),
             sigma=jnp.asarray(self.sigma),
             tau=jnp.asarray(self.tau),
         )
@@ -118,18 +118,21 @@ class LieDynamicNetworkModel(DynamicNetworkModel):
         def single_system_deriv(y: DNMState) -> DNMState:
             R_1 = SO2.from_radians(y.phi_1)
             R_2 = SO2.from_radians(y.phi_2)
-            R1_diff = SO2(R_1.unit_complex[None, :, :]).inverse() @ SO2(R_1.unit_complex[:, None, :])
-            R2_diff = SO2(R_2.unit_complex[None, :, :]).inverse() @ SO2(R_2.unit_complex[:, None, :])
+            R_1_inv = R_1.inverse()
+            R_2_inv = R_2.inverse()
+
+            R1_diff = SO2(R_1_inv.unit_complex[None, :, :]) @ SO2(R_1.unit_complex[:, None, :])
+            R2_diff = SO2(R_2_inv.unit_complex[None, :, :]) @ SO2(R_2.unit_complex[:, None, :])
 
 
             R1_diff_alpha = R1_diff @ args.R_alpha
             R2_diff_alpha = R2_diff @ args.R_alpha
 
-            R1_diff_beta = R1_diff @ args.R_beta.inverse()
-            R2_diff_beta = R2_diff @ args.R_beta.inverse()
+            R1_diff_beta = R1_diff @ args.R_beta_inv
+            R2_diff_beta = R2_diff @ args.R_beta_inv
 
-            phi_12_diff = R_1 @ R_2.inverse()
-            phi_21_diff = R_2 @ R_1.inverse()
+            phi_12_diff = R_1 @ R_2_inv
+            phi_21_diff = R_2 @ R_1_inv
 
             # (phi1 (N), phi2 (N), k1 (NxN), k2 (NxN)))
             dphi_1 = (
@@ -161,7 +164,7 @@ class LieDynamicNetworkModel(DynamicNetworkModel):
                 v_2=((dkmean2 - y.m_2) ** 2 - y.v_2) / args.tau,
             )
 
-        return vmap(single_system_deriv)(y)
+        return eqx.filter_vmap(single_system_deriv)(y)
 
 
 
@@ -169,37 +172,38 @@ if __name__ == "__main__":
     import logging
 
     import jax.random as jr
-    from diffrax import Tsit5
+    from diffrax import Tsit5, Bosh3
 
     from sepsis_osc.storage.storage_interface import Storage
     from sepsis_osc.utils.config import jax_random_seed
     from sepsis_osc.utils.logger import setup_logging
+    from sepsis_osc.utils.jax_config import setup_jax
 
+    setup_jax(simulation=True)
     setup_logging("info", console_log=True)
     logger = logging.getLogger(__name__)
 
     rand_key = jr.key(jax_random_seed)
-    num_parallel_runs = 100
+    num_parallel_runs = 50
 
-    beta_step = 0.01
-    beta_step = 0.1
+    beta_step = 0.01*2
     betas = np.arange(0.0, 1.0, beta_step)
-    sigma_step = 0.01
-    beta_step = 0.1
-    sigmas = np.arange(0.0, 1.0, sigma_step)
-    alpha_step = 0.1
-    alphas = jnp.array([-0.28])  # jnp.array([-1.0, -0.76, -0.52, -0.28, 0.0, 0.28, 0.52, 0.76, 1.0])
+    sigma_step = 0.015 * 2
+    sigmas = np.arange(0.0, 1.5, sigma_step)
+    C_step = 0.05
+    Cs = jnp.array([0.0, 0.2, 1.0, 0.5, 0.1, 0.3, 0.4])  # jnp.arange(0, 0.2, C_step)
     T_max_base = 2000
     T_step_base = 100
-    total = len(betas) * len(sigmas) * len(alphas)
+    total = len(betas) * len(sigmas) * len(Cs)
     logger.info(
-        f"Starting to map parameter space of {len(betas)} beta, {len(sigmas)} sigma, {len(alphas)} alpha, total {total}"
+        f"Starting to map parameter space of {len(betas)} beta, {len(sigmas)} sigma, {len(Cs)} Cs, total {total}"
     )
 
-    ldnm = LieDynamicNetworkModel(full_save=False, steady_state_check=True, progress_bar=True)
-    solver = Tsit5()
 
-    db_str = "Lie"
+    ldnm = LieDynamicNetworkModel(full_save=False, steady_state_check=True, progress_bar=True)
+    solver = Bosh3(scan_kind="bounded")
+
+    db_str = "Lie0"
     storage = Storage(
         key_dim=9,
         metrics_kv_name=f"data/{db_str}SepsisMetrics.db/",
@@ -209,13 +213,13 @@ if __name__ == "__main__":
     overwrite = False
 
     i = 0
-    for alpha in alphas:
+    for C in Cs:
         for beta in betas:
             for sigma in sigmas:
                 N = 100
                 run_conf = LieDNMConfig(
                     N=N,
-                    alpha=float(alpha),  # phase lage
+                    C=float(C),  # phase lage
                     beta=float(beta),  # age parameter
                     sigma=float(sigma),
                 )
@@ -239,6 +243,6 @@ if __name__ == "__main__":
                             run_conf.as_index, sol.ys.remove_infs().as_single().serialise(), overwrite=overwrite
                         )
                 i += 1
-        storage.write()
+            storage.write()
 
     storage.close()

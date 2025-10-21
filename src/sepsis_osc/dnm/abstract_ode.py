@@ -144,7 +144,7 @@ class ODEBase(ABC):
         deriv = self.system_deriv
         self.init_sampler = self.generate_init_sampler()
         self.term = ODETerm(deriv)
-        self.save_method = self.generate_full_save() if full_save else self.generate_metric_save(deriv)
+        self.save_method = self.generate_full_save(deriv) if full_save else self.generate_metric_save(deriv)
         self.steady_state_check = Event(cond_fn=self.generate_steady_state_check()) if steady_state_check else None
         self.pid_controller = PIDController(rtol=step_rtol, atol=step_atol)
         self.progress_bar = TqdmProgressMeter() if progress_bar else NoProgressMeter()
@@ -191,7 +191,7 @@ class ODEBase(ABC):
             dt0=T_step,
             stepsize_controller=self.pid_controller,
             max_steps=int(1e6),
-            saveat=SaveAt(t0=True, ts=jnp.arange(T_init, T_max, T_step), fn=self.save_method),
+            saveat=SaveAt(t0=True, t1=True , fn=self.save_method),
             progress_meter=self.progress_bar,
             event=self.steady_state_check,
             adjoint=RecursiveCheckpointAdjoint(checkpoints=1),
