@@ -3,7 +3,8 @@
 #import "@preview/drafting:0.2.2": (
   inline-note, margin-note, note-outline, set-margin-note-defaults,
 )
-#import "figures/tree.typ": tree_figure
+#import "figures/tree.typ": tree_fig
+#import "figures/fsq.typ": fsq_fig
 
 #show: thesis.with(
   title: "Comprehensive Guidelines and Templates for Thesis Writing",
@@ -63,7 +64,7 @@ $R^mu_2=0$ splay-state and $R^mu_2=1$ is fully synchronized.
 
 = Introduction
 
-= Medical Background (Sepsis)
+= Medical Background (Sepsis) <sec:sepsis>
 
 As the most extreme course of an infectious disease, sepsis poses a serious health threat, with a high mortality rate and frequent long-term consequences for survivors.
 In 2017, an estimated 48.9 million people worldwide suffered from sepsis and the same year, 11.0 million deaths were associated with sepsis @rudd2020global, which makes up 19.7% of yearly deaths.
@@ -85,7 +86,7 @@ Additionally, @sec:sepbio provides a short introduction of both the pathology an
 Out of the need for an update of an outdated and partly misleading sepsis model a task force led by the "Society of Critical Care Medicine and the European Society of Intensive Care Medicine", was formed in 2016.
 Their resolution, named "Third International Consensus Definitions for Sepsis and Septic Shock" @Sepsis3, provides until today the most widely used sepsis definition and guidance on sepsis identification.
 
-In general, sepsis does not classify as a specific illness, rather a multifaceted condition of "physiologic, pathologic, and biochemical abnormalities" @Sepsis3, where the original causes are mostly uncertain.
+In general, sepsis does not classify as a specific illness, rather a multifaceted condition of "physiologic, pathologic, and biochemical abnormalities" @Sepsis3, and septic patients are largely heterogeneous.
 Most commonly the underlying cause of sepsis is diarrhoeal disease, road traffic injury the most common underlying injury and maternal disorders the most common non-communicable disease causing sepsis @rudd2020global.
 
 According to the Sepsis-3 definition, a patient is in a septic condition if the following two criteria are fulfilled:
@@ -159,13 +160,13 @@ Cytokines are a broad family of different cells which play a special role in the
 In the innate immune system, i.e. the body's first line of non-specific defense @InnateImmuneSystemWiki they regulate the production of anti- and pro-inflammatory immune cells which help with the elimination of pathogens and trigger the healing process right after.
 They are also involved in the growing process of red and white blood cells.
 
-// There are plenty of different specific cytokines, but all having the common characteristic of signal mediation @Jarczak2022storm.
 One specialty of these relatively simple cells is that they can be produced by immune cells or non-immune cells, with different cells being able to produce the same cytokine.
 Further, cytokines are redundant, meaning targeted cells can show identical responses to different cytokines @House2007cyto, these features seems to fulfill some kind of safety mechanism to guarantee vital communication flow.
 After coming to life cytokines have relatively a short half-life (only a few minutes) but through cascading-effects the cytokines can have substantial impact on their micro-environment.
 
 Normally, the release of inflammatory cytokines automatically fades out once the initial pathogen is controlled.
-In certain scenarios a disturbance to the regulatory mechanisms triggers a chain reaction, followed by a massive release of cytokines, coupled with self-reinforcement of other regulatory mechanisms @Jarczak2022storm, leading to a continuous and uncontrolled release of cytokines that fails to shut down.
+In certain scenarios a disturbance to the regulatory mechanisms triggers a chain reaction, followed by a massive release of cytokines.
+It is further coupled with self-reinforcement of other regulatory mechanisms @Jarczak2022storm, leading to a continuous and uncontrolled release of cytokines that fails to shut down.
 This overreaction, called _cytokine storm_, is often harmful to the hosts body and can lead to multi organ failure, like in sepsis, and subsequently death.
 In these cases, the damage done by the immune system's reaction is magnitudes greater than the triggering infection itself.
 
@@ -175,14 +176,20 @@ This makes them hard to study and little useful as direct indicators of pathogen
 Since the 90s there has been a lot of research focused on cytokines and their role in the innit immune system and overall activation behavior.
 But to this day no breakthrough has been done and underlying principles have not been uncovered.
 
-#todo[what happens with the organs in the storm?]
+Another branch of research, the study of "omics", such as cytomics, genomics, epigenomics, transcriptomics, proteomics, and metabolomics, was very recently able to homogenize the pathologies of sepsis but to unfold their full potential larger scale studies are still necessary @Isac2024OComplex. #todo[wichtig aber wie verknüpfen?]
+
+
+TODO[
+What happens with the organs in the storm?
+What about parenchymal cells?]
 
 == The need for sepsis prediction <sec:sepwhy>
+#TODO[Important to finish]
 == Maybe Treatment <sec:septreat>
 
 
 
-= Problem definition
+= Problem definition <sec:problemdef>
 
 This section provides some background on the specific research questions which are investigated in @sec:experiment using the methods introduced in @sec:dnm and @sec:ldm respectively.
 As discussed in @sec:sepwhy, there is a substantial need for robust methods to identify patients sepsis onset and overall progression.
@@ -191,7 +198,7 @@ This work provides a proof of concept for such a prediction system.
 The increasing availability of high-quality medical data, i.e. multiple physiological markers with high temporal resolution, enables both classical statistical and #acr("ML") (including #acr("DL")) methods (see @sec:sota).
 While these purely data-driven approaches often achieve acceptable performance but the explainability of the prediction suffers and limits their adoption in clinical practice #todo[cite].
 
-In parallel, recent advances in the field of network physiology have introduced new ways to model physiological systems as interacting subsystems rather than isolated organs @Ivanonv2021Physiolome.
+In parallel, recent advances in the field of network physiology have introduced new ways to model physiological systems as interacting subsystems rather than isolated organs @Ivanov2021Physiolome.
 The #acr("DNM") introduced in @osc1, allows for a functional description of organ failure in sepsis and shows realistic system behavior in preliminary analysis.
 An in-depth introduction to the #acr("DNM") is provided in @sec:dnm.
 But up until now the dynamic model has not yet been verified on real data, in this work we want to change that.
@@ -205,7 +212,7 @@ To summarize, the specific research questions include:
     [*Comparison with data-based approaches*: How can the model-based predictions be compared with those of purely data-based approaches in terms of predictive power and interpretability.],
   )
 )
-
+#TODO[End this]
 
 = The Data and Task problems
 
@@ -225,6 +232,26 @@ RICU and YAIB use delta_cummin function, i.e. the delta #acr("SOFA") increase is
 === Selected Works
 
 = Dynamic Network Model (DNM) <sec:dnm>
+#TODO[
+  #list(
+    [Sepsis Modeling],
+    [Complex Systems],
+    [Network Physiology],
+  )
+]
+
+As outlined in @sec:sepsis, the macroscopic multi-organ failure associated with sepsis is driven by a dysregulated cascade of signaling processes on a microscopic level (see @sec:sepbio).
+This involves a massive amount of interconnected components, where the connections mechanics and strenghts can vary over time and space.
+The interactions can differ substantially between tissues and as sepsis progresses, biochemical thresholds change the behavior of cells @Callard1999Cytokines.
+In essence, cell-to-cell and cell-to-organ interaction in septic conditions involve highly dynamic, nonlinear and spatio-temporal relationships @Schuurman2023Complex, which cannot be fully understood by a reduction to single time-point analyzes.
+While many individual elements of the process are understand in isolation, we still fail to capture the complete picture.
+
+To address these challenges "Network Physiology" provides the necessary tools.
+It enables the study of human physiology as a complex, integrated system, where emergent dynamics arise from interactions that cannot be explained by their individual parts alone.
+Rather than focusing on the isolated elements, Network Physiology focuses on the coordination and interconnection among the diverse organ systems and sub-systems @Ivanov2021Physiolome.
+This approach translates to the mesoscopic level, i.e. the in-between, of the human body, trying to capture the interactions that collectively determine the overall physiological function.
+
+
 The Parenchymal (@odep1 and @odek1) and Immune (@odep2 and @odek2) layer and their respective states of the dynamical system naturally are consistent with the two cornerstones of the Sepsis-3 definition @Sepsis3, i.e. #acr("SOFA") score and suspicion of an infection.
 
 Healthy $->$ sync $mean(dot(phi)^1_j)$ and $mean(dot(phi)^1_j)$
@@ -242,7 +269,7 @@ $
   dot(kappa)^2_(i j) &= -epsilon^2 (kappa^2_(i j) + sin(phi^2_i - phi^2_j - beta)) #<odek2>
 $ <eq:ode-sys>
 Introduced in @osc1 and slightly adapted in @osc2. #todo[table for parameters]
-#figure(tree_figure)
+#figure(tree_fig)
 
 Mean Phase Velocities are calculated as followed:
 $
@@ -253,6 +280,13 @@ $
 === Immune System
 === Kuramoto
 == Implementation
+#TODO[
+  #list(
+    [Savings],
+    [Eqx + diffrax],
+    [Lie],
+  )
+]
 For parts in the form of $sin(theta_l-theta_m)$ following @KuramotoComp one can calculate and cache the terms $sin(theta_l), sin(theta_m), cos(theta_l), cos(theta_m)$ in advance:
 
 $
@@ -280,6 +314,8 @@ so the computational cost for the left-hand side for $N$ oscillators can be redu
 ==== Semantics
 ==== Autoregressive Prediction
 === The Lookup (FSQ)
+#figure(fsq_fig)
+
 === Encoder
 === Decoder
 === Introducing time
