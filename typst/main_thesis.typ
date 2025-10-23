@@ -110,6 +110,7 @@ Since there is no gold standard for measuring the amount of "dysregulation" the 
 The score is now regularly used to evaluate the functionality of organ systems and helps to predict the risk of mortality, also outside of a sepsis context.
 The #acr("SOFA") score is calculated at least every 24 hours and assess six different organ systems by assigning a score from 0 (normal function) to 4 (high degree of dysfunction) to each.
 The overall score is calculated as sum of each individual system.
+
 It includes the respiratory system, the coagulation/clotting of blood, i.e. changing from liquid to gel, the liver system, the cardiovascular system, the central nervous system and the renal system/kidney function.
 A more detailed listing of corresponding markers for each organ assessment can be found in table @tab:sofa in the @sec:appendix.
 The magnitude of a patients initial #acr("SOFA")-score captures preexisting organ dysfunction.
@@ -179,9 +180,9 @@ But to this day no breakthrough has been done and underlying principles have not
 Another branch of research, the study of "omics", such as cytomics, genomics, epigenomics, transcriptomics, proteomics, and metabolomics, was very recently able to homogenize the pathologies of sepsis but to unfold their full potential larger scale studies are still necessary @Isac2024OComplex. #todo[wichtig aber wie verknüpfen?]
 
 
-TODO[
-What happens with the organs in the storm?
-What about parenchymal cells?]
+#TODO[
+  What happens with the organs in the storm?
+  What about parenchymal cells?]
 
 == The need for sepsis prediction <sec:sepwhy>
 #TODO[Important to finish]
@@ -232,36 +233,32 @@ RICU and YAIB use delta_cummin function, i.e. the delta #acr("SOFA") increase is
 === Selected Works
 
 = Dynamic Network Model (DNM) <sec:dnm>
-#TODO[
-  #list(
-    [Sepsis Modeling],
-    [Complex Systems],
-    [Network Physiology],
-  )
-]
 
 As outlined in @sec:sepsis, the macroscopic multi-organ failure associated with sepsis is driven by a dysregulated cascade of signaling processes on a microscopic level (see @sec:sepbio).
-This involves a massive amount of interconnected components, where the connections mechanics and strenghts can vary over time and space.
+This involves a massive amount of interconnected components, where the connections mechanics and strengths can vary over time and space.
 The interactions can differ substantially between tissues and as sepsis progresses, biochemical thresholds change the behavior of cells @Callard1999Cytokines.
 In essence, cell-to-cell and cell-to-organ interaction in septic conditions involve highly dynamic, nonlinear and spatio-temporal relationships @Schuurman2023Complex, which cannot be fully understood by a reduction to single time-point analyzes.
-While many individual elements of the process are understand in isolation, we still fail to capture the complete picture.
+For this reason, even though many individual elements of the process are understand in isolation, we still fail to capture the complete picture.
 
-To address these challenges "Network Physiology" provides the necessary tools.
+To address these challenges _Network Physiology_ provides promising tools.
 It enables the study of human physiology as a complex, integrated system, where emergent dynamics arise from interactions that cannot be explained by their individual parts alone.
-Rather than focusing on the isolated elements, Network Physiology focuses on the coordination and interconnection among the diverse organ systems and sub-systems @Ivanov2021Physiolome.
-This approach translates to the mesoscopic level, i.e. the in-between, of the human body, trying to capture the interactions that collectively determine the overall physiological function.
+Rather than studying components in isolation, _Network Physiology_ focuses on the coordination and interconnection among the diverse organ systems and sub-systems @Ivanov2021Physiolome.
+This approach translates to the mesoscopic level, i.e. the in-between of things, here the human body, trying to capture the coupling mechanisms that collectively determine the overall physiological function.
 
+The analytical framework in _Network Physiology_ evolves around graphs consisting of nodes and links.
+In contrast to classical graph theory where dynamics are introduced by changing the graph topology (e.g. adding or removing links or nodes), here the links themselves a treated dynamic and will change over time.
+This subtle change potentially allows for information to propagate through the whole networks and alter its behavior and give rise to complex and emerging phenomena on global scales for otherwise identical network topologies.
 
-The Parenchymal (@odep1 and @odek1) and Immune (@odep2 and @odek2) layer and their respective states of the dynamical system naturally are consistent with the two cornerstones of the Sepsis-3 definition @Sepsis3, i.e. #acr("SOFA") score and suspicion of an infection.
+Besides early works, such as @Guyton1972Circulation that have studied the cardiovascular system, _Network Physiology_ has helped to gain deeper insights into cardio-respiratory coupling @Bartsch2012Phase and human brain functionality @Lehnertz2021Time.
+The approach has also successfully applied to specific diseases such as Parkinson @Asl2022Parkinson and Epilepsy @Simha2022Epilepsy, just to name a few.
 
-Healthy $->$ sync $mean(dot(phi)^1_j)$ and $mean(dot(phi)^1_j)$
+Building on these interaction centric principles has opened up new opportunities to study how the inflammatory processes emerge from the complex inter-organ communication.
+In particular @osc1 and @osc2 have introduced a dynamical systems that models the cytokine behavior in patients with sepsis and cancer.
+This functional model will be called #acr("DNM") from now on and serves as the main point of interest for this whole project.
+In this chapter there will be an introduction to the formal definition of the #acr("DNM") in @sec:dnmdesc, followed by some insights on the numerical implementation in @sec:dnmimp and a presentation of selected simulation results in @sec:dnmres.
 
-#acr("SOFA") $->$ desync $mean(dot(phi)^1_j)$
-
-Suspected infection $->$ splay/desync $mean(dot(phi)^2_j)$
-
-septic $->$ desync $mean(dot(phi)^1_j)$ and $mean(dot(phi)^1_j)$
-== Description
+== Description <sec:dnmdesc>
+=== Kuramoto
 $
   dot(phi)^1_i =& omega^1 - 1/N sum^N_(j=1) lr({ (a^1_(i j) + kappa^1_(i j))sin(phi^1_i - phi^1_j + alpha^(11)) }) - sigma sin(phi^1_i - phi^2_i + alpha^(12)) #<odep1> \
   dot(kappa)^1_(i j) &= -epsilon^1 (kappa^1_(i j) + sin(phi^1_i - phi^1_j - beta)) #<odek1> \
@@ -278,8 +275,8 @@ $
 === Functional Models
 === Parenchymal
 === Immune System
-=== Kuramoto
-== Implementation
+
+== Implementation <sec:dnmimp>
 #TODO[
   #list(
     [Savings],
@@ -301,6 +298,15 @@ so the computational cost for the left-hand side for $N$ oscillators can be redu
   [They are not batching the computation],
 )
 === Lie
+
+=== Simulation Results <sec:dnmres>
+Healthy $->$ sync $mean(dot(phi)^1_j)$ and $mean(dot(phi)^1_j)$
+
+#acr("SOFA") $->$ desync $mean(dot(phi)^1_j)$
+
+Suspected infection $->$ splay/desync $mean(dot(phi)^2_j)$
+
+septic $->$ desync $mean(dot(phi)^1_j)$ and $mean(dot(phi)^1_j)$
 
 = Latent Dynamics Model <sec:ldm>
 == Task - Definition of Ins and Outs
