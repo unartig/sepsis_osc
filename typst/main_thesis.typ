@@ -26,6 +26,7 @@
     "LDM": "Latent Dynamics Model",
     "ML": "Machine Learning",
     "DL": "Deep Learning",
+    "ODE": "Ordinary Differential Equation",
   ),
 
   bibliography: bibliography("bibliography.bib"),
@@ -36,6 +37,7 @@
 )
 
 #let mean(f) = $angle.l$ + f + $angle.r$
+#let ot = $1"/"2$
 #note-outline()
 
 #let todo = margin-note
@@ -47,6 +49,16 @@
 )
 #let TODO = inline-note
 
+
+#TODO[
+  #list(
+    [Sections to Chapters],
+    [Styiling],
+    [Appendix to real Appendix],
+    [Fix ACR seperation],
+    [Fix newline/lineabreak after Headings],
+  )
+]
 = Notes
 #TODO[actual functional model
   what is learned
@@ -79,10 +91,12 @@ Each hour of earlier detection can significantly increase the chance of survival
 Per definition, sepsis is a "life-threatening organ dysfunction caused by a
 dysregulated host response to infection" @Sepsis3.
 There are multiple (now historic) more specific definitions available and sometimes blurry terminology used when dealing with the sepsis and septic shocks.
-The following @sec:sep3def gives a more detailed introduction to the most commonly used sepsis definition, which is referred to as Sepsis-3.
-Additionally, @sec:sepbio provides a short introduction of both the pathology and biology of sepsis and @sec:sepwhy talks about the need for reliable sepsis prediction systems.
+The following @sec:sep3def gives a more detailed overview to the most commonly used sepsis definition, which is referred to as Sepsis-3.
+Additionally, @sec:sepbio provides a short introduction of both the pathology and biology of sepsis.
+Lastly, in @sec:sepwhy the necessity for reliable sepsis prediction systems is discussed.
 
-== Sepsis-3 definition <sec:sep3def>
+
+== The Sepsis-3 Definition <sec:sep3def>
 Out of the need for an update of an outdated and partly misleading sepsis model a task force led by the "Society of Critical Care Medicine and the European Society of Intensive Care Medicine", was formed in 2016.
 Their resolution, named "Third International Consensus Definitions for Sepsis and Septic Shock" @Sepsis3, provides until today the most widely used sepsis definition and guidance on sepsis identification.
 
@@ -151,42 +165,53 @@ For a faster bedside assessment @SOFAscore also introduced a clinical score term
     align(left, [Systolic blood pressure $<=$ 100 mm Hg]),
   ))
 )
-#todo[center]
 Patients fulfilling at least two of these criteria have an increased risk of organ failure.
 While the #acr("qSOFA") has a significantly reduced complexity and is faster to assess it is not as accurate as the #acr("SOFA") score, meaning it has less predictive validity for in-house mortality @SOFAscore.
 
-== Biology of Sepsis and Cytokine Storms <sec:sepbio>
-The hosts dysregulated response to an infection connected to the septic condition is driven by the release of an unreasonable amount of certain signaling proteins, so called _cytokines_ @Jarczak2022storm.
-Cytokines are a broad family of different cells which play a special role in the communication between other, both neighboring and distant, cells @Zhang2007cyto, this includes immune-cell to immune-cell or immune-cell to other cell types.
-In the innate immune system, i.e. the body's first line of non-specific defense @InnateImmuneSystemWiki they regulate the production of anti- and pro-inflammatory immune cells which help with the elimination of pathogens and trigger the healing process right after.
-They are also involved in the growing process of red and white blood cells.
+== Biology of Sepsis <sec:sepbio>
+This part tries to give an introduction into the biological phenomena that underlie sepsis.
+First we take a look on the way tissue is reacting to local infections or injuries on a cellular level in @sec:cell and how this escalates to _cytokine storms_ in @sec:storm and this ends with systemic organ failure in @sec:fail.
 
-One specialty of these relatively simple cells is that they can be produced by immune cells or non-immune cells, with different cells being able to produce the same cytokine.
+Certain details and specificities are left out when not essential for the understanding of this project.
+The interested reader should refer to the primary resources provided throughout this section.
+=== Cellular Description <sec:cell>
+Human organ tissue can be differentiated into two broad cell-families called _parenchymal_ and _stroma_ which are separated by a boundary consisting of _basal lamina_.
+The parenchymal cells conduct the specific function of the organ, with every organ hosting distinct parenchymal cells, everything else is part of the stroma, including the structural or connective tissue, blood vessels and nerves.
+When a pathogen enters the body the first line of non-specific defense, the innate immune system @InnateImmuneSystemWiki, gets activated.
+Besides the so called resident-immune-cells (most prominently macrophages) also the stroma cells are able to detect the pathogen via pattern-recognition-receptors and will start releasing signaling proteins, so called _cytokines_ @Zhang2007cyto.
+
+Cytokines are a diverse group of signaling proteins which play a special role in the communication between other, both neighboring and distant cells, and will attract circulating immune cells @Zhang2007cyto.
+Generally cytokines, besides being involved in the growing process of blood cells, regulate the production of anti- and pro-inflammatory immune cells which help with the elimination of pathogens and trigger the healing process right after.
+One specialty of these relatively simple proteins is that they can be produced by almost every other cell, with different cells being able to produce the same cytokine.
 Further, cytokines are redundant, meaning targeted cells can show identical responses to different cytokines @House2007cyto, these features seems to fulfill some kind of safety mechanism to guarantee vital communication flow.
-After coming to life cytokines have relatively a short half-life (only a few minutes) but through cascading-effects the cytokines can have substantial impact on their micro-environment.
+After release cytokines have relatively a short half-life (only a few minutes) but through cascading-effects the cytokines can have substantial impact on their micro-environment.
 
-Normally, the release of inflammatory cytokines automatically fades out once the initial pathogen is controlled.
+=== Cytokine Storms <sec:storm>
+The hosts dysregulated response to an infection connected to the septic condition is driven by the release of an unreasonable amount of cytokines.
+Normally, the release of inflammatory cytokines automatically fades out once the initial pathogen is controlled and the host returns to a healthy and balanced state, the _homeostasis_.
 In certain scenarios a disturbance to the regulatory mechanisms triggers a chain reaction, followed by a massive release of cytokines.
 It is further coupled with self-reinforcement of other regulatory mechanisms @Jarczak2022storm, leading to a continuous and uncontrolled release of cytokines that fails to shut down.
-This overreaction, called _cytokine storm_, is often harmful to the hosts body and can lead to multi organ failure, like in sepsis, and subsequently death.
-In these cases, the damage done by the immune system's reaction is magnitudes greater than the triggering infection itself.
+With this overreaction, called _cytokine storm_, the immune system's reaction damages the body while being magnitudes greater than the triggering infection itself.
 
 Even though the quantity of cytokines roughly correlates with disease severity, concentrations of cytokines vary between patients and even different body-parts making a distinction between an appropriate reaction and a harmful one almost impossible @Jarczak2022storm.
-Out of all cytokines, only a very small subset or secondary markers can be measured blood samples to evaluate increased cytokine activity.
-This makes them hard to study and little useful as direct indicators of pathogenesis or prediction purposes.
-Since the 90s there has been a lot of research focused on cytokines and their role in the innit immune system and overall activation behavior.
+Out of all cytokines, only a very small subset or secondary markers can be measured through blood samples to detect increased cytokine activity.
+This makes them hard to study in general and little useful as direct indicators of pathogenesis or prediction purposes.
+Since the 90s there has been a lot of research focused on cytokines and their role in the innate immune system and overall activation behavior.
 But to this day no breakthrough has been done and underlying principles have not been uncovered.
 
-Another branch of research, the study of "omics", such as cytomics, genomics, epigenomics, transcriptomics, proteomics, and metabolomics, was very recently able to homogenize the pathologies of sepsis but to unfold their full potential larger scale studies are still necessary @Isac2024OComplex. #todo[wichtig aber wie verknüpfen?]
+=== Systemic Consequences and Organ Failure <sec:fail>
+While more and more cytokines flood not only the infected areas, surrounding parts of the tissue and circulation are also affected.
+This disrupts the metabolism of parenchymal cells due to a deficiency in oxygen and nutrients.
+The cells switch from an oxygen-based metabolism to an anaerobic glycolysis @Prieto2016Anaerobic, generating energy less efficiently from glucose.
+As a result, metabolic by-products such as lactate accumulate, leading to cellular dysfunction.
+At the same time, the cells' mitochondria start to fail, blood vessels become leaky and tiny blood cogs form, further reduce cell functionality.
+These processes cause progressive cell death and ultimately organ failure.
+When multiple organs fail simultaneously, the condition becomes irreversible @Sepsis3.
+Multi-organ-failure is the final and most lethal stage of sepsis, with each additional affected organ the mortality increases drastically.
 
-
-#TODO[
-  What happens with the organs in the storm?
-  What about parenchymal cells?]
 
 == The need for sepsis prediction <sec:sepwhy>
 #TODO[Important to finish]
-== Maybe Treatment <sec:septreat>
 
 
 
@@ -200,7 +225,7 @@ The increasing availability of high-quality medical data, i.e. multiple physiolo
 While these purely data-driven approaches often achieve acceptable performance but the explainability of the prediction suffers and limits their adoption in clinical practice #todo[cite].
 
 In parallel, recent advances in the field of network physiology have introduced new ways to model physiological systems as interacting subsystems rather than isolated organs @Ivanov2021Physiolome.
-The #acr("DNM") introduced in @osc1, allows for a functional description of organ failure in sepsis and shows realistic system behavior in preliminary analysis.
+The #acr("DNM") introduced in @osc1 and adapted in @osc2, allows for a functional description of organ failure in sepsis and shows realistic system behavior in preliminary analysis.
 An in-depth introduction to the #acr("DNM") is provided in @sec:dnm.
 But up until now the dynamic model has not yet been verified on real data, in this work we want to change that.
 However, this model has not yet been validated against real-world observations, which will be addressed in this work #todo[eher project???].
@@ -254,24 +279,85 @@ The approach has also successfully applied to specific diseases such as Parkinso
 
 Building on these interaction centric principles has opened up new opportunities to study how the inflammatory processes emerge from the complex inter-organ communication.
 In particular @osc1 and @osc2 have introduced a dynamical systems that models the cytokine behavior in patients with sepsis and cancer.
-This functional model will be called #acr("DNM") from now on and serves as the main point of interest for this whole project.
-In this chapter there will be an introduction to the formal definition of the #acr("DNM") in @sec:dnmdesc, followed by some insights on the numerical implementation in @sec:dnmimp and a presentation of selected simulation results in @sec:dnmres.
+This functional model will be called #acl("DNM") from now on and serves as the main point of interest for this whole project.
+In this chapter there will be an introduction to the formal definition of the #acr("DNM") in @sec:dnmdesc as well as some medical interpretation, followed by some insights on the numerical implementation in @sec:dnmimp and a presentation of selected simulation results in @sec:dnmres.
 
 == Description <sec:dnmdesc>
-=== Kuramoto
+The #acr("DNM") is a *functional* model, that means it *does not try to model things accurately on any cellular, biochemical or organ level*, it rather tries to model dynamic interactions.
+At the core, the model does differentiate between two broad classes of cells, introduced in @sec:cell, the stroma and the parenchymal cells.
+It also includes the cell interaction through cytokine proteins and a information flow through the basal membrane.
+
+In the model, all cells of one type are combined to a layer, where everything associated with the parenchymal cells is indicated with an $""^1$ superscript and is called the _organ layer_, everything of the stroma cells is indicated with $""^2$ and is called the non specific _immune layer_.
+Each layer consists of $N$ phase oscillators $phi^ot_i in [0, 2pi)$, but individual oscillators do not correspond to single cells, rather the layer as a whole is associated with the overall state of all organs or immune system functionality respectivey.
+
+The metabolic cell activity is modelled by their rotiational velocity $dot(phi)$, the faster the rotation, the faster the metabolism.
+Each layer is fully coupled via an adaptive possibly asymmetric matrix $bold(Kappa)^ot in [-1, 1]^(N times N)$ with elements $kappa_(i j)$, these couplings represent the activity of cytokine mediation.
+For the organ layer there is an additional non-adaptive coupling part $bold(A) in [0, 1]^(N times N)$ with elements $a_(i j)$, a fixed connectivity within an organ.
+
+The dimensionless system dynamics are described with the following coupled #acr("ODE") terms:
 $
   dot(phi)^1_i =& omega^1 - 1/N sum^N_(j=1) lr({ (a^1_(i j) + kappa^1_(i j))sin(phi^1_i - phi^1_j + alpha^(11)) }) - sigma sin(phi^1_i - phi^2_i + alpha^(12)) #<odep1> \
   dot(kappa)^1_(i j) &= -epsilon^1 (kappa^1_(i j) + sin(phi^1_i - phi^1_j - beta)) #<odek1> \
   dot(phi)^2_i =& omega^2 - 1/N sum^N_(j=1) kappa^2_(i j)sin(phi^2_i - phi^2_j + alpha^(22)) - sigma sin(phi^2_i - phi^1_i + alpha^(21)) #<odep2> \
   dot(kappa)^2_(i j) &= -epsilon^2 (kappa^2_(i j) + sin(phi^2_i - phi^2_j - beta)) #<odek2>
 $ <eq:ode-sys>
-Introduced in @osc1 and slightly adapted in @osc2. #todo[table for parameters]
-#figure(tree_fig)
+Where the interlayer coupling, i.e. a symmetric information through the basal lamina, is modeled by the parameter $sigma in RR_(>=0)$.
+Natural oscillator frequencies are modeled by the parameters $omega^ot$, correspond to metabolic activity.
+Besides the coupling weights in $bold(Kappa)^ot$ the intralayer interactions also depend on the phase lag parameters $alpha^11$ and $alpha^22$.
+To separate the fast moving oscillator dynamics from the slower moving coupling weights adaption rates $0 < epsilon << 1$ are introduced.
+Since the adaption of parenchymal cytokine communication is assumed to be slower than the immune counterpart @osc1, it is chosen $epsilon^1 << epsilon^2 << 1$, which introduces dynamics on multiple timescales.
+Lastly, the most important parameter is $beta$i which significantly influences they adaptivity of the cytokines.
+At a value of $beta=pi/2$ the coupling, and therefore the adaptivity, is at a maximum positive feedback, (Hebbian Rule: fire together, wire together) encouraging synchronization between oscillators $i$ and $j$.
+For other values $beta != pi/2$ the feedback is delayed $phi^ot_i-phi^ot_j=beta-pi/2$ by a phase lag.
+Because $beta$ has such a big influence on the model dynamics it is called the _age parameter_ and summarizes multiple physiological concepts such as age, inflammatory baselines, adiposity, pre-existing illness, physical inactivity, nutritional influences and other common risk factors @osc2.
+
+#table(
+  columns: (auto, auto, auto),
+  // inset: 10pt,
+  align: center,
+  table.header([*Symbol*], [*Name*], [*Physiological Meaning*]),
+  table.cell(colspan: 3)[*Variables*],
+  [$phi^ot_i$], [Phase], [Group of cells],
+  [$dot(phi^ot_i)$], [Phase Velocity], [Metabolic activity],
+  [$kappa_(i j)$], [Coupling Weight], [Cytokine activity],
+
+  table.cell(colspan: 3)[*Parameters*],
+  [$alpha$], [Phase lag], [Metabolic interaction delay],
+
+  [$beta$],
+  [Plasticity rule],
+  [Combined of risk factors],
+  // [Age, inflammation, pre-existing illness, other risk factor],
+
+  [$omega^ot$],
+  [Natural frequency],
+  [Natural activity of cellular metabolism],
+
+  [$epsilon$], [Time scale ratios], [Temporal scale of cytokine activity],
+  // [$C$], [Initial network pertubation], [-],
+
+  [$a_(i j)$],
+  [Connectivity],
+  [Interaction between Parenchymal and Immune cells through basal lamina],
+
+  [$sigma$],
+  [Interlayer coupling],
+  [Fixed intra-organ cell-to-cell interaction],
+
+  table.cell(colspan: 3)[*Measure*],
+  [$s$],
+  [Standard deviation of frequency (see @eq:std)],
+  [Pathogenicity (Parenchymal Layer)],
+)
+
+
+
+// #figure(tree_fig)
 
 Mean Phase Velocities are calculated as followed:
 $
   mean(phi^mu) = 1/N sum^N_j phi^mu_j
-$
+$ <eq:std>
 === Functional Models
 === Parenchymal
 === Immune System
@@ -321,6 +407,7 @@ septic $->$ desync $mean(dot(phi)^1_j)$ and $mean(dot(phi)^1_j)$
 ==== Autoregressive Prediction
 === The Lookup (FSQ)
 #figure(fsq_fig)
+#todo[Fix the edges]
 
 === Encoder
 === Decoder
@@ -380,7 +467,6 @@ Increases in SOFA score $>=2$ could then be used as definition for sepsis.
 = Metrics (How to validate performance?)
 
 = Experimental Results <sec:experiment>
-placeholder
 == Metrics
 == Further Experiments
 === Custom Latent Space
