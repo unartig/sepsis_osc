@@ -267,30 +267,74 @@ For this reason, even though many individual elements of the process are underst
 
 To address these challenges _Network Physiology_ provides promising tools.
 It enables the study of human physiology as a complex, integrated system, where emergent dynamics arise from interactions that cannot be explained by their individual parts alone.
-Rather than studying components in isolation, _Network Physiology_ focuses on the coordination and interconnection among the diverse organ systems and sub-systems @Ivanov2021Physiolome.
+Rather than studying components in isolation, network physiology focuses on the coordination and interconnection among the diverse organ systems and sub-systems @Ivanov2021Physiolome.
 This approach translates to the mesoscopic level, i.e. the in-between of things, here the human body, trying to capture the coupling mechanisms that collectively determine the overall physiological function.
 
-The analytical framework in _Network Physiology_ evolves around graphs consisting of nodes and links.
-In contrast to classical graph theory where dynamics are introduced by changing the graph topology (e.g. adding or removing links or nodes), here the links themselves a treated dynamic and will change over time.
+The analytical framework in network physiology evolves around graphs consisting of nodes and links.
+In contrast to classical graph theory where dynamics are introduced by changing the graph topology (e.g. adding or removing links or nodes), here the links themselves a treated dynamic.
+The connectivity can depend on other variables of the system or vary over time.
 This subtle change potentially allows for information to propagate through the whole networks and alter its behavior and give rise to complex and emerging phenomena on global scales for otherwise identical network topologies.
+These adaptive graphs are generally called _Complex Networks_ and one variation will be introduced in @sec:kuramoto.
 
-Besides early works, such as @Guyton1972Circulation that have studied the cardiovascular system, _Network Physiology_ has helped to gain deeper insights into cardio-respiratory coupling @Bartsch2012Phase and human brain functionality @Lehnertz2021Time.
+Besides early works, such as @Guyton1972Circulation that have studied the cardiovascular system, network physiology has helped to gain deeper insights into cardio-respiratory coupling @Bartsch2012Phase and human brain functionality @Lehnertz2021Time.
 The approach has also successfully applied to specific diseases such as Parkinson @Asl2022Parkinson and Epilepsy @Simha2022Epilepsy, just to name a few.
 
 Building on these interaction centric principles has opened up new opportunities to study how the inflammatory processes emerge from the complex inter-organ communication.
 In particular @osc1 and @osc2 have introduced a dynamical systems that models the cytokine behavior in patients with sepsis and cancer.
 This functional model will be called #acl("DNM") from now on and serves as the main point of interest for this whole project.
-In this chapter there will be an introduction to the formal definition of the #acr("DNM") in @sec:dnmdesc as well as some medical interpretation, followed by some insights on the numerical implementation in @sec:dnmimp and a presentation of selected simulation results in @sec:dnmres.
+
+In this chapter there will be an introduction to the theoretical backbone of the #acr("DNM") in @sec:kuramoto and the formal mathematical definition of the #acr("DNM") in @sec:dnmdesc as well as its medical interpretation.
+The chapter is closing by some insights on the numerical implementation in @sec:dnmimp and a presentation of selected simulation results in @sec:dnmres.
+
+== Kuramoto Oscillator <sec:kuramoto>
+To mathematically describe natural or technological phenomena, complex networks have proven to be a useful framework @Placeholder.
+For example, to model the relative timing of neural spiking, reaction rates of chemical systems or dynamics of epidemics @Placeholder.
+One famous complex networks is the _Kuramoto Phase Oscillator Model_ which consists of $N$ identical, fully connected and coupled phase oscillators $phi in [0, 2pi)$ which are described by @Placeholder:
+$
+  dot(phi)_i = omega_i - Kappa/N sum^N_(j=1) sin(phi_i - phi_j)
+$ <eq:kuramoto>
+
+Where the $dot(phi)$ is used as shorthand notation for the time derivative $(d phi)/(d t)$.
+Further parameters are the intrinsic frequency of an oscillator $omega_i$ and $Kappa$ determining the coupling strength between oscillators $i$ and $j$.
+
+When evolving this system with time, oscillator $i$'s phase velocity depends on each other oscillator $j$, if $phi_j > phi_i$ the phase oscillator $i$ will accelerate $dot(phi)_i > 0$, if $phi_j < phi_i$ decelerate.
+For sufficiently large $N$ one can find system-scale states of coherence or incoherence based on the choice of $Kappa$.
+Coherent in this case means oscillators synchronize with each other, so they share the same phase and phase velocity, incoherence on the other hand is the absence of synchronization (desynchronized), which can be seen if @fig:sync A) and B) respectively.
+Synchronous states can be reached if the coupling is stronger than a certain threshold $Kappa>Kappa_c$, the critical coupling strength.
+This self-synchronization behavior is the main point of interest for these kind oscillator models and has attracted a lot of research @Placeholder.
+
+#TODO[Picture #figure("")<fig:sync>]
+On top of this relatively simple model has been extended in multiple ways #todo[why] changing the systems synchronization behavior, several of these are relevant to the #acr("DNM") and are shortly introduced.
+
+*Phase Lag $alpha$* acts as an inhibitor of synchronization, meaning with increasing $alpha$ the critical coupling strength $K_c$ also increases.
+$
+  dot(phi)_i = omega_i - Kappa/N sum^N_(j=1) sin(phi_i - phi_j + alpha)
+$
+This extension was introduced in @Placeholder (Kuramoto Sakaguchi 86) and $alpha!=0$ "frustrates" the attempt to synchronize because the coupling function $sin(phi_i - phi_j + alpha)$ does not vanish anymore when the phases align.
+
+*Adaptive coupling $bold(Kappa) in RR^(N times N)$* moves from a constant coupling strength $Kappa$ for all oscillator pairs to an adaptive coupling strength for each individual pair $kappa_(i j)$:
+$
+        dot(phi)_i & = omega_i - 1/N sum^N_(j=1) kappa_(i j) sin(phi_i - phi_j) \
+  dot(kappa)_(i j) & = - epsilon (kappa_(i j) + sin(phi_i - phi_j + beta))
+$ <eq:kurasaka>
+The adaption rate $0 < epsilon << 1$ separates the fast moving oscillator dynamics from slower moving coupling adaptivity @Placeholder (Birth).
+// neuro scientific plasticity?
+
+*Multiplex Networks* introduce the notion of layers, where $L$ separate fully connected Kuramoto models $mu$ and $nu$ are connected via interlayer coupling weights $sigma^(mu nu)$:
+$
+  dot(phi)_i^mu = omega_i - Kappa/N sum^N_(j=1) sin(phi_i - phi_j + alpha^(mu mu)) - sigma^(mu nu) sum^L_(nu=1, nu!=mu) sin(phi_i^mu - phi_i^nu + alpha^(mu nu))
+$
+
 
 == Description <sec:dnmdesc>
-The #acr("DNM") is a *functional* model, that means it *does not try to model things accurately on any cellular, biochemical or organ level*, it rather tries to model dynamic interactions.
+The #acr("DNM") is a *functional* model, that means it *does not try to model things accurately on any cellular, biochemical, or organ level*, it instead tries to model dynamic interactions.
 At the core, the model does differentiate between two broad classes of cells, introduced in @sec:cell, the stroma and the parenchymal cells.
-It also includes the cell interaction through cytokine proteins and a information flow through the basal membrane.
+It also includes the cell interaction through cytokine proteins and an information flow through the basal membrane.
 
-In the model, all cells of one type are combined to a layer, where everything associated with the parenchymal cells is indicated with an $""^1$ superscript and is called the _organ layer_, everything of the stroma cells is indicated with $""^2$ and is called the non specific _immune layer_.
-Each layer consists of $N$ phase oscillators $phi^ot_i in [0, 2pi)$, but individual oscillators do not correspond to single cells, rather the layer as a whole is associated with the overall state of all organs or immune system functionality respectivey.
+The model aggregates cells of one type to layers, everything associated with parenchymal cells is indicated with an $""^1$ superscript and is called the _organ layer_, stroma cells are indicated with $""^2$ and is referred to as non specific _immune layer_.
+Each layer consists of $N$ phase oscillators $phi^ot_i in [0, 2pi)$, but individual oscillators do not correspond to single cells, rather the layer as a whole is associated with the overall state of all organs or immune system functionality respectively.
 
-The metabolic cell activity is modelled by their rotiational velocity $dot(phi)$, the faster the rotation, the faster the metabolism.
+The metabolic cell activity is modeled by their rotational velocity $dot(phi)$, the faster the rotation, the faster the metabolism.
 Each layer is fully coupled via an adaptive possibly asymmetric matrix $bold(Kappa)^ot in [-1, 1]^(N times N)$ with elements $kappa_(i j)$, these couplings represent the activity of cytokine mediation.
 For the organ layer there is an additional non-adaptive coupling part $bold(A) in [0, 1]^(N times N)$ with elements $a_(i j)$, a fixed connectivity within an organ.
 
@@ -306,7 +350,7 @@ Natural oscillator frequencies are modeled by the parameters $omega^ot$, corresp
 Besides the coupling weights in $bold(Kappa)^ot$ the intralayer interactions also depend on the phase lag parameters $alpha^11$ and $alpha^22$.
 To separate the fast moving oscillator dynamics from the slower moving coupling weights adaption rates $0 < epsilon << 1$ are introduced.
 Since the adaption of parenchymal cytokine communication is assumed to be slower than the immune counterpart @osc1, it is chosen $epsilon^1 << epsilon^2 << 1$, which introduces dynamics on multiple timescales.
-Lastly, the most important parameter is $beta$i which significantly influences they adaptivity of the cytokines.
+Lastly, the most important parameter is $beta$ which significantly influences they adaptivity of the cytokines.
 At a value of $beta=pi/2$ the coupling, and therefore the adaptivity, is at a maximum positive feedback, (Hebbian Rule: fire together, wire together) encouraging synchronization between oscillators $i$ and $j$.
 For other values $beta != pi/2$ the feedback is delayed $phi^ot_i-phi^ot_j=beta-pi/2$ by a phase lag.
 Because $beta$ has such a big influence on the model dynamics it is called the _age parameter_ and summarizes multiple physiological concepts such as age, inflammatory baselines, adiposity, pre-existing illness, physical inactivity, nutritional influences and other common risk factors @osc2.
