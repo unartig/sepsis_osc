@@ -5,7 +5,7 @@
 )
 #import "figures/tree.typ": tree_fig
 #import "figures/fsq.typ": fsq_fig
-
+#import "figures/helper.typ": cmalpha, cmbeta, cmred, cmsigma
 #show: thesis.with(
   title: "Comprehensive Guidelines and Templates for Thesis Writing",
   summary: [
@@ -260,71 +260,86 @@ RICU and YAIB use delta_cummin function, i.e. the delta #acr("SOFA") increase is
 = Dynamic Network Model (DNM) <sec:dnm>
 
 As outlined in @sec:sepsis, the macroscopic multi-organ failure associated with sepsis is driven by a dysregulated cascade of signaling processes on a microscopic level (see @sec:sepbio).
-This involves a massive amount of interconnected components, where the connections mechanics and strengths can vary over time and space.
-The interactions can differ substantially between tissues and as sepsis progresses, biochemical thresholds change the behavior of cells @Callard1999Cytokines.
-In essence, cell-to-cell and cell-to-organ interaction in septic conditions involve highly dynamic, nonlinear and spatio-temporal relationships @Schuurman2023Complex, which cannot be fully understood by a reduction to single time-point analyzes.
-For this reason, even though many individual elements of the process are understand in isolation, we still fail to capture the complete picture.
+This cascade involves a massive amount of interconnected components, where the connections mechanics and strengths vary over time and space.
+For example, these interactions differ across tissues and evolve as sepsis progresses, with crossing biochemical thresholds the behavior of cells can be changed @Callard1999Cytokines.
 
-To address these challenges _Network Physiology_ provides promising tools.
-It enables the study of human physiology as a complex, integrated system, where emergent dynamics arise from interactions that cannot be explained by their individual parts alone.
-Rather than studying components in isolation, network physiology focuses on the coordination and interconnection among the diverse organ systems and sub-systems @Ivanov2021Physiolome.
-This approach translates to the mesoscopic level, i.e. the in-between of things, here the human body, trying to capture the coupling mechanisms that collectively determine the overall physiological function.
+In essence, cell-to-cell and cell-to-organ interaction in septic conditions form a highly dynamic, nonlinear and spatio-temporal network of relationships @Schuurman2023Complex, which cannot be fully understood by a reduction to single time-point analyzes.
+Even though many individual elements of the inflammatory response are well characterized, we still fail to integrate them into a coherent system-level picture.
 
-The analytical framework in network physiology evolves around graphs consisting of nodes and links.
-In contrast to classical graph theory where dynamics are introduced by changing the graph topology (e.g. adding or removing links or nodes), here the links themselves a treated dynamic.
-The connectivity can depend on other variables of the system or vary over time.
-This subtle change potentially allows for information to propagate through the whole networks and alter its behavior and give rise to complex and emerging phenomena on global scales for otherwise identical network topologies.
-These adaptive graphs are generally called _Complex Networks_ and one variation will be introduced in @sec:kuramoto.
+To address this complexity, the emerging field of _Network Physiology_ provides a promising conceptual framework.
+Rather than studying components in isolation, network physiology focuses on the coordination and interconnection among the diverse organ systems and subsystems @Ivanov2021Physiolome.
+It enables the study of human physiology as a complex, integrated system, where emergent macroscopic dynamics arise from interacting subsystems that cannot be explained by their individual behavior.
+This perspective translates to the mesoscopic level, i.e. the in-between of things, where the coupling mechanisms collectively determine the overall physiological function.
 
-Besides early works, such as @Guyton1972Circulation that have studied the cardiovascular system, network physiology has helped to gain deeper insights into cardio-respiratory coupling @Bartsch2012Phase and human brain functionality @Lehnertz2021Time.
-The approach has also successfully applied to specific diseases such as Parkinson @Asl2022Parkinson and Epilepsy @Simha2022Epilepsy, just to name a few.
+== From Network Physiology to Complex Networks
+In network physiology, the analytical basis of the bodies interacting systems is often graph based.
+Nodes represent subsystem such as organs or cell populations and links represent functional couplings or communication pathways @Ivanov2021Physiolome.
+Unlike classical graph theory, where dynamics are introduced by changing the graph topology (e.g. adding or removing links or nodes), in _Complex Networks_ the links themselves can evolve dynamically in response to other system variables.
+These adaptive connectivities allow for information to propagate through the whole network, giving rise to emerging phenomena on global scales for otherwise identical network topologies.
 
-Building on these interaction centric principles has opened up new opportunities to study how the inflammatory processes emerge from the complex inter-organ communication.
-In particular @osc1 and @osc2 have introduced a dynamical systems that models the cytokine behavior in patients with sepsis and cancer.
-This functional model will be called #acl("DNM") from now on and serves as the main point of interest for this whole project.
+Complex networks are well studied in physics and biology and have been applied to various physiological dimains.
+Early works, such as @Guyton1972Circulation that have studied the cardiovascular system, while more recent studies have focused on the cadio-respiratory coupling @Bartsch2012Phase and large-scale brain network dynamics @Lehnertz2021Time.
+Network approaches have also provided mechanistic insights into disease dynamics, for example Parkinson @Asl2022Parkinson and Epilepsy @Simha2022Epilepsy, just to name a few.
 
-In this chapter there will be an introduction to the theoretical backbone of the #acr("DNM") in @sec:kuramoto and the formal mathematical definition of the #acr("DNM") in @sec:dnmdesc as well as its medical interpretation.
-The chapter is closing by some insights on the numerical implementation in @sec:dnmimp and a presentation of selected simulation results in @sec:dnmres.
+Building on these interaction centric principles has opened up new opportunities to study how the inflammatory processes, such as those underlying sepsis, emerge from the complex inter- and intra-organ communication.
+In particular @osc1 and @osc2 have introduced a dynamical system that models the cytokine behavior in patients with sepsis and cancer.
+This functional model will be referred to as #acl("DNM") and forms the conceptual foundation for this whole project.
 
-== Kuramoto Oscillator <sec:kuramoto>
-To mathematically describe natural or technological phenomena, complex networks have proven to be a useful framework @Placeholder.
-For example, to model the relative timing of neural spiking, reaction rates of chemical systems or dynamics of epidemics @Placeholder.
-One famous complex networks is the _Kuramoto Phase Oscillator Model_ which consists of $N$ identical, fully connected and coupled phase oscillators $phi in [0, 2pi)$ which are described by @Placeholder:
+The remainder of this chapter is structured as follows: In @sec:kuramoto introduces the theoretical backbone of the #acr("DNM"), the Kuramoto oscillator model, which provides a minimal description of synchronization phenomena in complex systems.
+@sec:dnmdesc presents the formal mathematical definition of the #acr("DNM") and its medical interpretation, followd by implementation details in @sec:dnmimp and a presentation of selected simulation results in @sec:dnmres.
+
+== Kuramoto Oscillator Model <sec:kuramoto>
+To mathematically describe natural or technological phenomena, _coupled oscillators_ have proven to be a useful framework @Placeholder, for example, to model the relative timing of neural spiking, reaction rates of chemical systems or dynamics of epidemics @Placeholder.
+In these cases complex networks of coupled oscillators are often capable of bridging microscopic dynamics and macroscopic synchronisation phenomena observed in biological systems.
+
+One of the most influential system of coupled oscillators is the _Kuramoto Phase Oscillator Model_ which is often used to study how synchronisation emerges from simple coupling rules.
+In the simplest form it consists of $N$ identical, fully connected and coupled oscillators with phase $phi_i in [0, 2pi), " for" i in 1...N$ and an intrinsic frequency $omega_i$ @Placeholder.
+The dynamics are given by:
 $
   dot(phi)_i = omega_i - Kappa/N sum^N_(j=1) sin(phi_i - phi_j)
 $ <eq:kuramoto>
 
-Where the $dot(phi)$ is used as shorthand notation for the time derivative $(d phi)/(d t)$.
-Further parameters are the intrinsic frequency of an oscillator $omega_i$ and $Kappa$ determining the coupling strength between oscillators $i$ and $j$.
+Here the $dot(phi)$ is used as shorthand notation for the time derivative of the phase $(d phi)/(d t)$, the instantaneous phase velocity.
+An additional parameter is the global coupling strength $Kappa$ between oscillators $i$ and $j$.
 
-When evolving this system with time, oscillator $i$'s phase velocity depends on each other oscillator $j$, if $phi_j > phi_i$ the phase oscillator $i$ will accelerate $dot(phi)_i > 0$, if $phi_j < phi_i$ decelerate.
-For sufficiently large $N$ one can find system-scale states of coherence or incoherence based on the choice of $Kappa$.
-Coherent in this case means oscillators synchronize with each other, so they share the same phase and phase velocity, incoherence on the other hand is the absence of synchronization (desynchronized), which can be seen if @fig:sync A) and B) respectively.
+The model captures the essential mechanism of self-synchronization, which is the reason the model has attracted so much research.
+When evolving this system with time, oscillator $i$'s phase velocity depends on each other oscillator $j$.
+If $phi_j > phi_i$ the phase oscillator $i$ accelerates $dot(phi)_i > 0$, if $phi_j < phi_i$ decelerates.
+For sufficiently large $N$ the oscillator population can converge towards system-scale states of coherence or incoherence based on the choice of $Kappa$.
+Coherent in this case means oscillators synchronize with each other, so they share the same phase and phase velocity, incoherence on the other hand is the absence of synchronization (desynchronized), see @fig:sync panels A) and B) respectively.
 Synchronous states can be reached if the coupling is stronger than a certain threshold $Kappa>Kappa_c$, the critical coupling strength.
-This self-synchronization behavior is the main point of interest for these kind oscillator models and has attracted a lot of research @Placeholder.
 
 #TODO[Picture #figure("")<fig:sync>]
-On top of this relatively simple model has been extended in multiple ways #todo[why] changing the systems synchronization behavior, several of these are relevant to the #acr("DNM") and are shortly introduced.
+This relatively model captures a fundamental collective transition, disorder to order, that underlies many real world processes.
+Therefore it provides a natural starting point for the #acr("DNM").
 
-*Phase Lag $alpha$* acts as an inhibitor of synchronization, meaning with increasing $alpha$ the critical coupling strength $K_c$ also increases.
-$
-  dot(phi)_i = omega_i - Kappa/N sum^N_(j=1) sin(phi_i - phi_j + alpha)
-$
-This extension was introduced in @Placeholder (Kuramoto Sakaguchi 86) and $alpha!=0$ "frustrates" the attempt to synchronize because the coupling function $sin(phi_i - phi_j + alpha)$ does not vanish anymore when the phases align.
+=== Extensions to the Kuramoto Model
+To more accurately describe real world systems, various extensions of the basic Kuramoto model have been proposed, several of these are relevant to the #acr("DNM") and are shortly introduced:
 
-*Adaptive coupling $bold(Kappa) in RR^(N times N)$* moves from a constant coupling strength $Kappa$ for all oscillator pairs to an adaptive coupling strength for each individual pair $kappa_(i j)$:
+*Phase Lag $alpha$* introduced in @Placeholder (Kuramoto Sakaguchi 86) #todo[cite], brings a frustration into the synchronization process:
 $
-        dot(phi)_i & = omega_i - 1/N sum^N_(j=1) kappa_(i j) sin(phi_i - phi_j) \
-  dot(kappa)_(i j) & = - epsilon (kappa_(i j) + sin(phi_i - phi_j + beta))
+  dot(phi)_i = omega_i - Kappa/N sum^N_(j=1) sin(phi_i - phi_j cmred(+ alpha))
+$
+Positve values of $alpha$ act as an inhibitor of synchronization by shifting the coupling function, so the coupling does not vanish even when the phases align.
+As a result the critical coupling strength $K_c$ increases with $alpha$.
+
+*Adaptive coupling $bold(Kappa) in RR^(N times N)$* moves from a global coupling strength $Kappa$ for all oscillator pairs to an adaptive coupling strength for each individual pair $kappa_(i j)$:
+$
+  dot(phi)_i = omega_i - 1/N sum^N_(j=1) cmred(kappa_(i j)) sin(phi_i - phi_j) \
+  cmred(dot(kappa)_(i j) = - epsilon (kappa_(i j) + sin(phi_i - phi_j + beta^mu)))
 $ <eq:kurasaka>
-The adaption rate $0 < epsilon << 1$ separates the fast moving oscillator dynamics from slower moving coupling adaptivity @Placeholder (Birth).
-// neuro scientific plasticity?
+Here adaption rate $0 < epsilon << 1$ separates the fast moving oscillator dynamics from slower moving coupling adaptivity @Placeholder (Birth).
+Such adaptive couplings have been used to model neural plasticity and learning-like processes in physiological systems @Placeholder.
+The so called new phase lag parameter $beta$ of the adaptation function (also called plasticity rule) plays an essential role.
+At a value of $beta^mu=pi/2$ the coupling, and therefore the adaptivity, is at a maximum positive feedback, strengthening the link $kappa_(i j)$ (Hebbian Rule: fire together, wire together @Placeholder) and encouraging synchronization between oscillators $i$ and $j$.
+For other values $beta^mu != pi/2$ the feedback is delayed $phi^(mu)_i-phi^(nu)_j=beta^mu-pi/2$ by a phase lag, a value of $beta^mu=-pi/2$ we get an anti-Hebbian rule which inhibits synchronization.
 
-*Multiplex Networks* introduce the notion of layers, where $L$ separate fully connected Kuramoto models $mu$ and $nu$ are connected via interlayer coupling weights $sigma^(mu nu)$:
+*Multiplex Networks* represent systems with multiple interacting layers.
+Multiplexing introduces a way how several Kuramoto networks can be coupled via interlayer links:
 $
-  dot(phi)_i^mu = omega_i - Kappa/N sum^N_(j=1) sin(phi_i - phi_j + alpha^(mu mu)) - sigma^(mu nu) sum^L_(nu=1, nu!=mu) sin(phi_i^mu - phi_i^nu + alpha^(mu nu))
+  dot(phi)_i^cmred(mu) = omega_i - Kappa/N sum^N_(j=1) sin(phi_i - phi_j cmred(+ alpha^(mu mu))) cmred(- sigma^(mu nu) sum^L_(nu=1, nu!=mu) sin(phi_i^mu - phi_i^nu + alpha^(mu nu)))
 $
-
+Here $mu$ and $nu$ represent distinct subsystems, and are connected via interlayer coupling weights $sigma^(mu nu)$:
 
 == Description <sec:dnmdesc>
 The #acr("DNM") is a *functional* model, that means it *does not try to model things accurately on any cellular, biochemical, or organ level*, it instead tries to model dynamic interactions.
@@ -351,8 +366,6 @@ Besides the coupling weights in $bold(Kappa)^ot$ the intralayer interactions als
 To separate the fast moving oscillator dynamics from the slower moving coupling weights adaption rates $0 < epsilon << 1$ are introduced.
 Since the adaption of parenchymal cytokine communication is assumed to be slower than the immune counterpart @osc1, it is chosen $epsilon^1 << epsilon^2 << 1$, which introduces dynamics on multiple timescales.
 Lastly, the most important parameter is $beta$ which significantly influences they adaptivity of the cytokines.
-At a value of $beta=pi/2$ the coupling, and therefore the adaptivity, is at a maximum positive feedback, (Hebbian Rule: fire together, wire together) encouraging synchronization between oscillators $i$ and $j$.
-For other values $beta != pi/2$ the feedback is delayed $phi^ot_i-phi^ot_j=beta-pi/2$ by a phase lag.
 Because $beta$ has such a big influence on the model dynamics it is called the _age parameter_ and summarizes multiple physiological concepts such as age, inflammatory baselines, adiposity, pre-existing illness, physical inactivity, nutritional influences and other common risk factors @osc2.
 
 #table(
