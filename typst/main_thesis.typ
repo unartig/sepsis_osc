@@ -5,6 +5,7 @@
 )
 #import "figures/tree.typ": tree_fig
 #import "figures/fsq.typ": fsq_fig
+#import "figures/kuramoto.typ": kuramoto_fig
 #import "figures/helper.typ": cmalpha, cmbeta, cmred, cmsigma
 #show: thesis.with(
   title: "Comprehensive Guidelines and Templates for Thesis Writing",
@@ -73,6 +74,7 @@ $R^mu_2=0$ splay-state and $R^mu_2=1$ is fully synchronized.
 
 
 #todo[Entropy, Splay Ratio, MPV Std, Cluster Ratio]
+
 
 = Introduction
 
@@ -271,7 +273,6 @@ Rather than studying components in isolation, network physiology focuses on the 
 It enables the study of human physiology as a complex, integrated system, where emergent macroscopic dynamics arise from interacting subsystems that cannot be explained by their individual behavior.
 This perspective translates to the mesoscopic level, i.e. the in-between of things, where the coupling mechanisms collectively determine the overall physiological function.
 
-== From Network Physiology to Complex Networks
 In network physiology, the analytical basis of the bodies interacting systems is often graph based.
 Nodes represent subsystem such as organs or cell populations and links represent functional couplings or communication pathways @Ivanov2021Physiolome.
 Unlike classical graph theory, where dynamics are introduced by changing the graph topology (e.g. adding or removing links or nodes), in _Complex Networks_ the links themselves can evolve dynamically in response to other system variables.
@@ -286,13 +287,13 @@ In particular @osc1 and @osc2 have introduced a dynamical system that models the
 This functional model will be referred to as #acl("DNM") and forms the conceptual foundation for this whole project.
 
 The remainder of this chapter is structured as follows: In @sec:kuramoto introduces the theoretical backbone of the #acr("DNM"), the Kuramoto oscillator model, which provides a minimal description of synchronization phenomena in complex systems.
-@sec:dnmdesc presents the formal mathematical definition of the #acr("DNM") and its medical interpretation, followd by implementation details in @sec:dnmimp and a presentation of selected simulation results in @sec:dnmres.
+@sec:dnmdesc presents the formal mathematical definition of the #acr("DNM") and its medical interpretation, followed by implementation details in @sec:dnmimp and a presentation of selected simulation results in @sec:dnmres.
 
-== Kuramoto Oscillator Model <sec:kuramoto>
+== Theoretical Background: The Kuramoto Oscillator Model <sec:kuramoto>
 To mathematically describe natural or technological phenomena, _coupled oscillators_ have proven to be a useful framework @Placeholder, for example, to model the relative timing of neural spiking, reaction rates of chemical systems or dynamics of epidemics @Placeholder.
-In these cases complex networks of coupled oscillators are often capable of bridging microscopic dynamics and macroscopic synchronisation phenomena observed in biological systems.
+In these cases complex networks of coupled oscillators are often capable of bridging microscopic dynamics and macroscopic synchronization phenomena observed in biological systems.
 
-One of the most influential system of coupled oscillators is the _Kuramoto Phase Oscillator Model_ which is often used to study how synchronisation emerges from simple coupling rules.
+One of the most influential system of coupled oscillators is the _Kuramoto Phase Oscillator Model_ which is often used to study how synchronization emerges from simple coupling rules.
 In the simplest form it consists of $N$ identical, fully connected and coupled oscillators with phase $phi_i in [0, 2pi), " for" i in 1...N$ and an intrinsic frequency $omega_i$ @Placeholder.
 The dynamics are given by:
 $
@@ -302,25 +303,29 @@ $ <eq:kuramoto>
 Here the $dot(phi)$ is used as shorthand notation for the time derivative of the phase $(d phi)/(d t)$, the instantaneous phase velocity.
 An additional parameter is the global coupling strength $Kappa$ between oscillators $i$ and $j$.
 
-The model captures the essential mechanism of self-synchronization, which is the reason the model has attracted so much research.
+The model captures the essential mechanism of self-synchronization, and a fundamental collective transition from disorder to order, that underlie many real world processes, which is the reason the model has attracted so much research.
 When evolving this system with time, oscillator $i$'s phase velocity depends on each other oscillator $j$.
 If $phi_j > phi_i$ the phase oscillator $i$ accelerates $dot(phi)_i > 0$, if $phi_j < phi_i$ decelerates.
 For sufficiently large $N$ the oscillator population can converge towards system-scale states of coherence or incoherence based on the choice of $Kappa$.
-Coherent in this case means oscillators synchronize with each other, so they share the same phase and phase velocity, incoherence on the other hand is the absence of synchronization (desynchronized), see @fig:sync panels A) and B) respectively.
+Coherent in this case means oscillators synchronize with each other, so they share the same phase and phase velocity, incoherence on the other hand is the absence of synchronization (desynchronized), see @fig:sync.
 Synchronous states can be reached if the coupling is stronger than a certain threshold $Kappa>Kappa_c$, the critical coupling strength.
+In between these two regimes there is a transition-phase of partial synchronization, where some oscillators phase- and frequency-lock and others do not.
 
-#TODO[Picture #figure("")<fig:sync>]
-This relatively model captures a fundamental collective transition, disorder to order, that underlies many real world processes.
-Therefore it provides a natural starting point for the #acr("DNM").
+#figure(
+  kuramoto_fig,
+  caption: [The two stable regimes for the basic Kuramoto model. From an incoherent system state with desynchronized oscillators (heterogeneous phases and frequencies), to a synchronized system state with phase- and frequency-locked oscillators with increasing coupling strength $Kappa$)],
+) <fig:sync>
 
-=== Extensions to the Kuramoto Model
-To more accurately describe real world systems, various extensions of the basic Kuramoto model have been proposed, several of these are relevant to the #acr("DNM") and are shortly introduced:
+
+=== Extensions to the Kuramoto Model <sec:extent>
+To more accurately describe real world systems, various extensions of the basic Kuramoto model have been proposed and studied numerically and analytically.
+Several extensions are directly relevant to the #acr("DNM") and their definitions and effects on synchroization will be shortly introduced:
 
 *Phase Lag $alpha$* introduced in @Placeholder (Kuramoto Sakaguchi 86) #todo[cite], brings a frustration into the synchronization process:
 $
   dot(phi)_i = omega_i - Kappa/N sum^N_(j=1) sin(phi_i - phi_j cmred(+ alpha))
 $
-Positve values of $alpha$ act as an inhibitor of synchronization by shifting the coupling function, so the coupling does not vanish even when the phases align.
+Positive values of $alpha$ act as an inhibitor of synchronization by shifting the coupling function, so the coupling does not vanish even when the phases align.
 As a result the critical coupling strength $K_c$ increases with $alpha$.
 
 *Adaptive coupling $bold(Kappa) in RR^(N times N)$* moves from a global coupling strength $Kappa$ for all oscillator pairs to an adaptive coupling strength for each individual pair $kappa_(i j)$:
@@ -339,21 +344,36 @@ Multiplexing introduces a way how several Kuramoto networks can be coupled via i
 $
   dot(phi)_i^cmred(mu) = omega_i - Kappa/N sum^N_(j=1) sin(phi_i - phi_j cmred(+ alpha^(mu mu))) cmred(- sigma^(mu nu) sum^L_(nu=1, nu!=mu) sin(phi_i^mu - phi_i^nu + alpha^(mu nu)))
 $
-Here $mu$ and $nu$ represent distinct subsystems, and are connected via interlayer coupling weights $sigma^(mu nu)$:
+Here $mu$ and $nu$ represent distinct subsystems, and are connected via interlayer coupling weights $sigma^(mu nu)$, acting one-to-one.\
+
+These extensions combined serve as the source of dynamics for the #acr("DNM") and give rise to more intricate system states than the straightforward synchronization in the base model.
+Even for single layers, non-multiplexed but phase-lagged and adaptively coupled oscillators, one can observe three stable system states: (multi-)clustered, chimera and splay states.
+Emergence of these states depends on the choice of the phase-lag parameters $alpha$ and $beta$.
+In the multi-clustered state, oscillators synchronize their frequencies but two or more phase clusters form.
+For chimera states, a special type of partial synchronization, only a subset of oscillators synchronizes and leaves others desynchronized, in contrast to "normal" partial synchronization they occur when the coupling symmetry breaks.
+For splay states, oscillators fully synchronize their frequencies but do not align their phases, instead they uniformly spread around the unit circle @Berner2020Birth.
+
+The introduction changes the system behavior once more, for example single layers of a multiplexed system can result in the multi-clustered regime for parameters they wouldn't in the monoplexed case.
+In multiplexed systems it is also possible connected layers end up in different stable state, one in a clustered the other in a splay state for example.
+
+#TODO[Wo sind die freq cluster?]
 
 == Description <sec:dnmdesc>
 The #acr("DNM") is a *functional* model, that means it *does not try to model things accurately on any cellular, biochemical, or organ level*, it instead tries to model dynamic interactions.
 At the core, the model does differentiate between two broad classes of cells, introduced in @sec:cell, the stroma and the parenchymal cells.
 It also includes the cell interaction through cytokine proteins and an information flow through the basal membrane.
 
-The model aggregates cells of one type to layers, everything associated with parenchymal cells is indicated with an $""^1$ superscript and is called the _organ layer_, stroma cells are indicated with $""^2$ and is referred to as non specific _immune layer_.
-Each layer consists of $N$ phase oscillators $phi^ot_i in [0, 2pi)$, but individual oscillators do not correspond to single cells, rather the layer as a whole is associated with the overall state of all organs or immune system functionality respectively.
+Cells of one type are aggregated into layers, everything associated with parenchymal cells is indicated with an $""^1$ superscript and is called the _organ layer_, stroma cells are indicated with $""^2$ and is referred to as non specific _immune layer_.
+Each layer consists of $N$ phase oscillators $phi^ot_i in [0, 2pi)$.
+To emphazise again the function aspect of the model: individual oscillators do not correspond to single cells, rather the layer as a whole is associated with the overall state of all organs or immune system functionality respectively.
 
-The metabolic cell activity is modeled by their rotational velocity $dot(phi)$, the faster the rotation, the faster the metabolism.
-Each layer is fully coupled via an adaptive possibly asymmetric matrix $bold(Kappa)^ot in [-1, 1]^(N times N)$ with elements $kappa_(i j)$, these couplings represent the activity of cytokine mediation.
-For the organ layer there is an additional non-adaptive coupling part $bold(A) in [0, 1]^(N times N)$ with elements $a_(i j)$, a fixed connectivity within an organ.
+The metabolic cell activity is modeled by rotational velocity $dot(phi)$ of the oscillators, the faster the rotation, the faster the metabolism.
+Each layer is fully coupled via an adaptive possibly asymmetric matrix $bold(Kappa)^ot in [-1, 1]^(N times N)$ with elements $kappa^ot_(i j)$, these couplings represent the activity of cytokine mediation.
+Small absolute coupling values indicate a low communication via cytokines and grows with larger coupling strength.
+For the organ layer there is an additional non-adaptive coupling part $bold(A)^1 in [0, 1]^(N times N)$ with elements $a^1_(i j)$, representing a fixed connectivity within an organ.
 
-The dimensionless system dynamics are described with the following coupled #acr("ODE") terms:
+The dimensionless system dynamics are described with the following coupled #acr("ODE") terms, build on the classical Kuramoto model described in @sec:kuramoto and its extensions from @sec:extent:
+
 $
   dot(phi)^1_i =& omega^1 - 1/N sum^N_(j=1) lr({ (a^1_(i j) + kappa^1_(i j))sin(phi^1_i - phi^1_j + alpha^(11)) }) - sigma sin(phi^1_i - phi^2_i + alpha^(12)) #<odep1> \
   dot(kappa)^1_(i j) &= -epsilon^1 (kappa^1_(i j) + sin(phi^1_i - phi^1_j - beta)) #<odek1> \
@@ -361,12 +381,29 @@ $
   dot(kappa)^2_(i j) &= -epsilon^2 (kappa^2_(i j) + sin(phi^2_i - phi^2_j - beta)) #<odek2>
 $ <eq:ode-sys>
 Where the interlayer coupling, i.e. a symmetric information through the basal lamina, is modeled by the parameter $sigma in RR_(>=0)$.
-Natural oscillator frequencies are modeled by the parameters $omega^ot$, correspond to metabolic activity.
-Besides the coupling weights in $bold(Kappa)^ot$ the intralayer interactions also depend on the phase lag parameters $alpha^11$ and $alpha^22$.
+The internal oscillator frequencies are modeled by the parameters $omega^ot$ and correspond to a natural metabolic activity.
+
+Besides the coupling weights in $bold(Kappa)^ot$ the intralayer interactions also depend on the phase lag parameters $alpha^11$ and $alpha^22$ modeling cellular reaction delay.
 To separate the fast moving oscillator dynamics from the slower moving coupling weights adaption rates $0 < epsilon << 1$ are introduced.
 Since the adaption of parenchymal cytokine communication is assumed to be slower than the immune counterpart @osc1, it is chosen $epsilon^1 << epsilon^2 << 1$, which introduces dynamics on multiple timescales.
-Lastly, the most important parameter is $beta$ which significantly influences they adaptivity of the cytokines.
-Because $beta$ has such a big influence on the model dynamics it is called the _age parameter_ and summarizes multiple physiological concepts such as age, inflammatory baselines, adiposity, pre-existing illness, physical inactivity, nutritional influences and other common risk factors @osc2.
+
+Lastly, the most influential parameter is $beta$ which controls they adaptivity of the cytokines.
+Because $beta$ has such a big influence on the model dynamics it is called the _(biological) age parameter_ and summarizes multiple physiological concepts such as age, inflammatory baselines, adiposity, pre-existing illness, physical inactivity, nutritional influences and other common risk factors @osc2.
+
+=== Pathology in the DNM
+A biological organism, such as the human body, can be regarded as a self-regulating system that, under healthy conditions, maintains a homeostatic state @Placeholder.
+Homeostasis refers to a dynamic but balanced equilibrium in which the physiological subsystems continuously interact to sustain stability despite external perturbations.
+In the context of the #acr("DNM"), this equilibrium is represented by a synchronous regime of both layers in the duplex oscillator system.
+In synchonous states, the organ layer and immune layer exhibit coordinated phase and frequency dynamics, reflecting balanced communication, collective frequency of cellular metabolism and stable systemic function.
+
+Pathology, in contrast, is modeled by the breakdown of the synchronicity and the formation of frequency clusters in the parenchymal layer, i.e. loss of homeostatic balance.
+In the #acr("DNM") least one cluster will exhibit increased frequency and one with lower or unchanged frequency.
+This aligns with medical observation, where unhealthy parenchymal cells change to an less efficient anaerobic glycosis based metabolism, forcing them to increase their metabolic activity to keep up with the energy demand.
+Remaining healthy cells are expected to stay frequency synchronized to a lower and "healthy" frequency.
+
+A splay state corresponds to a more vulnerable biological condition, even though the phases are not synchronized, the frequencies still are.
+
+
 
 #table(
   columns: (auto, auto, auto),
@@ -374,8 +411,8 @@ Because $beta$ has such a big influence on the model dynamics it is called the _
   align: center,
   table.header([*Symbol*], [*Name*], [*Physiological Meaning*]),
   table.cell(colspan: 3)[*Variables*],
-  [$phi^ot_i$], [Phase], [Group of cells],
-  [$dot(phi^ot_i)$], [Phase Velocity], [Metabolic activity],
+  [$phi_i$], [Phase], [Group of cells],
+  [$dot(phi)_i$], [Phase Velocity], [Metabolic activity],
   [$kappa_(i j)$], [Coupling Weight], [Cytokine activity],
 
   table.cell(colspan: 3)[*Parameters*],
@@ -388,7 +425,7 @@ Because $beta$ has such a big influence on the model dynamics it is called the _
 
   [$omega^ot$],
   [Natural frequency],
-  [Natural activity of cellular metabolism],
+  [Natural cellular metabolism],
 
   [$epsilon$], [Time scale ratios], [Temporal scale of cytokine activity],
   // [$C$], [Initial network pertubation], [-],
@@ -415,9 +452,6 @@ Mean Phase Velocities are calculated as followed:
 $
   mean(phi^mu) = 1/N sum^N_j phi^mu_j
 $ <eq:std>
-=== Functional Models
-=== Parenchymal
-=== Immune System
 
 == Implementation <sec:dnmimp>
 #TODO[
