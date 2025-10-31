@@ -21,25 +21,20 @@
   // The title for your work.
   title: [Your Title],
   thesis-type: "Master",
-
   // Author's name.
   author: "Author",
   institute-logo: image("images/inst_logo.svg"),
-
   // The paper size to use.
   paper-size: "a4",
   font-size: 11pt,
   leading: 0.8em,
-
   // Language
   language: "en",
-
   //examiners
   first-examiner: none,
   second-examiner: none,
   first-supervisor: none,
   second-supervisor: none,
-
   // Date that will be displayed on cover page.
   // The value needs to be of the 'datetime' type.
   // More info: https://typst.app/docs/reference/foundations/datetime/
@@ -51,62 +46,49 @@
   // More info: https://typst.app/docs/reference/foundations/datetime/#format
   // The default format will display date as: MMMM DD, YYYY
   date-format: "[day].[month].[year repr:full]",
-
   // The contents for the summary pages. This will be displayed after the cover page. Can
   // be omitted if you don't have one.
   summary: none,
-
-
   // The contents for the notation pages. This will be displayed after the cover page. Can
   // be omitted if you don't have one.
   notation: none,
-
   // The result of a call to the `outline` function or `none`.
   // Set this to `none`, if you want to disable the table of contents.
   // More info: https://typst.app/docs/reference/model/outline/
   table-of-contents: outline(),
   acronyms: none,
-
   // Display an appendix after the body but before the bibliography.
   appendix: (
     enabled: false,
     heading-numbering-format: "A.1.1",
     body: none,
   ),
-
   // The result of a call to the `bibliography` function or `none`.
   // Example: bibliography("refs.bib")
   // More info: https://typst.app/docs/reference/model/bibliography/
   bibliography: none,
-
   // Whether to start a chapter on a new page.
   chapter-pagebreak: true,
-
   // Whether to display a maroon circle next to external links.
   external-link-circle: true,
-
   // Display an index of figures (images).
   figure-index: (
     enabled: false,
     title: "",
   ),
-
   // Display an index of tables
   table-index: (
     enabled: false,
     title: "",
   ),
-
   // Display an index of listings (code blocks).
   listing-index: (
     enabled: false,
     title: "",
   ),
-
   head-font: "New Computer Modern",
   body-font: "New Computer Modern",
   raw-font: "Bitstream Vera Sans Mono",
-
   // The content of your work.
   body,
 ) = {
@@ -115,7 +97,7 @@
 
   // Set the body font.
   set text(
-    size: font-size,  // default is 11pt
+    size: font-size, // default is 11pt
     font: body-font,
     lang: language,
   )
@@ -139,55 +121,63 @@
   page(
     footer: "",
     grid(
-      columns: (1fr,1.5fr),
+      columns: (1fr, 1.5fr),
       gutter: 1cm,
       align: center + horizon,
-      image("images/TUHH_logo-wortmarke_en_rgb.svg"),
-      institute-logo,
-    ) +
-    v(3cm) +
-    align(
-      center + top,
-      block(width: 90%)[
-        #text(2em, font: head-font)[*#title*]
-        // #text(2.2em)[*#title*]
+      image("images/TUHH_logo-wortmarke_en_rgb.svg"), institute-logo,
+    )
+      + v(3cm)
+      + align(
+        center + top,
+        block(width: 90%)[
+          #text(2em, font: head-font)[*#title*]
+          // #text(2.2em)[*#title*]
 
-
-        #v(1fr)
-        #text(1.5em)[
-          #if language == "en" [#thesis-type's Thesis] else if language == "de" {thesis-type+"arbeit"} else [= language not defined]
-
-          #v(1em)
-          #if language == "en" [of] else if language == "de" [von] else [= language not defined]
-          \ #author
 
           #v(1fr)
-          #set text(14pt)
-          #grid(
-            columns: (1fr,1fr),
-            align: (right,left),
-            gutter: (0.5em),
-            if language == "en" [Date of issue:] 
-            else if language == "de" [Ausgabedatum:] 
-            else [anguage not defined],
-            if date-of-issue != none {date-of-issue.display(date-format)},
-            if language == "en" [Date of submission:] 
-            else if language == "de" [Abgabedatum:] 
-            else [language not defined],
-            if date-of-submission != none {date-of-submission.display(date-format)},
-            if language == "en" {if second-examiner != none [Examiners:] else [Examiner:]}
-            else if language == "de" [Geprüft von:]
-            else [language not defined],
-            first-examiner + linebreak() + second-examiner,
-            if language == "en" {if second-examiner != none [Supervisors:] else [Supervisor:]}
-            else if language == "de" [Betreut von:]
-            else [language not defined],
-            first-supervisor + linebreak() + second-supervisor,
-          )
-          #v(2em)
-        ]
-      ],
-    ),
+          #text(1.5em)[
+            #if language == "en" [#thesis-type's Thesis] else if (
+              language == "de"
+            ) { thesis-type + "arbeit" } else [= language not defined]
+
+            #v(1em)
+            #if language == "en" [of] else if (
+              language == "de"
+            ) [von] else [= language not defined]
+            \ #author
+
+            #v(1fr)
+            #set text(14pt)
+            #grid(
+              columns: (1fr, 1fr),
+              align: (right, left),
+              gutter: 0.5em,
+              if language == "en" [Date of issue:] else if language
+                == "de" [Ausgabedatum:] else [anguage not defined],
+              if date-of-issue != none { date-of-issue.display(date-format) },
+
+              if language == "en" [Date of submission:] else if language
+                == "de" [Abgabedatum:] else [language not defined],
+              if date-of-submission != none {
+                date-of-submission.display(date-format)
+              },
+
+              if language == "en" {
+                if second-examiner != none [Examiners:] else [Examiner:]
+              } else if language
+                == "de" [Geprüft von:] else [language not defined],
+              first-examiner + linebreak() + second-examiner,
+
+              if language == "en" {
+                if second-examiner != none [Supervisors:] else [Supervisor:]
+              } else if language
+                == "de" [Betreut von:] else [language not defined],
+              first-supervisor + linebreak() + second-supervisor,
+            )
+            #v(2em)
+          ]
+        ],
+      ),
   )
 
   set page(
@@ -209,37 +199,40 @@
 
   // Customize figures of tables
   show figure.where(
-    kind: table
+    kind: table,
   ): set figure.caption(position: top)
 
   // Configure paragraph properties.
   set par(
     leading: leading,
-    spacing: 1em,
+    spacing: 1.5em, // probably 1em is correct
     justify: true,
     linebreaks: "optimized",
-    first-line-indent: 12pt
+    first-line-indent: 0pt,
   )
 
   // Add vertical space after headings.
-  show heading: it => {
-    it
-    v(3%, weak: true)
-  }
+  // show heading: it => {
+  //   it
+  //   v(3%, weak: true)
+  // }
   // Do not hyphenate headings.
-  show heading: set text(hyphenate: false)
+  // show heading: set text(hyphenate: false)
 
   // Show a small maroon circle next to external links.
-  show link: it => {
-    it
-    // Workaround for ctheorems package so that its labels keep the default link styling.
-    if external-link-circle and type(it.dest) != label {
-      sym.wj
-      h(1.6pt)
-      sym.wj
-      super(box(height: 3.8pt, circle(radius: 1.2pt, stroke: 0.7pt + rgb("#993333"))))
-    }
-  }
+  // show link: it => {
+  //   it
+  //   // Workaround for ctheorems package so that its labels keep the default link styling.
+  //   if external-link-circle and type(it.dest) != label {
+  //     sym.wj
+  //     h(1.6pt)
+  //     sym.wj
+  //     super(box(height: 3.8pt, circle(
+  //       radius: 1.2pt,
+  //       stroke: 0.7pt + rgb("#993333"),
+  //     )))
+  //   }
+  // }
 
   // Display preface as the second page.
   page(footer: none)[]
@@ -249,33 +242,31 @@
     if language == "en" [
       = Statutory Declaration
       #v(3cm)
-      I, #author, hereby affirm that the following #thesis-type's thesis has been elaborated solely by myself. 
+      I, #author, hereby affirm that the following #thesis-type's thesis has been elaborated solely by myself.
       No other means and sources except those stated, referenced and acknowledged have been used.
       #v(3cm)
-      #if date != none {date.display(date-format)}
+      #if date != none { date.display(date-format) }
       #v(2cm)
       (#author)
-    ] 
-    else if language == "de" [
+    ] else if language == "de" [
       = Eigenständigkeitserklärung
       #v(3cm)
-      Hiermit erkläre ich, #author, an Eides statt, dass ich die vorliegende #{thesis-type+"arbeit"} selbstständig verfasst und keine anderen
+      Hiermit erkläre ich, #author, an Eides statt, dass ich die vorliegende #{ thesis-type + "arbeit" } selbstständig verfasst und keine anderen
       als die angegebenen Quellen und Hilfsmittel verwendet habe.
       #v(3cm)
       #date.display(date-format)
       #v(2cm)
       (#author)
-    ]
-    else [= language not defined]
+    ] else [= language not defined]
   })
 
   // Display the summary.
   if summary != none {
     pagebreak(to: "odd")
     v(12.5%)
-    if language == "en" [= Abstract] 
-    else if language == "de" [= Kurzfassung] 
-    else [= language not defined]
+    if language == "en" [= Abstract] else if (
+      language == "de"
+    ) [= Kurzfassung] else [= language not defined]
     summary
     pagebreak(to: "odd", weak: true)
   }
@@ -331,12 +322,14 @@
       }
 
       // Are we on a page that starts a chapter?
-      let target = if is-odd{
+      let target = if is-odd {
         heading.where(level: 2)
       } else {
         heading.where(level: 1)
       }
-      if query(heading.where(level: 1)).any(it => it.location().page() == abs-page-number) {
+      if query(heading.where(level: 1)).any(it => (
+        it.location().page() == abs-page-number
+      )) {
         return align(aln)[]
       }
 
@@ -355,7 +348,7 @@
           line(length: 100%, stroke: black)
         }
       }
-    }
+    },
   )
   // Configure equation numbering.
   show: equate.with(breakable: true, sub-numbering: true)
@@ -377,16 +370,16 @@
   set table(
     // Increase the table cell's padding
     inset: 7pt, // default is 5pt
-    stroke: (0.5pt + stroke-color)
+    stroke: (0.5pt + stroke-color),
   )
   // Use smallcaps for table header row.
   show table.cell.where(y: 0): smallcaps
 
   // Wrap `body` in curly braces so that it has its own context. This way show/set rules
   // will only apply to body.
-    // Configure heading numbering.
-    set heading(numbering: "1.1")
-    // Start chapters on a new page.
+  // Configure heading numbering.
+  set heading(numbering: "1.1")
+  // Start chapters on a new page.
   {
     show heading.where(level: 1): it => {
       if chapter-pagebreak {
@@ -426,7 +419,11 @@
     v(25%)
     show std-bibliography: set text(0.85em)
     // Use default paragraph properties for bibliography.
-    show std-bibliography: set par(leading: 0.65em, justify: false, linebreaks: auto)
+    show std-bibliography: set par(
+      leading: 0.65em,
+      justify: false,
+      linebreaks: auto,
+    )
     bibliography
   }
 
