@@ -28,6 +28,9 @@
     "ML": "Machine Learning",
     "DL": "Deep Learning",
     "ODE": "Ordinary Differential Equation",
+    "JIT": "Just In Time Compilation",
+    "GPU": "Graphics Processing Unit",
+    "PID": "Poportional-Integral-Derivative",
   ),
 
   bibliography: bibliography("bibliography.bib"),
@@ -229,8 +232,9 @@ While these purely data-driven approaches often achieve acceptable performance b
 In parallel, recent advances in the field of network physiology have introduced new ways to model physiological systems as interacting subsystems rather than isolated organs @Ivanov2021Physiolome.
 The #acr("DNM") introduced in @osc1 and adapted in @osc2, allows for a functional description of organ failure in sepsis and shows realistic system behavior in preliminary analysis.
 An in-depth introduction to the #acr("DNM") is provided in @sec:dnm.
-But up until now the dynamic model has not yet been verified on real data, in this work we want to change that.
-However, this model has not yet been validated against real-world observations, which will be addressed in this work #todo[eher project???].
+But up until now the dynamic model has not yet been verified on real data.
+We want to investigte how real patients would translate to the model parameters, and how the temporal physiological evolution can be incorporated and if there is a benefit doing so.
+// However, this model has not yet been validated against real-world observations, which will be addressed in this work #todo[eher project???].
 
 
 To summarize, the specific research questions include:
@@ -313,13 +317,13 @@ In between these two regimes there is a transition-phase of partial synchronizat
 
 #figure(
   kuramoto_fig,
-  caption: [The two stable regimes for the basic Kuramoto model. From an incoherent system state with desynchronized oscillators (heterogeneous phases and frequencies), to a synchronized system state with phase- and frequency-locked oscillators with increasing coupling strength $Kappa$)],
+  caption: [Schematic transition between the two stable regimes for the basic Kuramoto model. From an incoherent system state with desynchronized oscillators (heterogeneous phases and frequencies), to a synchronized system state with phase- and frequency-locked oscillators with increasing coupling strength $Kappa$).],
 ) <fig:sync>
 
 
 === Extensions to the Kuramoto Model <sec:extent>
 To more accurately describe real world systems, various extensions of the basic Kuramoto model have been proposed and studied numerically and analytically.
-Several extensions are directly relevant to the #acr("DNM") and their definitions and effects on synchroization will be shortly introduced:
+Several extensions are directly relevant to the #acr("DNM") and their definitions and effects on synchronization will be shortly introduced:
 
 *Phase Lag $alpha$* introduced in @Placeholder (Kuramoto Sakaguchi 86) #todo[cite], brings a frustration into the synchronization process:
 $
@@ -333,10 +337,10 @@ $
   dot(phi)_i = omega_i - 1/N sum^N_(j=1) cmred(kappa_(i j)) sin(phi_i - phi_j) \
   cmred(dot(kappa)_(i j) = - epsilon (kappa_(i j) + sin(phi_i - phi_j + beta^mu)))
 $ <eq:kurasaka>
-Here adaption rate $0 < epsilon << 1$ separates the fast moving oscillator dynamics from slower moving coupling adaptivity @Placeholder (Birth).
+Here adaption rate $0 < epsilon << 1$ separates the fast moving oscillator dynamics from slower moving coupling adaptivity @Berner2020Birth.
 Such adaptive couplings have been used to model neural plasticity and learning-like processes in physiological systems @Placeholder.
 The so called new phase lag parameter $beta$ of the adaptation function (also called plasticity rule) plays an essential role.
-At a value of $beta^mu=pi/2$ the coupling, and therefore the adaptivity, is at a maximum positive feedback, strengthening the link $kappa_(i j)$ (Hebbian Rule: fire together, wire together @Placeholder) and encouraging synchronization between oscillators $i$ and $j$.
+At a value of $beta^mu=pi/2$ the coupling, and therefore the adaptivity, is at a maximum positive feedback, strengthening the link $kappa_(i j)$ (Hebbian Rule: fire together, wire together @Berner2020Birth) and encouraging synchronization between oscillators $i$ and $j$.
 For other values $beta^mu != pi/2$ the feedback is delayed $phi^(mu)_i-phi^(nu)_j=beta^mu-pi/2$ by a phase lag, a value of $beta^mu=-pi/2$ we get an anti-Hebbian rule which inhibits synchronization.
 
 *Multiplex Networks* represent systems with multiple interacting layers.
@@ -347,16 +351,19 @@ $
 Here $mu$ and $nu$ represent distinct subsystems, and are connected via interlayer coupling weights $sigma^(mu nu)$, acting one-to-one.\
 
 These extensions combined serve as the source of dynamics for the #acr("DNM") and give rise to more intricate system states than the straightforward synchronization in the base model.
-Even for single layers, non-multiplexed but phase-lagged and adaptively coupled oscillators, one can observe three stable system states: (multi-)clustered, chimera and splay states.
-Emergence of these states depends on the choice of the phase-lag parameters $alpha$ and $beta$.
-In the multi-clustered state, oscillators synchronize their frequencies but two or more phase clusters form.
-For chimera states, a special type of partial synchronization, only a subset of oscillators synchronizes and leaves others desynchronized, in contrast to "normal" partial synchronization they occur when the coupling symmetry breaks.
-For splay states, oscillators fully synchronize their frequencies but do not align their phases, instead they uniformly spread around the unit circle @Berner2020Birth.
+Even for single layers, non-multiplexed but phase-lagged and adaptively coupled oscillators, one can observe several distinct system states, neither fully synchronized or desynchronized such as phase and frequency-clusters, chimera- and splay states.
+The emergence of these states depends on the choice of the coupling strength $Kappa$ and the phase-lag parameters $alpha$ and $beta$.
+
+In the frequency clustered state, the oscillator phases do not synchronize, but several oscillator groups can form that share a common frequency.
+For the phase-clustered case, the groups additionally synchronize their phase.
+Frequency clusters often emerge as intermediate regimes between full synchronization and incoherence @Berner2019Hiera.
+
+Chimera states, a special type of partial synchronization, occur when only a subset of oscillators synchronizes in phase and frequency, while others remain desynchronized.
+In contrast to "normal" partial synchronization they occur when the coupling symmetry breaks.
+In splay states, all osciallators synchronize their frequencies but do not their phases, they instead uniformly distribute around the unit circle @Berner2020Birth.
 
 The introduction changes the system behavior once more, for example single layers of a multiplexed system can result in the multi-clustered regime for parameters they wouldn't in the monoplexed case.
-In multiplexed systems it is also possible connected layers end up in different stable state, one in a clustered the other in a splay state for example.
-
-#TODO[Wo sind die freq cluster?]
+In multiplexed systems it is also possible connected layers end up in different stable state, for example, one in a clustered the other in a splay state.
 
 == Description <sec:dnmdesc>
 The #acr("DNM") is a *functional* model, that means it *does not try to model things accurately on any cellular, biochemical, or organ level*, it instead tries to model dynamic interactions.
@@ -394,14 +401,20 @@ Because $beta$ has such a big influence on the model dynamics it is called the _
 A biological organism, such as the human body, can be regarded as a self-regulating system that, under healthy conditions, maintains a homeostatic state @Placeholder.
 Homeostasis refers to a dynamic but balanced equilibrium in which the physiological subsystems continuously interact to sustain stability despite external perturbations.
 In the context of the #acr("DNM"), this equilibrium is represented by a synchronous regime of both layers in the duplex oscillator system.
-In synchonous states, the organ layer and immune layer exhibit coordinated phase and frequency dynamics, reflecting balanced communication, collective frequency of cellular metabolism and stable systemic function.
+In synchronous states, the organ layer and immune layer exhibit coordinated phase and frequency dynamics, reflecting balanced communication, collective frequency of cellular metabolism and stable systemic function.
 
 Pathology, in contrast, is modeled by the breakdown of the synchronicity and the formation of frequency clusters in the parenchymal layer, i.e. loss of homeostatic balance.
 In the #acr("DNM") least one cluster will exhibit increased frequency and one with lower or unchanged frequency.
-This aligns with medical observation, where unhealthy parenchymal cells change to an less efficient anaerobic glycosis based metabolism, forcing them to increase their metabolic activity to keep up with the energy demand.
+This aligns with medical observation, where unhealthy parenchymal cells change to a less efficient anaerobic glycosis based metabolism, forcing them to increase their metabolic activity to keep up with the energy demand.
 Remaining healthy cells are expected to stay frequency synchronized to a lower and "healthy" frequency.
+A splay state are considered to a more vulnerable or less resilient condition, even though the phases are not synchronized, the frequencies still are, the overall coherence is weakened @osc2.
+// Splay states generally have comparably small attractors in the parameter space of the #acr("DNM") and often coincide with
 
-A splay state corresponds to a more vulnerable biological condition, even though the phases are not synchronized, the frequencies still are.
+Mean Phase Velocities are calculated as followed:
+$
+  mean(phi^mu) = 1/N sum^N_j phi^mu_j
+$ <eq:std>
+
 
 
 
@@ -444,37 +457,65 @@ A splay state corresponds to a more vulnerable biological condition, even though
   [Pathogenicity (Parenchymal Layer)],
 )
 
-
-
 // #figure(tree_fig)
 
-Mean Phase Velocities are calculated as followed:
-$
-  mean(phi^mu) = 1/N sum^N_j phi^mu_j
-$ <eq:std>
-
 == Implementation <sec:dnmimp>
-#TODO[
-  #list(
-    [Savings],
-    [Eqx + diffrax],
-    [Lie],
-  )
-]
-For parts in the form of $sin(theta_l-theta_m)$ following @KuramotoComp one can calculate and cache the terms $sin(theta_l), sin(theta_m), cos(theta_l), cos(theta_m)$ in advance:
+This subsection describes the numerical implementation of the #acr("ODE")-system defined in @eq:ode-sys, how (de-)synchronicity is quantified and the choice of initial parameter values.
+One goal is to reproduce numerical results presented in @osc2, since they are the starting point when trying to representing real patient trajectories inside the #acr("DNM").
 
+=== Technology and Details
+The numerical integration was performed using diffrax @kidger2021diffrax, a Python library built on-top of JAX @jax2018.
+The backbone, JAX, is a Python package for high-performance array computation, similar to NumPy or MATLAB, but designed for automatic differentiation, vectorization and #acr("JIT").
+These features allow high-level numerical code to be compiled to optimized accelerator-specific machine coder (for example #acr("GPU")), without any extra programming cost.
+Diffrax implements several numerical differential equation solvers directly in JAX.
+
+While @osc2 uses a fourth-order Runge-Kutta method and a fixed step-size, this implementation#footnote[The code is available at https://github.com/unartig/sepsis_osc/tree/main/src/sepsis_osc/dnm] uses the Tsitouras 5/4 Runge-Kutta method @Tsitouras2011Runge with adaptive step-sizing controlled by a #acr("PID") controller.
+A relative tolerance of $10^(-3)$ and an absolute tolerance $10^(-6)$ were chosen, allowing for more efficient integration while keeping an equivalent accuracy.
+
+Since the computational cost scales quadratically with the number of oscillators $N$, optimizing trigonometric evaluations becomes crucial for larger systems.
+To further accelerate integration, trigonometric evaluations were optimized following @KuramotoComp.
+Terms in the form $sin(theta_l-theta_m)$ were expanded as:
 $
   sin(theta_l-theta_m)=sin(theta_l)cos(theta_m) - cos(theta_l)sin(theta_m) "    " forall l,m in {1,...,N}
 $
-so the computational cost for the left-hand side for $N$ oscillators can be reduced from $N (N-1)$ to $4N$ trigonometric function evaluations, positively impacting the computational efficiency of the whole ODE-system significantly.
-=== Standard
-#list(
-  [Actual Mean Phase Velocity instead of averaged difference over time.],
-  [+They Calculate the difference wrong since the phase difference should be mod[$2pi$]],
-  [Different solver accuracy, but very similar],
-  [They are not batching the computation],
+By caching the terms $sin(theta_l), sin(theta_m), cos(theta_l), cos(theta_m)$ once per iteration, the number of trigonometric evaluations per is reduced from $2*[N (N-1)]$ to $2*[4N]$ trigonometric function evaluations, significantly improving performance for large oscillator populations.
+
+An alternative implementation based on Lie-algebra formulations was also explored.
+Although theoretically promising in terms of numerical accuracy, this approach did not yield practical advantages in performance or stability.
+Further details on this reformulation are provided in @sec:appendix #todo[schreiben].
+
+
+#todo[Float64]
+=== Initialization and Parametrization
+
+#table(
+  columns: (auto, auto),
+  align: center,
+  table.header([*Symbol*], [*Value*]),
+  [$M$], [50],
+  [$N$], [200],
+  [$beta$], [$[X, Y]pi$],
+  [$sigma$], [$[0.0, 1.5]$],
+  [$alpha$], [$-0.28pi$],
+  [$C$], [$20%$],
+  [$omega_1, omega_2$], [0.0],
+  [$A^1$], [$1 - I$],
+  [$epsilon^1$], [0.03],
+  [$epsilon^2$], [0.3],
+  [$phi^1_i$, $phi^2_i$], [$~cal(N)(0, 2pi)$],
+  [$kappa^1_(i j)$], [$~U(0, 1)$],
+  [$kappa^2_(i j)$], [Block C 0, Block not C 1],
 )
-=== Lie
+#TODO[
+  #list(
+    [Random init],
+    [C thingy],
+    [Other params],
+    [Ensembles],
+    [Picture],
+  )
+]
+=== Synchronicity Metrics
 
 === Simulation Results <sec:dnmres>
 Healthy $->$ sync $mean(dot(phi)^1_j)$ and $mean(dot(phi)^1_j)$
