@@ -139,7 +139,7 @@
 
 
   content(
-    (2.67 * x-sep + 0.5, 0.4),
+    (2.67 * x-sep + 0.6, 0.4),
     text(
       $dot(phi)>0$,
       size: 8pt,
@@ -157,7 +157,7 @@
     padding: .3em,
   )
   content(
-    (2.67 * x-sep + 0.5, -1),
+    (2.67 * x-sep + 0.6, -1),
     text(
       $dot(phi)<0$,
       size: 8pt,

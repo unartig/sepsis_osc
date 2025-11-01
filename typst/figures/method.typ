@@ -31,14 +31,6 @@
 )
 
 #let mred(x) = text(fill: red, $#x$)
-#let emark = (end: "stealth", fill: black, scale: .4, offset: 0.03)
-#let bmark = (
-  start: "stealth",
-  end: "stealth",
-  fill: black,
-  scale: .4,
-  offset: 0.03,
-)
 
 
 
