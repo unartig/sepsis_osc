@@ -30,7 +30,7 @@
     "ODE": "Ordinary Differential Equation",
     "JIT": "Just In Time Compilation",
     "GPU": "Graphics Processing Unit",
-    "PID": "Poportional-Integral-Derivative",
+    "PID": "Proportional-Integral-Derivative",
   ),
 
   bibliography: bibliography("bibliography.bib"),
@@ -57,7 +57,7 @@
 #TODO[
   #list(
     [Sections to Chapters],
-    [Styiling],
+    [Styling],
     [Appendix to real Appendix],
     [Fix ACR seperation],
     [Fix newline/lineabreak after Headings],
@@ -68,16 +68,6 @@
   what is learned
   connecting parts
 ]
-=== Kuramoto Parameter
-Kuramoto Order Parameter #todo[cite]
-$
-  R^mu_2 = 1/N abs(sum^N_j e^(i dot phi_j (t))) "   with " 0<=R^mu_2<=1
-$
-$R^mu_2=0$ splay-state and $R^mu_2=1$ is fully synchronized.
-
-
-#todo[Entropy, Splay Ratio, MPV Std, Cluster Ratio]
-
 
 = Introduction
 
@@ -360,7 +350,7 @@ Frequency clusters often emerge as intermediate regimes between full synchroniza
 
 Chimera states, a special type of partial synchronization, occur when only a subset of oscillators synchronizes in phase and frequency, while others remain desynchronized.
 In contrast to "normal" partial synchronization they occur when the coupling symmetry breaks.
-In splay states, all osciallators synchronize their frequencies but do not their phases, they instead uniformly distribute around the unit circle @Berner2020Birth.
+In splay states, all oscillators synchronize their frequencies but do not their phases, they instead uniformly distribute around the unit circle @Berner2020Birth.
 
 The introduction changes the system behavior once more, for example single layers of a multiplexed system can result in the multi-clustered regime for parameters they wouldn't in the monoplexed case.
 In multiplexed systems it is also possible connected layers end up in different stable state, for example, one in a clustered the other in a splay state.
@@ -369,10 +359,11 @@ In multiplexed systems it is also possible connected layers end up in different 
 The #acr("DNM") is a *functional* model, that means it *does not try to model things accurately on any cellular, biochemical, or organ level*, it instead tries to model dynamic interactions.
 At the core, the model does differentiate between two broad classes of cells, introduced in @sec:cell, the stroma and the parenchymal cells.
 It also includes the cell interaction through cytokine proteins and an information flow through the basal membrane.
+Importantly, the model only handles the case of already infected subjects and tries to grasp if the patients state is prone to a dysregulated host response.
 
 Cells of one type are aggregated into layers, everything associated with parenchymal cells is indicated with an $""^1$ superscript and is called the _organ layer_, stroma cells are indicated with $""^2$ and is referred to as non specific _immune layer_.
 Each layer consists of $N$ phase oscillators $phi^ot_i in [0, 2pi)$.
-To emphazise again the function aspect of the model: individual oscillators do not correspond to single cells, rather the layer as a whole is associated with the overall state of all organs or immune system functionality respectively.
+To emphasize again the function aspect of the model: individual oscillators do not correspond to single cells, rather the layer as a whole is associated with the overall state of all organs or immune system functionality respectively.
 
 The metabolic cell activity is modeled by rotational velocity $dot(phi)$ of the oscillators, the faster the rotation, the faster the metabolism.
 Each layer is fully coupled via an adaptive possibly asymmetric matrix $bold(Kappa)^ot in [-1, 1]^(N times N)$ with elements $kappa^ot_(i j)$, these couplings represent the activity of cytokine mediation.
@@ -397,27 +388,7 @@ Since the adaption of parenchymal cytokine communication is assumed to be slower
 Lastly, the most influential parameter is $beta$ which controls they adaptivity of the cytokines.
 Because $beta$ has such a big influence on the model dynamics it is called the _(biological) age parameter_ and summarizes multiple physiological concepts such as age, inflammatory baselines, adiposity, pre-existing illness, physical inactivity, nutritional influences and other common risk factors @osc2.
 
-=== Pathology in the DNM
-A biological organism, such as the human body, can be regarded as a self-regulating system that, under healthy conditions, maintains a homeostatic state @Placeholder.
-Homeostasis refers to a dynamic but balanced equilibrium in which the physiological subsystems continuously interact to sustain stability despite external perturbations.
-In the context of the #acr("DNM"), this equilibrium is represented by a synchronous regime of both layers in the duplex oscillator system.
-In synchronous states, the organ layer and immune layer exhibit coordinated phase and frequency dynamics, reflecting balanced communication, collective frequency of cellular metabolism and stable systemic function.
-
-Pathology, in contrast, is modeled by the breakdown of the synchronicity and the formation of frequency clusters in the parenchymal layer, i.e. loss of homeostatic balance.
-In the #acr("DNM") least one cluster will exhibit increased frequency and one with lower or unchanged frequency.
-This aligns with medical observation, where unhealthy parenchymal cells change to a less efficient anaerobic glycosis based metabolism, forcing them to increase their metabolic activity to keep up with the energy demand.
-Remaining healthy cells are expected to stay frequency synchronized to a lower and "healthy" frequency.
-A splay state are considered to a more vulnerable or less resilient condition, even though the phases are not synchronized, the frequencies still are, the overall coherence is weakened @osc2.
-// Splay states generally have comparably small attractors in the parameter space of the #acr("DNM") and often coincide with
-
-Mean Phase Velocities are calculated as followed:
-$
-  mean(phi^mu) = 1/N sum^N_j phi^mu_j
-$ <eq:std>
-
-
-
-
+All the systems variables and parameters are summarized in <tab:dnm> #todo[why no ref?] together with their medical interpretation.
 #table(
   columns: (auto, auto, auto),
   // inset: 10pt,
@@ -436,7 +407,7 @@ $ <eq:std>
   [Combined of risk factors],
   // [Age, inflammation, pre-existing illness, other risk factor],
 
-  [$omega^ot$],
+  [$omega$],
   [Natural frequency],
   [Natural cellular metabolism],
 
@@ -445,77 +416,157 @@ $ <eq:std>
 
   [$a_(i j)$],
   [Connectivity],
-  [Interaction between Parenchymal and Immune cells through basal lamina],
+  [Fixed intra-organ cell-to-cell interaction],
 
   [$sigma$],
   [Interlayer coupling],
-  [Fixed intra-organ cell-to-cell interaction],
+  [Interaction between parenchymal and \ immune cells through the basal lamina],
 
-  table.cell(colspan: 3)[*Measure*],
+  table.cell(colspan: 3)[*Measures*],
   [$s$],
-  [Standard deviation of frequency (see @eq:std)],
+  [Standard deviation of frequency \ (see @eq:std)],
   [Pathogenicity (Parenchymal Layer)],
-)
+) <tab:dnm>
+#todo[left out superscripts for better readability]
+
+=== Pathology in the DNM
+A biological organism, such as the human body, can be regarded as a self-regulating system that, under healthy conditions, maintains a homeostatic state @Placeholder.
+Homeostasis refers to a dynamic but balanced equilibrium in which the physiological subsystems continuously interact to sustain stability despite external perturbations.
+In the context of the #acr("DNM"), this equilibrium is represented by a synchronous regime of both layers in the duplex oscillator system.
+In synchronous states, the organ layer and immune layer exhibit coordinated phase and frequency dynamics, reflecting balanced communication, collective frequency of cellular metabolism and stable systemic function.
+
+Pathology, in contrast, is modeled by the breakdown of the synchronicity and the formation of frequency clusters in the parenchymal layer, i.e. loss of homeostatic balance.
+In the #acr("DNM") least one cluster will exhibit increased frequency and one with lower or unchanged frequency.
+This aligns with medical observation, where unhealthy parenchymal cells change to a less efficient anaerobic glycosis based metabolism, forcing them to increase their metabolic activity to keep up with the energy demand.
+Remaining healthy cells are expected to stay frequency synchronized to a lower and "healthy" frequency.
+A splay state are considered to a more vulnerable or less resilient condition, even though the phases are not synchronized, the frequencies still are, the overall coherence is weakened @osc2.
 
 // #figure(tree_fig)
 
 == Implementation <sec:dnmimp>
-This subsection describes the numerical implementation of the #acr("ODE")-system defined in @eq:ode-sys, how (de-)synchronicity is quantified and the choice of initial parameter values.
-One goal is to reproduce numerical results presented in @osc2, since they are the starting point when trying to representing real patient trajectories inside the #acr("DNM").
+This subsection describes the numerical implementation of the #acr("ODE")-system defined in @eq:ode-sys, the choice of initial parameter values and how (de-)synchronicity/disease severity is quantified .
+One goal is to reproduce parts of the numerical results presented in @osc2, since they serve as a starting point when trying to representing real patient trajectories inside the #acr("DNM").
 
 === Technology and Details
-The numerical integration was performed using diffrax @kidger2021diffrax, a Python library built on-top of JAX @jax2018.
-The backbone, JAX, is a Python package for high-performance array computation, similar to NumPy or MATLAB, but designed for automatic differentiation, vectorization and #acr("JIT").
-These features allow high-level numerical code to be compiled to optimized accelerator-specific machine coder (for example #acr("GPU")), without any extra programming cost.
+The numerical integration was performed using diffrax @kidger2021diffrax which is built on-top of JAX @jax2018.
+The backbone JAX, is a Python package for high-performance array computation, similar to NumPy or MATLAB, but designed for automatic differentiation, vectorization and #acr("JIT").
+#acr("JIT")-compilation and vectorization allow high-level numerical code to be translated to highly optimized accelerator-specific machine code, for example #acr("GPU").
+This way, performance benefits of massively parallelizable hardware can be utilized with minimal extra programming cost.
 Diffrax implements several numerical differential equation solvers directly in JAX.
 
 While @osc2 uses a fourth-order Runge-Kutta method and a fixed step-size, this implementation#footnote[The code is available at https://github.com/unartig/sepsis_osc/tree/main/src/sepsis_osc/dnm] uses the Tsitouras 5/4 Runge-Kutta method @Tsitouras2011Runge with adaptive step-sizing controlled by a #acr("PID") controller.
 A relative tolerance of $10^(-3)$ and an absolute tolerance $10^(-6)$ were chosen, allowing for more efficient integration while keeping an equivalent accuracy.
+All simulations were carried out in 64-bit floating point precision, necessary for accurate system integration.
 
-Since the computational cost scales quadratically with the number of oscillators $N$, optimizing trigonometric evaluations becomes crucial for larger systems.
-To further accelerate integration, trigonometric evaluations were optimized following @KuramotoComp.
+Because of the element-wise differences used in the coupling terms $phi^ot_i-phi^ot_j in RR^(N times N)$ the computational cost scales quadratically with the number of oscillators $N$.
+These differences are then transformed by the relatively expensive trigonometric $sin$ routine, to accelerate integration, these trigonometric evaluations were optimized following @KuramotoComp.
 Terms in the form $sin(theta_l-theta_m)$ were expanded as:
 $
   sin(theta_l-theta_m)=sin(theta_l)cos(theta_m) - cos(theta_l)sin(theta_m) "    " forall l,m in {1,...,N}
 $
-By caching the terms $sin(theta_l), sin(theta_m), cos(theta_l), cos(theta_m)$ once per iteration, the number of trigonometric evaluations per is reduced from $2*[N (N-1)]$ to $2*[4N]$ trigonometric function evaluations, significantly improving performance for large oscillator populations.
+By caching the terms $sin(theta_l), sin(theta_m), cos(theta_l), cos(theta_m)$ once per iteration, the number of trigonometric evaluations per iteration is reduced from $2*[N (N-1)]$ to $2*[4N]$, significantly improving performance for mid to large oscillator populations.
 
-An alternative implementation based on Lie-algebra formulations was also explored.
-Although theoretically promising in terms of numerical accuracy, this approach did not yield practical advantages in performance or stability.
+Additionally, an alternative implementation based on Lie-algebra formulations was also explored, utilizing their natural representation for rotations in N-D-space.
+Although theoretically promising in terms of numerical accuracy and integration stability, this approach did not yield practical advantages in performance.
 Further details on this reformulation are provided in @sec:appendix #todo[schreiben].
 
+=== Initialization and Parameterization
+The #acr("DNM") is dimensionless and not bound to any physical scale, that means there is no ground medical truth of parameter values and their choice is somewhat arbitrary.
+For the present implementation the parameterization is adopted from the original work @osc1 and @osc2 since they have already shown some desired properties of (de-)synchronization.
 
-#todo[Float64]
-=== Initialization and Parametrization
+Initial phases $phi(0)^ot_i$ are randomly and uniformly distributed around the unit circle for both layers, i.e. $phi(0)^ot_i ~ cal(U)[0, 2pi)$.
+The intralayer coupling of the parenchymal layer coupling is also chosen randomly and uniformly distributed in the interval between -1 and 1.
+Since there is no self-coupling, the diagonal is set to 0.
 
-#table(
-  columns: (auto, auto),
-  align: center,
-  table.header([*Symbol*], [*Value*]),
-  [$M$], [50],
-  [$N$], [200],
-  [$beta$], [$[X, Y]pi$],
-  [$sigma$], [$[0.0, 1.5]$],
-  [$alpha$], [$-0.28pi$],
-  [$C$], [$20%$],
-  [$omega_1, omega_2$], [0.0],
-  [$A^1$], [$1 - I$],
-  [$epsilon^1$], [0.03],
-  [$epsilon^2$], [0.3],
-  [$phi^1_i$, $phi^2_i$], [$~cal(N)(0, 2pi)$],
-  [$kappa^1_(i j)$], [$~U(0, 1)$],
-  [$kappa^2_(i j)$], [Block C 0, Block not C 1],
-)
-#TODO[
-  #list(
-    [Random init],
-    [C thingy],
-    [Other params],
-    [Ensembles],
-    [Picture],
-  )
-]
+For the immune layer an initial cytokine activation is models by clustering the initial intralayer coupling matrix.
+A smaller cluster of $C*N$ oscillators and a bigger cluster of $(1-C)*N$ cells being connected within the cluster but no connection between the two.
+Following @osc2 the cluster size $C in [0, 0.5]$ was chosen as 0.2, but as their findings suggest the size of the clusters does not have impact on the systems dynamics.
+Simulations have shown that even without any clustering, meaning $bold(Kappa)^2=bb(0)$ or $bold(Kappa)^2=bb(1)$, the dynamics stay unchanged, making this initialization choice meaning-free, it is stated here just for completeness.
+An exemplary initial variable values of a system with $N=200$ and $C=0.2$ is shown in @fig:init.
+
+
+#figure(
+  image("images/init.svg", width: 100%),
+  caption: [
+    This figure shows the initializations for the variable values of a #acr("DNM") with $N=200$ oscillators per layer.
+    The middle two plots show the initializations for the oscillators of the two layers, with $phi^1_i$ for parenchymal and $phi^2_i$ for the immune layer, from a uniform random distribution from 0 to $2pi$.
+    On the left hand side is the initialization of the parenchymal intralayer couling matrix $bold(Kappa)^1$ from a uniform distribution in the interval from -1 to 1.
+    On the right hand side is the two cluster initialization for the immune intralayer coupling matrix $bold(Kappa)^2$ where each cluster is intraconnected, but no connection between the clusters.
+    The cluster size is $C=0.2$, creating the smaller cluster to be 20% of the total number of oscillators.
+  ],
+) <fig:init>
+
+Other parameter choices of the orignal heavily simplify the model.
+First of all are the natural frequencies treated as equal and are set to 0 giving $omega^1 = omega^2 = omega = 0$, for any other choice of $omega$ just changes the frame of reference (co-rotating frame), the dynamics stay unchanged @osc2.
+The phase lag parameters for the inter layer coupling are both set to $alpha^(1 2) = alpha^(2 1) = 0$, yielding instantaneous interactions, the intralayer phase lags are set to $alpha^11 = alpha^22 = -0.28pi$, which was the most most prominently used configuration in @osc2.
+The constant intralayer coupling in the parenchymal is chosen as global coupling $a_(i j) = 1 " if " i!=j " else " 0$.
+
+The adaptation rates are chosen as $epsilon^1=0.03$ and $epsilon^2=0.3$, creating the two dynamical time scales for slow parenchymal and faster immune cells.
+The number of oscillators per layer is chosen as $N=200$ throughout all simulations.
+To account for the randomly initialized variables, each parameter configuration is integrated for an ensemble of $M=50$ initializations.
+An exhaustive summary of all variable initializations and parameter choices can be found in @tab:init.
+
+#TODO[beta sigma]
+
+#figure(
+  table(
+    columns: (auto, 13em, auto, 13em),
+    align: center,
+    table.header([*Symbol*], [*Value*], [*Symbol*], [*Value*]),
+    table.cell(colspan: 4)[*Variables*],
+    [$phi^1_i$], [$~cal(U)(0, 2pi)$],
+    [$kappa^1_(i != j)$],
+    [$~cal(U)(-1, 1)$],
+    [$phi^2_i$], [$~cal(U)(0, 2pi)$],
+    [$kappa^2_(i != j)$],
+    [clusters of size $C$ and $1-C$],
+
+    table.cell(colspan: 4)[*Parameters*],
+    [$M$], [50], [$N$], [200],
+    [$C$], [$20%$], [], [],
+    [$beta$], [$[X, Y]pi$ #todo[what are the lims]], [$sigma$], [$[0.0, 1.5]$],
+    [$alpha^11, alpha^22$], [$-0.28pi$], [$alpha^12, alpha^21$], [0],
+    [$omega_1, omega_2$], [0.0], [$A^1$], [$bb(1) - I$],
+    [$epsilon^1$], [0.03], [$epsilon^2$], [0.3],
+  ),
+)<tab:init> #todo[Non breakable tables?]
+
+
 === Synchronicity Metrics
+There are two relevant states or system configurations that should be identifiable and quantifiable to allow qualified state analyses: phase and frequency synchronization.
+For each a distinct measure is required, for the phase synchronization of a layer the Kuramoto Order Parameter @Placeholder is most commonly used:
+$
+  R^ot_2 = 1/N abs(sum^N_j e^(i dot phi^ot_j (t))) "   with " 0<=R^ot_2<=1
+$
+where $R^mu_2=0$ corresponds to total desynchronization, the splay-state and $R^mu_2=1$ corresponds to fully synchronized state.
+
+To measure frequency synchronization and detect frequency clustering we first have to introduce the notion of a layers _mean phase velovity_, which can be calculated as follows:
+$
+  overline(omega)^ot = 1/N sum^N_j dot(phi)^ot_j
+$ <eq:mean>
+The original definition in @osc1 and @osc2 uses a approximated version using the oscillators mean velocity.
+This is most likely because they were not able to recover the actual derivatives $dot(phi)^ot_i$ from their integration scheme and had to work with the phases $phi^ot_i$ instead:
+$
+  mean(dot(phi)^ot_j) = (phi^ot_j (t + T) - phi^ot_j (t))/T \
+  overline(omega)^ot = 1/N sum^N_j mean(dot(phi)^ot_j)
+$ <eq:mean>
+for some averaging time window $T$.
+
+One can now calculate the standard deviation of the mean phase velocities:
+$
+  sigma_chi (overline(omega)^ot) = sqrt(1/N sum^N_j (mean(dot(phi)^ot_j) - overline(omega)^ot)^2)
+$ <eq:stdsingle>
+Where $sigma_chi = 0$ indicates full frequency synchronization and growing values indicate desynchronization and/or clustering.
+But non-zero values only reveal that there is some desynchronization of the frequency, but it remains unkown if it is clustered, multiclustured or fully desynchronized.
+
+Since there are multiple ensemble members $m in M$ for the same parameterization, and it expected that different initialization, even though equally parametrized, can exhibit dissimilar behaviors, one can also calculate the _ensemble averaged standard deviation of the mean phase velocity_:
+$
+  s^ot = 1/M sum^M_m sigma_chi (overline(omega)_m^ot)
+$ <eq:std>
+In @osc2 it was shown numerically that the quantitiy $s^ot$ is proportional to the fraction of ensemble members that exhibit frequency clusters containing at least one oscillator.
+
+
+
 
 === Simulation Results <sec:dnmres>
 Healthy $->$ sync $mean(dot(phi)^1_j)$ and $mean(dot(phi)^1_j)$
