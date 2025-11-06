@@ -40,7 +40,7 @@
   // ],
 )
 
-#let mean(f) = $angle.l$ + f + $angle.r$
+#let mean(f) = $chevron.l$ + f + $chevron.r$
 #let ot = $1"/"2$
 #note-outline()
 
@@ -389,43 +389,46 @@ Lastly, the most influential parameter is $beta$ which controls they adaptivity 
 Because $beta$ has such a big influence on the model dynamics it is called the _(biological) age parameter_ and summarizes multiple physiological concepts such as age, inflammatory baselines, adiposity, pre-existing illness, physical inactivity, nutritional influences and other common risk factors @osc2.
 
 All the systems variables and parameters are summarized in <tab:dnm> #todo[why no ref?] together with their medical interpretation.
-#table(
-  columns: (auto, auto, auto),
-  // inset: 10pt,
-  align: center,
-  table.header([*Symbol*], [*Name*], [*Physiological Meaning*]),
-  table.cell(colspan: 3)[*Variables*],
-  [$phi_i$], [Phase], [Group of cells],
-  [$dot(phi)_i$], [Phase Velocity], [Metabolic activity],
-  [$kappa_(i j)$], [Coupling Weight], [Cytokine activity],
+#figure(
+  table(
+    columns: (auto, auto, auto),
+    // inset: 10pt,
+    align: center,
+    table.header([*Symbol*], [*Name*], [*Physiological Meaning*]),
+    table.cell(colspan: 3)[*Variables*],
+    [$phi_i$], [Phase], [Group of cells],
+    [$dot(phi)_i$], [Phase Velocity], [Metabolic activity],
+    [$kappa_(i j)$], [Coupling Weight], [Cytokine activity],
 
-  table.cell(colspan: 3)[*Parameters*],
-  [$alpha$], [Phase lag], [Metabolic interaction delay],
+    table.cell(colspan: 3)[*Parameters*],
+    [$alpha$], [Phase lag], [Metabolic interaction delay],
 
-  [$beta$],
-  [Plasticity rule],
-  [Combined of risk factors],
-  // [Age, inflammation, pre-existing illness, other risk factor],
+    [$beta$],
+    [Plasticity rule],
+    [Combined of risk factors],
+    // [Age, inflammation, pre-existing illness, other risk factor],
 
-  [$omega$],
-  [Natural frequency],
-  [Natural cellular metabolism],
+    [$omega$],
+    [Natural frequency],
+    [Natural cellular metabolism],
 
-  [$epsilon$], [Time scale ratios], [Temporal scale of cytokine activity],
-  // [$C$], [Initial network pertubation], [-],
+    [$epsilon$], [Time scale ratios], [Temporal scale of cytokine activity],
+    // [$C$], [Initial network pertubation], [-],
 
-  [$a_(i j)$],
-  [Connectivity],
-  [Fixed intra-organ cell-to-cell interaction],
+    [$a_(i j)$],
+    [Connectivity],
+    [Fixed intra-organ cell-to-cell interaction],
 
-  [$sigma$],
-  [Interlayer coupling],
-  [Interaction between parenchymal and \ immune cells through the basal lamina],
+    [$sigma$],
+    [Interlayer coupling],
+    [Interaction between parenchymal and \ immune cells through the basal lamina],
 
-  table.cell(colspan: 3)[*Measures*],
-  [$s$],
-  [Standard deviation of frequency \ (see @eq:std)],
-  [Pathogenicity (Parenchymal Layer)],
+    table.cell(colspan: 3)[*Measures*],
+    [$s$],
+    [Standard deviation of frequency \ (see @eq:std)],
+    [Pathogenicity (Parenchymal Layer)],
+  ),
+  caption: [todo],
 ) <tab:dnm>
 #todo[left out superscripts for better readability]
 
@@ -439,11 +442,17 @@ Pathology, in contrast, is modeled by the breakdown of the synchronicity and the
 In the #acr("DNM") least one cluster will exhibit increased frequency and one with lower or unchanged frequency.
 This aligns with medical observation, where unhealthy parenchymal cells change to a less efficient anaerobic glycosis based metabolism, forcing them to increase their metabolic activity to keep up with the energy demand.
 Remaining healthy cells are expected to stay frequency synchronized to a lower and "healthy" frequency.
-A splay state are considered to a more vulnerable or less resilient condition, even though the phases are not synchronized, the frequencies still are, the overall coherence is weakened @osc2.
+
+There are two more cases, neither fully healthy nor fully pathologic, representing a vulnerable or resilient patient condition.
+The healthy but vulnerable case corresponds to a splay state, where phases in the parenchymal layer are not synchronized, but the frequencies are, weakening the overall coherence @osc2.
+A resilient state corresponds to cases where both the phase and frequency of the parenchymal layer are synchronized, but the immune layer exhibits both frequency and phase clustering.
 
 // #figure(tree_fig)
 
 == Implementation <sec:dnmimp>
+For initial value problems of coupled #acr("ODE")-systems, such as the #acr("DNM"), analytical solutions rarely exist @osc2, mostly for trivial or other special configurations or by applying aggressive simplifications.
+Instead, one traditionally relies on the numerical integration of the system, approximating the analytical solution.
+
 This subsection describes the numerical implementation of the #acr("ODE")-system defined in @eq:ode-sys, the choice of initial parameter values and how (de-)synchronicity/disease severity is quantified .
 One goal is to reproduce parts of the numerical results presented in @osc2, since they serve as a starting point when trying to representing real patient trajectories inside the #acr("DNM").
 
@@ -470,7 +479,7 @@ Additionally, an alternative implementation based on Lie-algebra formulations wa
 Although theoretically promising in terms of numerical accuracy and integration stability, this approach did not yield practical advantages in performance.
 Further details on this reformulation are provided in @sec:appendix #todo[schreiben].
 
-=== Initialization and Parameterization
+=== Initialization and Parameterization <sec:init>
 The #acr("DNM") is dimensionless and not bound to any physical scale, that means there is no ground medical truth of parameter values and their choice is somewhat arbitrary.
 For the present implementation the parameterization is adopted from the original work @osc1 and @osc2 since they have already shown some desired properties of (de-)synchronization.
 
@@ -484,19 +493,18 @@ Following @osc2 the cluster size $C in [0, 0.5]$ was chosen as 0.2, but as their
 Simulations have shown that even without any clustering, meaning $bold(Kappa)^2=bb(0)$ or $bold(Kappa)^2=bb(1)$, the dynamics stay unchanged, making this initialization choice meaning-free, it is stated here just for completeness.
 An exemplary initial variable values of a system with $N=200$ and $C=0.2$ is shown in @fig:init.
 
-
 #figure(
   image("images/init.svg", width: 100%),
   caption: [
     This figure shows the initializations for the variable values of a #acr("DNM") with $N=200$ oscillators per layer.
     The middle two plots show the initializations for the oscillators of the two layers, with $phi^1_i$ for parenchymal and $phi^2_i$ for the immune layer, from a uniform random distribution from 0 to $2pi$.
     On the left hand side is the initialization of the parenchymal intralayer couling matrix $bold(Kappa)^1$ from a uniform distribution in the interval from -1 to 1.
-    On the right hand side is the two cluster initialization for the immune intralayer coupling matrix $bold(Kappa)^2$ where each cluster is intraconnected, but no connection between the clusters.
+    On the right hand side is the two cluster initialization for the immune intralayer coupling matrix $bold(Kappa)^2$ where each cluster is intra-connected, but no connection between the clusters.
     The cluster size is $C=0.2$, creating the smaller cluster to be 20% of the total number of oscillators.
   ],
 ) <fig:init>
 
-Other parameter choices of the orignal heavily simplify the model.
+Other parameter choices of the original heavily simplify the model.
 First of all are the natural frequencies treated as equal and are set to 0 giving $omega^1 = omega^2 = omega = 0$, for any other choice of $omega$ just changes the frame of reference (co-rotating frame), the dynamics stay unchanged @osc2.
 The phase lag parameters for the inter layer coupling are both set to $alpha^(1 2) = alpha^(2 1) = 0$, yielding instantaneous interactions, the intralayer phase lags are set to $alpha^11 = alpha^22 = -0.28pi$, which was the most most prominently used configuration in @osc2.
 The constant intralayer coupling in the parenchymal is chosen as global coupling $a_(i j) = 1 " if " i!=j " else " 0$.
@@ -529,6 +537,7 @@ An exhaustive summary of all variable initializations and parameter choices can 
     [$omega_1, omega_2$], [0.0], [$A^1$], [$bb(1) - I$],
     [$epsilon^1$], [0.03], [$epsilon^2$], [0.3],
   ),
+  caption: [todo],
 )<tab:init> #todo[Non breakable tables?]
 
 
@@ -538,45 +547,88 @@ For each a distinct measure is required, for the phase synchronization of a laye
 $
   R^ot_2 = 1/N abs(sum^N_j e^(i dot phi^ot_j (t))) "   with " 0<=R^ot_2<=1
 $
-where $R^mu_2=0$ corresponds to total desynchronization, the splay-state and $R^mu_2=1$ corresponds to fully synchronized state.
+where $R^mu_2=0$ corresponds to total desynchronization, the splay-state and $R^mu_2=1$ corresponds to fully synchronized state, for convinience from now on the subscript $""_2$ is ommited, denoting the Kuramoto Order Parameter simply as $R^ot$.
 
-To measure frequency synchronization and detect frequency clustering we first have to introduce the notion of a layers _mean phase velovity_, which can be calculated as follows:
+To measure frequency synchronization and detect frequency clustering we first have to introduce the notion of a layers _mean phase velocity_, which can be calculated as follows:
+
 $
   overline(omega)^ot = 1/N sum^N_j dot(phi)^ot_j
 $ <eq:mean>
-The original definition in @osc1 and @osc2 uses a approximated version using the oscillators mean velocity.
+The original definition in @osc1 and @osc2 uses an approximated version using the oscillators mean velocity.
 This is most likely because they were not able to recover the actual derivatives $dot(phi)^ot_i$ from their integration scheme and had to work with the phases $phi^ot_i$ instead:
 $
-  mean(dot(phi)^ot_j) = (phi^ot_j (t + T) - phi^ot_j (t))/T \
-  overline(omega)^ot = 1/N sum^N_j mean(dot(phi)^ot_j)
+  mean(dot(phi)^ot_j) &= (phi^ot_j (t + T) - phi^ot_j (t))/T \
+  overline(omega)^ot &= 1/N sum^N_j mean(dot(phi)^ot_j)
 $ <eq:mean>
 for some averaging time window $T$.
+But since their choice of $T$ is not documented while having substantial influence on the calculation the direct calculation was used.
 
 One can now calculate the standard deviation of the mean phase velocities:
 $
   sigma_chi (overline(omega)^ot) = sqrt(1/N sum^N_j (mean(dot(phi)^ot_j) - overline(omega)^ot)^2)
 $ <eq:stdsingle>
 Where $sigma_chi = 0$ indicates full frequency synchronization and growing values indicate desynchronization and/or clustering.
-But non-zero values only reveal that there is some desynchronization of the frequency, but it remains unkown if it is clustered, multiclustured or fully desynchronized.
+But non-zero values only reveal that there is some desynchronization of the frequency, but it remains unknown if it is clustered, multiclustered or fully desynchronized.
 
-Since there are multiple ensemble members $m in M$ for the same parameterization, and it expected that different initialization, even though equally parametrized, can exhibit dissimilar behaviors, one can also calculate the _ensemble averaged standard deviation of the mean phase velocity_:
+Since there are multiple ensemble members $m in M$ for the same parameterization, and it expected that different initialization, even though equally parameterized, can exhibit dissimilar behaviors, one can also calculate the
+ _ensemble averaged standard deviation of the mean phase velocity_:
+
 $
   s^ot = 1/M sum^M_m sigma_chi (overline(omega)_m^ot)
 $ <eq:std>
-In @osc2 it was shown numerically that the quantitiy $s^ot$ is proportional to the fraction of ensemble members that exhibit frequency clusters containing at least one oscillator.
-
-
-
+In @osc2 it was shown numerically that the quantity $s^ot$ is proportional to the fraction of ensemble members that exhibit frequency clusters containing at least one oscillator.
+This makes it a viable measure for pathology, as increasing values of $s^1$ or increasing incoherence then indicate more dysregulated host responses and consequently higher risks of multiple organ failure.
 
 === Simulation Results <sec:dnmres>
-Healthy $->$ sync $mean(dot(phi)^1_j)$ and $mean(dot(phi)^1_j)$
+The orignal findings of @osc2 identify $beta$, the combined age parameter, and $sigma$, the interlayer coupling strength which models the cytokine activity, as naturally important parameters in order to understand underlying mechanisms of sepsis progression.
+The following subsection presents several simulation results, starting with "snapshots" of different stable system states for unique initialisations, followed by the transient and temporal behavior of the metrics $s^ot$ and $R^ot$ and wrapping with the introduction of the $beta, sigma$ phase space of these metrics.
 
-#acr("SOFA") $->$ desync $mean(dot(phi)^1_j)$
+#figure(
+  table(
+    columns: (auto, auto, auto, auto, auto),
+    align: center,
+    table.header([], [*A*], [*B*], [*C*], [*D*]),
+    [$beta$], [$0.5 pi$], [$0.58 pi$], [$0.7 pi$], [$0.5 pi$],
+    [$sigma$], [$1.0$], [$1.0$], [$1.0$], [$0.2$],
+  ),
+    caption: [todo]
+)<tab:siminit> 
+In @fig:snap snapshots of the system variables are shown for different parameterizations, rows A, B, C and D, while rows C and C' share the same parameterization but are different samples from the same initialization distributions, which are introduced in @sec:init.
+The left most columns depicts the coupling matrices for the organ layer $bold(Kappa)^1$ followed by two columns showing the phase velocities for each oscillator $dot(phi)_i^ot$ and two columns showing the oscillator phases each layer $phi_i^ot$, ending with the righ-most column showing the coupling matrix for the immune layer $bold(Kappa)^2$.
+All snapshots are taken at time $t=2000$, the end of the integration time, and show the stationary values at that time point.
+Each layer is first from lowest to highest frequency and secondary by lowest to highest phase for better clarity.
 
-Suspected infection $->$ splay/desync $mean(dot(phi)^2_j)$
+#figure(
+  image("images/snapshots.svg", width: 100%),
+  caption: [
+  #TODO[colorbar]
+  ],
+) <fig:snap>
+Row A in @fig:snap is fully synchronized/coherent since it not only has the frequencies synchronized but also the phases ($R^ot=1$) and can therefore interpreted as healthy.
+The coherence can also be seen in the fully homogenuous coupling matrices where both show the same coupling strength for every oscillator pair.
+Row B and C in contrast show signs of a pathological state, here both the frequencies three and phases have four distinct clusters respectively, which is also visible in the coupling matrices, where the coupling has different strength based on the coupling #todo[which is stronger?].
+The row C', even though having the same parameterization as C, can be regarded vulnerable, since the phases uniformly distribute in the $[0, 2pi)$ interval ($R^ot = 0$), while the frequencies are synchronized.
+Coupling matrices for C' show travelling waves, which are characteristic for splay states.
+Observing different results for different initializations justifies the introduction of ensembles.
+Lastly row D shows a resilient state, where the phases are clustered while the frequencies are synchronized.
 
-septic $->$ desync $mean(dot(phi)^1_j)$ and $mean(dot(phi)^1_j)$
-
+For the next figure the ensembles were introduced, every parameterization A, B, C and D was simulated for $M=50$ different initializations over an interval of $t=2000$.
+The plots show the temporal evolution of metrics for quantifying phase and frequency coherence, with the two left-most columns of @fig:ensemble show the temporal behavior of the Kuramoto Order Parameter for each individual ensemble member $m in 1...M$ and the two right-most show the ensemble averaged standard deviation of the mean phase velocities $s^ot$.
+Where lower values for $R^ot$ indicate decoherence in phases, with its minimum $R^ot = 0$ coincides with a splay state, and for $s^ot$ higher values indicate a larger amount of frequency decoherence and clustering.
+#figure(
+  image("images/ensembles.svg", width: 100%),
+  caption: [
+  #TODO[Not mean over s?]
+  ],
+) <fig:ensemble>
+Vvery ensemble in @fig:ensemble shows decoherence for early time-points, which is expected for randomly initialized variables, changes relatively fast through a transient phase into systematic stable behavior.
+Aligning with the observations in @fig:snap, configuration A has, besides small jittering, mostly synchronized frequencies $s^ot tilde(=) 0$.
+Also the phases are for most of the ensemble members synchronized with $R^12 tilde(=) 1$, only two initializations show decoherence and are oscillating between weak clustering and almost full incoherence.
+For configuration B the amount of incoherence inside the ensemble is clearly visible, with $s^ot$ being positive and some more ensemble members exhibiting clustering, indicated by a Kuramoto Order Parameter slightly less than $1$.
+In configuration C the incoherence is even more promoinent, even larger $s^ot$ and some ensemble members evolving into a splay state, i.e. $R^ot=0$.
+For configuration D the overall phase incoherence is again a bit less compared to C, and lower for the organ compared to the immune layer.
+The phases are coherent for the organ layer but seem almost chaotic for the immune layer, some are synchronized, while others are clustered, in a chimera or almost splay-like state.
+Over the whole simulation period, the coherency in the immune layer seems not to fully stabilize, rather oscillate around an attractor.
 = Latent Dynamics Model <sec:ldm>
 == Task - Definition of Ins and Outs
 == Data
