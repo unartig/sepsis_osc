@@ -1,13 +1,12 @@
 import logging
 
 import matplotlib.pyplot as plt
-from matplotlib.colors import LogNorm
 import numpy as np
 
 from sepsis_osc.dnm.dynamic_network_model import DNMConfig, DNMMetrics
+from sepsis_osc.ldm.lookup import as_2d_indices
 from sepsis_osc.storage.storage_interface import Storage
 from sepsis_osc.utils.logger import setup_logging
-from sepsis_osc.ldm.lookup import as_2d_indices
 
 setup_logging()
 logger = logging.getLogger(__name__)
@@ -15,7 +14,9 @@ logger = logging.getLogger(__name__)
 num_ticks = 10
 
 
-def plot_tt(tt, title, filename, figure_dir, fs=(8, 6), show=False):
+def plot_tt(
+    tt: np.ndarray, title: str, *, filename: str, figure_dir: str, fs: tuple[int, int] = (8, 6), show: bool = False
+) -> None:
     fig, ax = plt.subplots(figsize=fs)
     im = ax.imshow(tt.T[::-1, :], aspect="auto", cmap="viridis")
     ax.set_title(f"{title}\nParenchymal Layer", fontsize=14)
@@ -41,14 +42,24 @@ def plot_tt(tt, title, filename, figure_dir, fs=(8, 6), show=False):
 
 
 def space_plot(
-    metric, xs, ys, title, cmap=True, filename="space_plot.svg", figure_dir="figures", fs=(6, 4), figax=None
-):
+    metric: np.ndarray,
+    xs: np.ndarray,
+    ys: np.ndarray,
+    title: str,
+    *,
+    filename: str = "space_plot.svg",
+    figure_dir: str = "figures",
+    fs: tuple[int, int] = (6, 4),
+    cmap: bool = True,
+    figax: tuple[plt.Figure, plt.Axes] | None = None,
+    show: bool = False
+) -> plt.Axes:
     if not figax:
         fig, ax = plt.subplots(1, 1, figsize=fs)
     else:
         fig, ax = figax
 
-    im = ax.imshow(metric.T[::-1, :], cmap="viridis")
+    im = ax.imshow(metric.T[::-1, :], cmap="viridis", aspect="auto")
 
     ax.set_title(title, fontsize=14)
     ax.set_ylabel(r"$\sigma$", fontsize=12)
@@ -63,11 +74,32 @@ def space_plot(
     if cmap:
         cbar = fig.colorbar(im, ax=ax, location="right", shrink=0.8)
         cbar.set_label(r"$s^{mu}$")
+    plt.tight_layout()
+    if filename and figure_dir:
+        plt.savefig(f"{figure_dir}/{filename}.svg", format="svg")
+    if show:
+        plt.show()
     return ax
 
 
-def pretty_plot(metric_parenchymal: np.ndarray, metric_immune: np.ndarray, title: str, filename: str ="", figure_dir: str="", fs: tuple[int, int]=(8, 6), *, show: bool =False) -> None:
-    fig, axes = plt.subplots(2, 1, figsize=fs)
+def pretty_plot(
+    metric_parenchymal: np.ndarray,
+    metric_immune: np.ndarray,
+    title: str,
+    xs: np.ndarray,
+    ys: np.ndarray,
+    orig_xs:np.ndarray, orig_ys: np.ndarray,
+    *,
+    filename: str = "",
+    figure_dir: str = "",
+    fs: tuple[int, int] = (8, 6),
+    show: bool = False,
+    figax: tuple[plt.Figure, list[plt.Axes]] | None = None,
+) -> None:
+    if not figax:
+        fig, axes = plt.subplots(1, 2, figsize=fs)
+    else:
+        fig, axes = figax
 
     im0 = axes[0].imshow(metric_parenchymal.T[::-1, :], aspect="auto", cmap="viridis")
     im1 = axes[1].imshow(metric_immune.T[::-1, :], aspect="auto", cmap="viridis")
@@ -95,7 +127,7 @@ def pretty_plot(metric_parenchymal: np.ndarray, metric_immune: np.ndarray, title
     fig.colorbar(im0, ax=axes[0], location="right", shrink=0.8)
     fig.colorbar(im1, ax=axes[1], location="right", shrink=0.8)
 
-    plt.tight_layout()  # Adjust layout
+    plt.tight_layout()
     if filename and figure_dir:
         plt.savefig(f"{figure_dir}/{filename}.svg", format="svg")
     if show:
@@ -104,15 +136,15 @@ def pretty_plot(metric_parenchymal: np.ndarray, metric_immune: np.ndarray, title
 
 if __name__ == "__main__":
     # ALPHA_SPACE = (-0.52, -0.52, 1.0)
-    BETA_SPACE = (0.0, 1.0, 0.01)
-    SIGMA_SPACE = (0.0, 1.5, 0.015)
+    BETA_SPACE = (0.0, 1.0, 0.01 * 2)
+    SIGMA_SPACE = (0.0, 1.5, 0.015 * 2)
     xs = np.arange(*BETA_SPACE)
     ys = np.arange(*SIGMA_SPACE)
 
-    orig_xs = [np.argmin(np.abs(xs - x)) for x in [0.4, 0.7]]
-    orig_ys = [len(ys) - np.argmin(np.abs(ys - y)) - 1 for y in [0.0, 1.5]]
+    orig_xs = np.asarray([np.argmin(np.abs(xs - x)) for x in [0.4, 0.7]])
+    orig_ys = np.asarray([len(ys) - np.argmin(np.abs(ys - y)) - 1 for y in [0.0, 1.5]])
 
-    db_str = "Daisy2"  # other/Tiny"
+    db_str = "Lie0"  # other/Tiny"
     storage = Storage(
         key_dim=9,
         metrics_kv_name=f"data/{db_str}SepsisMetrics.db/",
@@ -136,29 +168,135 @@ if __name__ == "__main__":
     show = False
     figure_dir = f"figures/{db_str}"
     fs = (8, 8)
-    pretty_plot(metrix.r_1, metrix.r_2, "Kuramoto Order Parameter R", "kuramoto_beta_sigma", figure_dir, fs, show=show)
-    pretty_plot(metrix.sr_1, metrix.sr_2, "Splay Ratio", "splay_ratio_beta_sigma", figure_dir, fs, show=show)
-    pretty_plot(metrix.s_1, metrix.s_2, "Mean Phase Velocity Std", "std_beta_sigma", figure_dir, fs, show=show)
-    pretty_plot(metrix.m_1, metrix.m_2, "Mean Phase Velocity", "mean_beta_sigma", figure_dir, fs, show=show)
-    pretty_plot(metrix.q_1, metrix.q_2, "Entropy", "entropy_beta_sigma", figure_dir, fs, show=show)
-    pretty_plot(metrix.f_1, metrix.f_2, "Cluster Fraction", "cluster_beta_sigma", figure_dir, fs, show=show)
-    pretty_plot(metrix.f_1, metrix.f_2, "Cluster Fraction", "cluster_beta_sigma", figure_dir, fs, show=show)
-    pretty_plot(metrix.cq_1, metrix.cq_2, "Coupling Entropy", "coupling_entropy", figure_dir, fs, show=show)
-    pretty_plot(metrix.cs_1, metrix.cs_2, "Coupling Std", "coupling_std", figure_dir, fs, show=show)
-    plot_tt(metrix.tt, "Measured Max Transient Time", "transient_time_beta_sigma", figure_dir, (8, 4), show=show)
+    pretty_plot(
+        metrix.r_1,
+        metrix.r_2,
+        "Kuramoto Order Parameter R",
+        xs=xs,
+        ys=ys,
+        orig_xs=orig_xs, orig_ys=orig_ys,
+        filename="kuramoto_beta_sigma",
+        figure_dir=figure_dir,
+        fs=fs,
+        show=show,
+    )
+    pretty_plot(
+        metrix.sr_1,
+        metrix.sr_2,
+        "Splay Ratio",
+        xs=xs,
+        ys=ys,
+        orig_xs=orig_xs, orig_ys=orig_ys,
+        filename="splay_ratio_beta_sigma",
+        figure_dir=figure_dir,
+        fs=fs,
+        show=show,
+    )
+    pretty_plot(
+        metrix.s_1,
+        metrix.s_2,
+        "Mean Phase Velocity Std",
+        xs=xs,
+        ys=ys,
+        orig_xs=orig_xs, orig_ys=orig_ys,
+        filename="std_beta_sigma",
+        figure_dir=figure_dir,
+        fs=fs,
+        show=show,
+    )
+    pretty_plot(
+        metrix.m_1,
+        metrix.m_2,
+        "Mean Phase Velocity",
+        xs=xs,
+        ys=ys,
+        orig_xs=orig_xs, orig_ys=orig_ys,
+        filename="mean_beta_sigma",
+        figure_dir=figure_dir,
+        fs=fs,
+        show=show,
+    )
+    pretty_plot(
+        metrix.q_1,
+        metrix.q_2,
+        "Entropy",
+        xs=xs,
+        ys=ys,
+        orig_xs=orig_xs, orig_ys=orig_ys,
+        filename="entropy_beta_sigma",
+        figure_dir=figure_dir,
+        fs=fs,
+        show=show,
+    )
+    pretty_plot(
+        metrix.f_1,
+        metrix.f_2,
+        "Cluster Fraction",
+        xs=xs,
+        ys=ys,
+        orig_xs=orig_xs, orig_ys=orig_ys,
+        filename="cluster_beta_sigma",
+        figure_dir=figure_dir,
+        fs=fs,
+        show=show,
+    )
+    pretty_plot(
+        metrix.f_1,
+        metrix.f_2,
+        "Cluster Fraction",
+        xs=xs,
+        ys=ys,
+        orig_xs=orig_xs, orig_ys=orig_ys,
+        filename="cluster_beta_sigma",
+        figure_dir=figure_dir,
+        fs=fs,
+        show=show,
+    )
+    pretty_plot(
+        metrix.cq_1,
+        metrix.cq_2,
+        "Coupling Entropy",
+        xs=xs,
+        ys=ys,
+        orig_xs=orig_xs, orig_ys=orig_ys,
+        filename="coupling_entropy",
+        figure_dir=figure_dir,
+        fs=fs,
+        show=show,
+    )
+    pretty_plot(
+        metrix.cs_1,
+        metrix.cs_2,
+        "Coupling Std",
+        xs=xs,
+        ys=ys,
+        orig_xs=orig_xs, orig_ys=orig_ys,
+        filename="coupling_std",
+        figure_dir=figure_dir,
+        fs=fs,
+        show=show,
+    )
+    plot_tt(
+        metrix.tt,
+        "Measured Max Transient Time",
+        filename="transient_time_beta_sigma",
+        figure_dir=figure_dir,
+        fs=(8, 4),
+        show=show,
+    )
 
-    ALPHA_SPACE = (-0.84, 0.84 + 0.28, 0.28)
-    for alpha in np.arange(*ALPHA_SPACE):
-        neg = "" if alpha > 0 else "neg"
-        a = np.ones_like(b) * alpha
-        indices_3d = np.concatenate([a, b, s], axis=-1)
-        spacing_3d = np.array([0, BETA_SPACE[2], SIGMA_SPACE[2]])
-        params = DNMConfig.batch_as_index(a, b, s, 0.2)
-        metrics_3d, _ = storage.read_multiple_results(params, DNMMetrics, np.inf)
-        print(metrics_3d.shape)
-        metrix = metrics_3d.squeeze()
+    # ALPHA_SPACE = (-0.84, 0.84 + 0.28, 0.28)
+    # for alpha in np.arange(*ALPHA_SPACE):
+    #     neg = "" if alpha > 0 else "neg"
+    #     a = np.ones_like(b) * alpha
+    #     indices_3d = np.concatenate([a, b, s], axis=-1)
+    #     spacing_3d = np.array([0, BETA_SPACE[2], SIGMA_SPACE[2]])
+    #     params = DNMConfig.batch_as_index(a, b, s, 0.2)
+    #     metrics_3d, _ = storage.read_multiple_results(params, DNMMetrics, np.inf)
+    #     print(metrics_3d.shape)
+    #     metrix = metrics_3d.squeeze()
 
-        if not metrix:
-            raise ValueError("Failed")
-        pretty_plot(metrix.s_1, metrix.s_2, f"Mean Phase Velocity Std alpha@{neg}{abs(alpha):.2f}", f"std_beta_sigma_ {neg}{abs(alpha):.2f}", figure_dir, fs, show=show)
-    storage.close()
+    #     if not metrix:
+    #         raise ValueError("Failed")
+    #     pretty_plot(metrix.s_1, metrix.s_2, f"Mean Phase Velocity Std alpha@{neg}{abs(alpha):.2f}", f"std_beta_sigma_ {neg}{abs(alpha):.2f}", figure_dir, fs, show=show)
+    # storage.close()

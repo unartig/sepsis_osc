@@ -6,12 +6,12 @@ from sepsis_osc.dnm.dynamic_network_model import DNMConfig, DNMMetrics, DynamicN
 from sepsis_osc.dnm.lie_dnm import LieDynamicNetworkModel
 
 
-def plot_metric_t(var_1: np.ndarray, var_2: np.ndarray, ax=None):
+def plot_metric_t(var_1: np.ndarray, var_2: np.ndarray, a: float =1.0, step_size=1.0, ax=None):
     if not ax:
         _, ax = plt.subplots(2, 1)
-    t = np.arange(var_1.shape[0])
-    ax[0].plot(t, var_1)
-    ax[1].plot(t, var_2)
+    t = np.arange(var_1.shape[0]) * step_size
+    ax[0].plot(t, var_1, color="tab:blue", alpha=a)
+    ax[1].plot(t, var_2, color="tab:blue", alpha=a)
     return ax
 
 

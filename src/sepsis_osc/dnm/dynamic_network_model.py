@@ -45,6 +45,8 @@ class DNMConfig(ConfigBase):
     a_1: float = 1.0  # intralayer connectivity weights
     epsilon_1: float = 0.03  # adaption rate
     epsilon_2: float = 0.3  # adaption rate
+
+    # Used for steady state detection
     tau: float = 0.5
     T_init: Optional[int] = None
     T_max: Optional[int] = None
@@ -57,7 +59,7 @@ class DNMConfig(ConfigBase):
             N=self.N,
             omega_1=jnp.ones((self.N,)) * self.omega_1,
             omega_2=jnp.ones((self.N,)) * self.omega_2,
-            a_1=(jnp.ones((self.N, self.N)) * self.a_1).at[jnp.diag_indices(self.N)].set(0),
+            a_1=(jnp.ones((self.N, self.N)) * self.a_1) * ~jnp.eye(self.N).astype(jnp.bool), #.at[jnp.diag_indices(self.N)].set(0),
             epsilon_1=self.epsilon_1 * diag,
             epsilon_2=self.epsilon_2 * diag,
             adj=jnp.array(1 / (self.N - 1)),
@@ -128,8 +130,8 @@ class DNMState(StateBase):
         return DNMState(
             phi_1=self.phi_1 % (2 * jnp.pi),
             phi_2=self.phi_2 % (2 * jnp.pi),
-            kappa_1=self.kappa_1,  #  in the paper they say they clip, but they dont
-            kappa_2=self.kappa_2,
+            kappa_1=jnp.clip(self.kappa_1),  #  in the paper they say they clip, but they dont
+            kappa_2=jnp.clip(self.kappa_2),
             m_1=self.m_1,
             m_2=self.m_2,
             v_1=self.v_1,
@@ -280,6 +282,7 @@ class DynamicNetworkModel(ODEBase):
         args: DNMConfigArgs,
     ) -> DNMState:
         def single_system_deriv(y: DNMState) -> DNMState:
+            # y = y.enforce_bounds()
             # sin/cos in radians
             # https://mediatum.ub.tum.de/doc/1638503/1638503.pdf
             sin_phi_1, cos_phi_1 = jnp.sin(y.phi_1), jnp.cos(y.phi_1)
