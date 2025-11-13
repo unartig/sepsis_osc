@@ -98,21 +98,21 @@ class CalibrationModel(eqx.Module):
             y0=CalibrationModel(),  # initial parameter guess
             args=(p_sofa, p_inf, p_sepsis),
             throw=False,
-            max_steps=int(1e3),
+            max_steps=int(5e3),
         )
 
-        # def loss_fn_calibration(parameters: CalibrationModel, args: tuple[Float[Array, " samples"], ...]) -> ScalarLike:
-        #     betas, p_sofa, p_inf, y = args
-        #     probs = self.get_sepsis_probs(p_sofa, p_inf, betas, parameters.a, parameters.b)
-        #     return jnp.mean(optax.sigmoid_binary_cross_entropy(binary_logits(probs), y.astype(jnp.float32)))
+        def loss_fn_calibration(parameters: CalibrationModel, args: tuple[Float[Array, " samples"], ...]) -> ScalarLike:
+            betas, p_sofa, p_inf, y = args
+            probs = self.get_sepsis_probs(p_sofa, p_inf, betas, parameters.a, parameters.b)
+            return jnp.mean(optax.sigmoid_binary_cross_entropy(binary_logits(probs), y.astype(jnp.float32)))
 
-        # res = minimise(
-        #     fn=loss_fn_calibration,
-        #     solver=solver,
-        #     y0=res.value,
-        #     args=(res.value.betas, p_sofa, p_inf, p_sepsis),
-        #     throw=False,
-        #     max_steps=int(1e3),
-        # )
+        res = minimise(
+            fn=loss_fn_calibration,
+            solver=solver,
+            y0=res.value,
+            args=(res.value.betas, p_sofa, p_inf, p_sepsis),
+            throw=False,
+            max_steps=int(1e3),
+        )
 
         return res.value

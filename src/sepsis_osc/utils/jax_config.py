@@ -10,10 +10,10 @@ def setup_jax(*, simulation: bool = True) -> None:
 
     # jax flags
     if simulation:
-        jax.config.update("jax_enable_x64", val=True)  #  MATLAB defaults to double precision
+      jax.config.update("jax_enable_x64", val=True)  #  MATLAB defaults to double precision
     # jax.config.update("jax_platform_name", "cpu")
     # jax.config.update("jax_disable_jit", True)
-    jax.config.update("jax_debug_nans", val=True)
+    # jax.config.update("jax_debug_nans", val=True)
     # jax.config.update("jax_debug_infs", False)
 
     # cpu/gpu flags

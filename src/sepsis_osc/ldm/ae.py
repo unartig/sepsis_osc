@@ -23,10 +23,7 @@ class Encoder(eqx.Module):
     linear2: eqx.nn.Linear
     norm2: eqx.nn.LayerNorm
 
-    gate_g: eqx.nn.Linear
-    gate_v: eqx.nn.Linear
-    gate_q: eqx.nn.Linear
-    norm3: eqx.nn.LayerNorm
+    attn: eqx.nn.Linear
 
     linear3: eqx.nn.Linear
     linear4: eqx.nn.Linear
@@ -36,7 +33,6 @@ class Encoder(eqx.Module):
     beta: eqx.nn.Linear
     sigma: eqx.nn.Linear
 
-    vsofa: eqx.nn.Linear
     vinf: eqx.nn.Linear
 
     h: eqx.nn.Linear
@@ -59,18 +55,15 @@ class Encoder(eqx.Module):
         (
             key_lin1,
             key_lin2,
-            key_gate,
-            key_value,
-            key_query,
+            key_attn,
             key_lin3,
             key_lin4,
             key_head,
             key_beta,
             key_sigma,
-            key_vsofa,
             key_vinf,
             key_h,
-        ) = jax.random.split(key, 13)
+        ) = jax.random.split(key, 10)
 
         self.input_dim = input_dim
         self.enc_hidden = enc_hidden
@@ -79,30 +72,25 @@ class Encoder(eqx.Module):
 
         # Initial layers
         self.dropout = eqx.nn.Dropout(dropout_rate)
-        self.norm1 = eqx.nn.LayerNorm(input_dim, dtype=dtype)
         self.linear1 = eqx.nn.Linear(input_dim, enc_hidden, key=key_lin1, dtype=dtype)
-
-        self.norm2 = eqx.nn.LayerNorm(enc_hidden, dtype=dtype)
+        self.norm1 = eqx.nn.LayerNorm(enc_hidden, dtype=dtype)
         self.linear2 = eqx.nn.Linear(enc_hidden, enc_hidden, key=key_lin2, dtype=dtype)
 
         # Gating
-        self.gate_g= eqx.nn.Linear(enc_hidden, enc_hidden, key=key_gate, dtype=dtype)
-        self.gate_q= eqx.nn.Linear(input_dim, enc_hidden, key=key_query, dtype=dtype)
-        self.gate_v= eqx.nn.Linear(enc_hidden, enc_hidden, key=key_value, dtype=dtype)
-        self.norm3 = eqx.nn.LayerNorm(enc_hidden, dtype=dtype)
+        self.attn = eqx.nn.Linear(input_dim, input_dim, key=key_attn, dtype=dtype)
 
         # Final encoder layers
         self.linear3 = eqx.nn.Linear(enc_hidden, 128, key=key_lin3, dtype=dtype)
         self.linear4 = eqx.nn.Linear(128, 32, key=key_lin4, dtype=dtype)
+        self.norm2 = eqx.nn.LayerNorm(32, dtype=dtype)
         self.head_proj = eqx.nn.Linear(32, 32, key=key_head)
 
         # Output heads
-        self.beta= eqx.nn.Linear(32, 1, key=key_beta, dtype=dtype)
-        self.sigma= eqx.nn.Linear(32, 1, key=key_sigma, dtype=dtype)
+        self.beta = eqx.nn.Linear(32, 1, key=key_beta, dtype=dtype)
+        self.sigma = eqx.nn.Linear(32, 1, key=key_sigma, dtype=dtype)
 
-        self.vsofa= eqx.nn.Linear(32, 1, key=key_vsofa, dtype=dtype)
-        self.vinf= eqx.nn.Linear(32, 1, key=key_vinf, dtype=dtype)
-        self.h= eqx.nn.Linear(32, pred_hidden, key=key_h, dtype=dtype)
+        self.vinf = eqx.nn.Linear(32, 1, key=key_vinf, dtype=dtype)
+        self.h = eqx.nn.Linear(32, pred_hidden, key=key_h, dtype=dtype)
 
     @property
     def n_params(self) -> int:
@@ -115,32 +103,26 @@ class Encoder(eqx.Module):
     def __call__(
         self, x: Float[Array, " input_dim"], *, dropout_keys: jnp.ndarray
     ) -> tuple[
-        Float[Array, "1"], Float[Array, "1"], Float[Array, "1"], Float[Array, "1"], Float[Array, " pred_hidden"]
+        Float[Array, "1"], Float[Array, "1"], Float[Array, "1"], Float[Array, " pred_hidden"]
     ]:
         k1, k2 = dropout_keys
 
+        weights = jax.nn.softmax(self.attn(x))
         # === Initial Layers ===
-        h = jax.nn.gelu(self.linear1(self.norm1(x)))
-        h = jax.nn.gelu(self.linear2(self.norm2(h)))
+        h = jax.nn.gelu(self.linear1(x * weights))
+        h = jax.nn.gelu(self.linear2(self.norm1(h)))
         h = self.dropout(h, key=k1)
 
-        # === Gating Block ===
-        qx = self.gate_q(x)
-        gate = jax.nn.sigmoid(self.gate_g(h) + qx)
-        gated = gate * jax.nn.swish(self.gate_v(h)) + (1 - gate) * jax.nn.swish(qx)
-        combined = self.norm3(h + gated)  # residual connection
-
         # === Final Layers ===
-        enc = jax.nn.gelu(self.linear3(combined))
+        enc = jax.nn.gelu(self.linear3(h))
         enc = self.dropout(enc, key=k2)
         enc = jax.nn.gelu(self.linear4(enc))
 
-        head= jax.nn.tanh(self.head_proj(enc))
+        head = jax.nn.tanh(self.head_proj(self.norm2(enc)))
 
         return (
             self.beta(head),
             self.sigma(head),
-            self.vsofa(head),
             self.vinf(head),
             jax.nn.tanh(self.h(head)),
         )
@@ -163,20 +145,23 @@ class Decoder(eqx.Module):
         dec_hidden: int,
         dtype: jnp.dtype = jnp.float32,
     ) -> None:
-        key1, key2, key3, key4 = jax.random.split(key, 4)
+        key1, key2, key3, key4, key5 = jax.random.split(key, 5)
 
         self.input_dim = input_dim
         self.z_latent_dim = z_latent_dim
         self.v_latent_dim = v_latent_dim
         self.dec_hidden = dec_hidden
         self.layers = [
-            eqx.nn.Linear(in_features=z_latent_dim + v_latent_dim, out_features=16, key=key1, dtype=dtype),
+            eqx.nn.Linear(in_features=z_latent_dim + v_latent_dim + 1, out_features=16, key=key1, dtype=dtype),
             jax.nn.swish,
             eqx.nn.Linear(in_features=16, out_features=32, key=key2, dtype=dtype),
             jax.nn.swish,
             eqx.nn.Linear(in_features=32, out_features=dec_hidden, key=key3, dtype=dtype),
             jax.nn.swish,
+            eqx.nn.Linear(in_features=dec_hidden, out_features=dec_hidden, key=key5, dtype=dtype),
+            jax.nn.swish,
             eqx.nn.Linear(in_features=dec_hidden, out_features=input_dim, key=key4, dtype=dtype),
+            jax.nn.tanh
         ]
 
     @property
@@ -186,7 +171,7 @@ class Decoder(eqx.Module):
     @jaxtyped(typechecker=typechecker)
     def __call__(self, z: Float[Array, " latent_dim"]) -> Float[Array, " input_dim"]:
         z = z.reshape(
-            self.z_latent_dim + self.v_latent_dim,
+            self.z_latent_dim + 2,
         )
         for layer in self.layers:
             z = layer(z)
@@ -246,20 +231,11 @@ def apply_initialization(model: EncDec, init_fn_weight: InitFn, init_fn_bias: In
     )
 
 
-def init_encoder_weights(encoder: Encoder, key: jnp.ndarray) -> Encoder:
+def init_encoder_weights(encoder: Encoder, key: jnp.ndarray, scale: float = 1.0) -> Encoder:
     encoder = apply_initialization(encoder, he_uniform_init, zero_bias_init, key)
-
-    key_beta_b, key_sigma_b, _ = jax.random.split(key, 3)
-    encoder = eqx.tree_at(
-        lambda e: e.beta.bias,
-        encoder,
-        softplus_bias_init(jnp.asarray(encoder.beta.bias), key_beta_b),
-    )
-    return eqx.tree_at(
-        lambda e: e.sigma.bias,
-        encoder,
-        softplus_bias_init(jnp.asarray(encoder.sigma.bias), key_sigma_b),
-    )
+    encoder = eqx.tree_at(lambda e: e.beta.weight, encoder, encoder.beta.weight * scale)
+    encoder = eqx.tree_at(lambda e: e.sigma.weight, encoder, encoder.sigma.weight * scale)
+    return encoder
 
 
 def init_decoder_weights(decoder: Decoder, key: jnp.ndarray) -> Decoder:

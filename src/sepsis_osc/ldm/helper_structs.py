@@ -22,6 +22,7 @@ class AuxLosses:
     diff_loss: Array
     thresh_loss: Array
     matching_loss: Array
+    spreading_loss: Array
 
     hists_sofa_score: Array
     hists_sofa_metric: Array
@@ -70,6 +71,7 @@ class AuxLosses:
                 "diff_loss": self.diff_loss,
                 "thresh_loss": self.thresh_loss,
                 "matching_loss": self.matching_loss,
+                "spreading_loss": self.spreading_loss,
             },
             "hists": {
                 "sofa_score": self.hists_sofa_score,
@@ -77,7 +79,6 @@ class AuxLosses:
                 "inf_prob": self.hists_inf_prob,
             },
             "mult": {
-                "infection_t": self.infection_p_loss_t,
                 "sofa_t": self.sofa_loss_t,
             },
             "cosine_annealings": {
@@ -153,6 +154,7 @@ class LossesConfig:
     w_inf_gamma: float
     w_sep3: float
     w_matching: float
+    w_spreading: float
     w_thresh: float
     anneal_threshs_iter: float
     steps_per_epoch: int = 0

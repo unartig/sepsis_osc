@@ -1,17 +1,17 @@
 import logging
 from pathlib import Path
 
-from icu_benchmarks.data.split_process_data import preprocess_data
+import jax.numpy as jnp
+import jax.random as jr
+import numpy as np
+import polars as pl
 from icu_benchmarks.constants import RunMode
 from icu_benchmarks.data.preprocessor import PolarsRegressionPreprocessor
-import polars as pl
-import jax.numpy as jnp
-import numpy as np
-import jax.random as jr
+from icu_benchmarks.data.split_process_data import preprocess_data
 
+from sepsis_osc.ldm.gin_configs import file_names, modality_mapping, new_vars
+from sepsis_osc.utils.config import cohort_name, np_rng, sequence_files, target_name, yaib_data_dir
 from sepsis_osc.utils.logger import setup_logging
-from sepsis_osc.utils.config import yaib_data_dir, sequence_files, np_rng
-from sepsis_osc.ldm.gin_configs import file_names, new_vars, modality_mapping
 
 logger = logging.getLogger(__name__)
 
@@ -21,6 +21,7 @@ data_dir = Path(yaib_data_dir)
 def get_raw_data(
     _data_dir: Path = data_dir, yaib_vars: dict[str, str | list[str]] = new_vars
 ) -> dict[str, pl.DataFrame]:
+    yaib_vars["LABEL"][0] = target_name
     logger.info(f"Searching for sequence_files in {_data_dir}")
     data = preprocess_data(
         data_dir=_data_dir,
@@ -44,7 +45,7 @@ def get_raw_data(
 
     for si, s in data.items():
         for k in s:
-            data[si][k] = data[si][k].sort(by=["stay_id", "time"])
+            data[si][k] = s[k].sort(by=["stay_id", "time"])
     return data
 
 
@@ -116,7 +117,7 @@ def prepare_sequences(
 def get_data_sets(
     window_len: int = 6, dtype: jnp.dtype = jnp.float32
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
-    if Path(sequence_files + f"len_{window_len}.npz").exists():
+    if Path(sequence_files + f"len_{window_len}_{cohort_name}.npz").exists():
         logger.info("Processed sequence files found. Loading data from disk...")
         loaded = np.load(sequence_files + f"len_{window_len}.npz")
         train_x, train_y = loaded["train_x"], loaded["train_y"]
@@ -142,7 +143,7 @@ def get_data_sets(
         test_x, test_y = prepare_sequences(test_x, test_y, window_len)
 
         np.savez_compressed(
-            sequence_files + f"len_{window_len}",
+            sequence_files + f"len_{window_len}_{cohort_name}",
             train_x=train_x,
             train_y=train_y,
             val_x=val_x,

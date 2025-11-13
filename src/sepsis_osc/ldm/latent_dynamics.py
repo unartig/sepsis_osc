@@ -28,6 +28,9 @@ class LatentDynamicsModel(eqx.Module):
 
     _d_diff: Array
     _d_scale: Array
+    _input_sim_scale: Array
+
+    _sofa_exp: Array
 
     _inf_w: Array
     _inf_b: Array
@@ -37,9 +40,15 @@ class LatentDynamicsModel(eqx.Module):
     _sofa_b: Array
     _sofa_p: Array
 
-    _sofa_lsigma: Array
+    _sofa_dir_lsigma: Array
+    _sofa_d2_lsigma: Array
+    _sofa_class_lsigma: Array
     _inf_lsigma: Array
     _sep3_lsigma: Array
+    _velo_lsigma: Array
+    _recon_lsigma: Array
+    _seq_lsigma: Array
+    _spread_lsigma: Array
 
     def __init__(
         self,
@@ -59,13 +68,15 @@ class LatentDynamicsModel(eqx.Module):
         self._sofa_dist = sofa_dist
 
         self._label_temperature = jnp.log(jnp.ones((1,), dtype=jnp.float32) * 0.05)
-        self._lookup_temperature = jnp.log(jnp.ones((1,), dtype=jnp.float32) * 0.5)
+        self._lookup_temperature = jnp.log(jnp.ones((1,), dtype=jnp.float32) * 0.05)
         self._delta_temperature = jnp.log(jnp.ones((1,), dtype=jnp.float32) * 0.5)
         self._prior_deltas = ordinal_deltas
         self._learned_deltas = ordinal_deltas
 
         self._d_diff = jnp.log(jnp.ones((1,), dtype=jnp.float32) * 1 / 25)
         self._d_scale = jnp.log(jnp.ones((1,), dtype=jnp.float32))
+        self._sofa_exp = jnp.zeros((1,), dtype=jnp.float32)
+        self._input_sim_scale = jnp.ones((encoder.input_dim,), dtype=jnp.float32)
 
         self._inf_w = jnp.zeros((1,), dtype=jnp.float32)
         self._inf_b = jnp.zeros((1,), dtype=jnp.float32)
@@ -74,9 +85,15 @@ class LatentDynamicsModel(eqx.Module):
         self._sofa_b = jnp.zeros((1,), dtype=jnp.float32)
         self._sofa_p = jnp.zeros((1,), dtype=jnp.float32)
 
-        self._sofa_lsigma = jnp.zeros((1,), dtype=jnp.float32)
+        self._sofa_dir_lsigma = jnp.zeros((1,), dtype=jnp.float32)
+        self._sofa_d2_lsigma = jnp.zeros((1,), dtype=jnp.float32)
+        self._sofa_class_lsigma = jnp.zeros((1,), dtype=jnp.float32)
         self._inf_lsigma = jnp.zeros((1,), dtype=jnp.float32)
         self._sep3_lsigma = jnp.zeros((1,), dtype=jnp.float32)
+        self._velo_lsigma = jnp.zeros((1,), dtype=jnp.float32)
+        self._recon_lsigma = jnp.zeros((1,), dtype=jnp.float32)
+        self._seq_lsigma = jnp.zeros((1,), dtype=jnp.float32)
+        self._spread_lsigma = jnp.zeros((1,), dtype=jnp.float32)
 
     @property
     def n_params(self) -> int:
@@ -93,6 +110,9 @@ class LatentDynamicsModel(eqx.Module):
     @property
     def sofa_dist(self) -> Float[Array, "24"]:
         return self._sofa_dist
+    @property
+    def sofa_exp(self) -> Float[Array, "1"]:
+        return jnp.exp(self._sofa_exp)
 
     @property
     def label_temperature(self) -> Float[Array, "1"]:
@@ -100,7 +120,7 @@ class LatentDynamicsModel(eqx.Module):
 
     @property
     def lookup_temperature(self) -> Float[Array, "3"]:
-        return jnp.exp(self._lookup_temperatures)
+        return jnp.exp(self._lookup_temperature)
 
     @property
     def delta_temperature(self) -> Float[Array, "1"]:
@@ -118,6 +138,10 @@ class LatentDynamicsModel(eqx.Module):
         return jax.nn.sigmoid((pred_sofas + self._sofa_b) * self._sofa_w)
 
     @property
+    def input_sim_scale(self) -> Float[Array, " input_dim"]:
+        return jax.nn.soft_sign(self._input_sim_scale)
+
+    @property
     def d_diff(self) -> Float[Array, "1"]:
         return jnp.exp(self._d_diff)
 
@@ -126,8 +150,32 @@ class LatentDynamicsModel(eqx.Module):
         return jnp.exp(self._d_scale)
 
     @property
-    def sofa_lsigma(self) -> Float[Array, "1"]:
-        return jnp.exp(self._sofa_lsigma)
+    def sofa_dir_lsigma(self) -> Float[Array, "1"]:
+        return jnp.exp(self._sofa_dir_lsigma)
+
+    @property
+    def sofa_class_lsigma(self) -> Float[Array, "1"]:
+        return jnp.exp(self._sofa_class_lsigma)
+
+    @property
+    def sofa_d2_lsigma(self) -> Float[Array, "1"]:
+        return jnp.exp(self._sofa_d2_lsigma)
+
+    @property
+    def velo_lsigma(self) -> Float[Array, "1"]:
+        return jnp.exp(self._velo_lsigma)
+
+    @property
+    def seq_lsigma(self) -> Float[Array, "1"]:
+        return jnp.exp(self._seq_lsigma)
+
+    @property
+    def spread_lsigma(self) -> Float[Array, "1"]:
+        return jnp.exp(self._spread_lsigma)
+
+    @property
+    def recon_lsigma(self) -> Float[Array, "1"]:
+        return jnp.exp(self._recon_lsigma)
 
     @property
     def inf_lsigma(self) -> Float[Array, "1"]:
@@ -144,7 +192,7 @@ class LatentDynamicsModel(eqx.Module):
             "delta_temperature": self.delta_temperature,
             "d_diff": self.d_diff,
             "d_scale": self.d_scale,
-            "sofa_lsigma": self.sofa_lsigma,
+            "sofa_lsigma": self.sofa_class_lsigma,
             "inf_lsigma": self.inf_lsigma,
             "sep3_lsigma": self.sep3_lsigma,
         }
