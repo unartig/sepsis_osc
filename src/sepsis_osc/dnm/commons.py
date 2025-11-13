@@ -19,20 +19,18 @@ def std_angle(angles, axis=-1) -> jnp.ndarray:
     return jnp.sqrt(jnp.mean(angular_diff**2, axis=axis))
 
 
-def phase_entropy(phis, num_bins=36) -> jnp.ndarray:
+def phase_entropy(phis: jnp.ndarray, num_bins: int = 36) -> jnp.ndarray:
     hist, bin_edges = jnp.histogram(phis, bins=num_bins, range=(0, 2 * jnp.pi), density=True)
 
     hist = jnp.clip(hist, 1e-10, 1)
 
-    # Shannon entropy
-    entropy = -jnp.sum(hist * jnp.log(hist) * (bin_edges[1] - bin_edges[0]))  # bin width is constant
-    return entropy
+    return -jnp.sum(hist * jnp.log(hist) * (bin_edges[1] - bin_edges[0]))  # bin width is constant
 
-def entropy(x, num_bins=100) -> jnp.ndarray:
-    hist, bin_edges = jnp.histogram(x, bins=num_bins, range=(0, 2), density=True)
+
+def entropy(x: jnp.ndarray, num_bins: int = 100, lims: tuple[float, float] = (0, 2)) -> jnp.ndarray:
+    hist, bin_edges = jnp.histogram(x, bins=num_bins, range=lims, density=True)
 
     hist = jnp.clip(hist, 1e-10, 1)
 
     # Shannon entropy
-    entropy = -jnp.sum(hist * jnp.log(hist) * (bin_edges[1] - bin_edges[0]))  # bin width is constant
-    return entropy
+    return -jnp.sum(hist * jnp.log(hist) * (bin_edges[1] - bin_edges[0]))  # bin width is constant
