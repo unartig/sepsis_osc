@@ -2,19 +2,14 @@ from typing import Optional
 
 import jax.numpy as jnp
 import matplotlib.pyplot as plt
-from matplotlib.pyplot import Axes, Figure
 import numpy as np
-import plotly.graph_objects as go
-import polars as pl
 from matplotlib.cm import ScalarMappable
-
+from matplotlib.pyplot import Axes, Figure
+from sklearn.metrics import PrecisionRecallDisplay, RocCurveDisplay
 
 from sepsis_osc.ldm.lookup import LatentLookup
-from sepsis_osc.utils.config import ALPHA_SPACE, BETA_SPACE, SIGMA_SPACE
+from sepsis_osc.utils.config import BETA_SPACE, SIGMA_SPACE
 from sepsis_osc.visualisations.viz_param_space import space_plot
-from sepsis_osc.visualisations.viz_three_dee import three_dee
-from sklearn.metrics import RocCurveDisplay, PrecisionRecallDisplay
-
 
 SMALL_SIZE = 12
 MEDIUM_SIZE = 14
@@ -30,20 +25,57 @@ plt.rc("figure", titlesize=BIGGER_SIZE)  # fontsize of the figure title
 
 
 def viz_starter(
+    alphas: jnp.ndarray,
     betas: jnp.ndarray,
     sigmas: jnp.ndarray,
-    ax: Optional[Axes] = None,
+    lookup: LatentLookup,
+    *,
+    cmaps: bool = True,
+    figax: tuple[Figure, Axes] | None = None,
     figure_dir: str = "figures/model",
     filename: str = "latent_starters",
-):
+) -> Axes:
+    if figax is not None:
+        fig, ax = figax
     if ax is None:
         fig, ax = plt.subplots(1, 1)
-    assert ax
-    ax.scatter(betas, sigmas)
-    ax.set_xlim(BETA_SPACE[0], BETA_SPACE[1])
-    ax.set_ylim(SIGMA_SPACE[0], SIGMA_SPACE[1])
+
+    alphas_space = jnp.array([alphas.mean()])
+    betas_space = jnp.arange(*BETA_SPACE)
+    sigmas_space = jnp.arange(*SIGMA_SPACE)
+    alpha_grid, beta_grid, sigma_grid = np.meshgrid(alphas_space, betas_space, sigmas_space, indexing="ij")
+    param_grid = np.stack([alpha_grid.ravel(), beta_grid.ravel(), sigma_grid.ravel()], axis=1)
+
+    metrics = lookup.hard_get_fsq(jnp.asarray(param_grid), temperature=jnp.ones_like(param_grid) * 1e-4).reshape(
+        len(betas_space), len(sigmas_space)
+    )
+
+    # --- SOFA
+    std_sym = r"$s^{1}$"
+    ax = space_plot(
+        metrics,
+        xs=np.asarray(betas_space),
+        ys=np.asarray(sigmas_space),
+        title=rf"SOFA Progression over {std_sym} space @$\alpha=${alphas.mean():.3f}{'\n'}Parenchymal Layer",
+        cmap=cmaps,
+        filename=filename,
+        figure_dir=figure_dir,
+        figax=(fig, ax),
+    )
+    N, T = betas.shape
+    betas = betas.ravel()  # row-major flatten
+    sigmas = sigmas.ravel()
+
+    t_idx = np.tile(np.arange(T), N)
+
+    beta_scale = len(betas_space) * (betas - BETA_SPACE[0]) / (BETA_SPACE[1] - BETA_SPACE[0])
+    sigma_scale = len(sigmas_space) * (1 - (sigmas - SIGMA_SPACE[0]) / (SIGMA_SPACE[1] - SIGMA_SPACE[0]))
+    ax.scatter(beta_scale, sigma_scale, c=t_idx, cmap="copper", alpha=0.8, s=3.0)
+
     ax.set_xlabel(r"$\beta / \pi$")
     ax.set_ylabel(r"$\sigma$")
+    if filename and figure_dir:
+        plt.savefig(f"{figure_dir}/{filename}.svg", format="svg")
     return ax
 
 
@@ -52,13 +84,12 @@ def viz_progression(
     true_infs: jnp.ndarray | np.ndarray,
     pred_sofa: jnp.ndarray | np.ndarray,
     pred_infs: jnp.ndarray | np.ndarray,
-    ax: Optional[tuple[Axes, Axes]] = None,
+    ax: Optional[Axes] = None,
     figure_dir: str = "figures/model",
     filename: str = "latent_plane",
-):
-    if ax is None or len(ax) < 2:
-        fig, ax = plt.subplots(2, 1)
-    assert ax is not None
+) -> Axes:
+    if ax is None:
+        _fig, ax = plt.subplots(1, 1)
 
     NB, B, T = pred_sofa.shape
 
@@ -67,22 +98,12 @@ def viz_progression(
     std_sofa = (pred_sofa - true_sofa).std(axis=(0, 1))
     ci95_sofa = 1.96 * std_sofa / np.sqrt(NB * B)
 
-    ax[0].plot(np.arange(T), mean_sofa, label="SOFA Error")
-    ax[0].plot(np.arange(T), mean_sofa + ci95_sofa, linestyle="--", color="gray")
-    ax[0].plot(np.arange(T), mean_sofa - ci95_sofa, linestyle="--", color="gray")
-
-    # --- infection
-    mean_infs = (pred_infs - true_infs).mean(axis=(0, 1))
-    std_infs = (pred_infs - true_infs).std(axis=(0, 1))
-    ci95_infs = 1.96 * std_infs / np.sqrt(NB * B)
-
-    ax[1].plot(np.arange(T), mean_infs, label="INFS Error")
-    ax[1].plot(np.arange(T), mean_infs + ci95_infs, linestyle="--", color="gray")
-    ax[1].plot(np.arange(T), mean_infs - ci95_infs, linestyle="--", color="gray")
+    ax.plot(np.arange(T), mean_sofa, label="SOFA Error")
+    ax.plot(np.arange(T), mean_sofa + ci95_sofa, linestyle="--", color="gray")
+    ax.plot(np.arange(T), mean_sofa - ci95_sofa, linestyle="--", color="gray")
 
     plt.tight_layout()
-    ax[0].grid()
-    ax[1].grid()
+    ax.grid()
     if filename and figure_dir:
         plt.savefig(f"{figure_dir}/{filename}.svg", format="svg")
     return ax
@@ -98,15 +119,14 @@ def viz_plane(
     sigmas: jnp.ndarray,
     lookup: LatentLookup,
     cmaps=True,
-    figax: Optional[tuple[Figure, tuple[Axes, Axes]]] = None,
+    figax: tuple[Figure, Axes] | None = None,
     figure_dir: str = "figures/model",
     filename: str = "latent_plane",
-):
+) -> Axes:
     if figax is not None:
         fig, ax = figax
-    if ax is None or len(ax) < 2:
-        fig, ax = plt.subplots(1, 2)
-    assert ax is not None
+    if ax is None:
+        fig, ax = plt.subplots(1, 1)
 
     alphas_space = jnp.array([alphas.mean()])
     betas_space = jnp.arange(*BETA_SPACE)
@@ -115,52 +135,30 @@ def viz_plane(
     param_grid = np.stack([alpha_grid.ravel(), beta_grid.ravel(), sigma_grid.ravel()], axis=1)
 
     metrics = lookup.hard_get_fsq(jnp.asarray(param_grid), temperature=jnp.ones_like(param_grid) * 1e-4).reshape(
-        len(betas_space), len(sigmas_space), 2
+        len(betas_space), len(sigmas_space)
     )
 
     # --- SOFA
     std_sym = r"$s^{1}$"
-    ax[0] = space_plot(
-        metrics[..., 0],
-        betas_space,
-        sigmas_space,
-        rf"SOFA Progression over {std_sym} space @$\alpha=${alphas.mean():.3f}{'\n'}Parenchymal Layer",
+    ax = space_plot(
+        metrics,
+        xs=np.asarray(betas_space),
+        ys=np.asarray(sigmas_space),
+        title=rf"SOFA Progression over {std_sym} space @$\alpha=${alphas.mean():.3f}{'\n'}Parenchymal Layer",
         cmap=cmaps,
         filename=filename,
         figure_dir=figure_dir,
-        figax=(fig, ax[0]),
+        figax=(fig, ax),
     )
     beta_scale = len(betas_space) * (betas - BETA_SPACE[0]) / (BETA_SPACE[1] - BETA_SPACE[0])
     sigma_scale = len(sigmas_space) * (1 - (sigmas - SIGMA_SPACE[0]) / (SIGMA_SPACE[1] - SIGMA_SPACE[0]))
-    cm = None
+    cm = plt.colormaps.get_cmap("copper")
     if cmaps:
-        cm = plt.colormaps.get_cmap("plasma")
         sm = ScalarMappable(cmap=cm)
         sm.set_array([])
-        cbar2 = plt.colorbar(sm, ax=ax[0], shrink=0.8)
+        cbar2 = plt.colorbar(sm, ax=ax, shrink=0.8)
         cbar2.set_label("Actual SOFA-score")
-    ax[0].scatter(beta_scale, sigma_scale, c=true_sofa / 24, cmap=cm)
-
-    # --- infection
-    std_sym = r"$s^{2}$"
-    ax[1] = space_plot(
-        metrics[..., 1],
-        betas_space,
-        sigmas_space,
-        rf"Infection Progression over {std_sym} space @$\alpha=${alphas.mean():.3f}{'\n'}Immune Layer",
-        cmap=cmaps,
-        filename=filename,
-        figure_dir=figure_dir,
-        figax=(fig, ax[1]),
-    )
-    cm = None
-    if cmaps:
-        cm = plt.colormaps.get_cmap("plasma")
-        sm = ScalarMappable(cmap=cm)
-        sm.set_array([])
-        cbar3 = plt.colorbar(sm, ax=ax[1], shrink=0.8)
-        cbar3.set_label("Actual Infection")
-    ax[1].scatter(beta_scale, sigma_scale, c=true_infs, cmap=cm)
+    ax.scatter(beta_scale, sigma_scale, c=true_sofa / 24, cmap=cm)
 
     # plt.tight_layout()
     if filename and figure_dir:
@@ -176,13 +174,12 @@ def viz_heatmap_concepts(
     cmap: bool,
     figure_dir: str = "figures/model",
     filename: str = "prediction.jpg",
-    figax: Optional[tuple[Figure, tuple[Axes, Axes]]] = None,
-):
+    figax: tuple[Figure, tuple[Axes, Axes]] | None = None,
+) -> tuple[Axes, Axes]:
     if figax is not None:
         fig, ax = figax
     if ax is None or len(ax) < 2:
         fig, ax = plt.subplots(1, 2)
-    assert ax is not None
 
     sofa_bins = [np.arange(-0.5, 24.5, 1), np.arange(-0.5, 24.5, 1)]  # 1-point bins
     sofa_heatmap, sofa_xedges, sofa_yedges = np.histogram2d(true_sofa, pred_sofa, bins=sofa_bins)
@@ -196,7 +193,7 @@ def viz_heatmap_concepts(
         aspect="auto",
         cmap="hot",
     )
-    ax[0].plot(range(0, 24), range(0, 24), color="tab:red", label="optimum")
+    ax[0].plot(range(24), range(24), color="tab:red", label="optimum")
     ax[0].set_ylabel("Predicted SOFA-score")
     ax[0].set_xlabel("Actual SOFA-score")
     ax[0].legend()
@@ -234,13 +231,12 @@ def viz_curves(
     pred_sep3: jnp.ndarray | np.ndarray,
     figure_dir: str = "figures/model",
     filename: str = "confusion.jpg",
-    figax: Optional[tuple[Figure, tuple[Axes, Axes]]] = None,
-):
+    figax: tuple[Figure, tuple[Axes, Axes]] | None = None,
+) -> tuple[Axes, Axes]:
     if figax is not None:
-        fig, ax = figax
+        _fig, ax = figax
     if ax is None or len(ax) < 2:
-        fig, ax = plt.subplots(1, 2)
-    assert ax is not None
+        _fig, ax = plt.subplots(1, 2)
 
     RocCurveDisplay.from_predictions(
         true_sofa, pred_sofa, ax=ax[0], curve_kwargs={"label": "SOFA d2", "color": "tab:blue"}

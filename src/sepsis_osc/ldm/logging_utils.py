@@ -10,11 +10,11 @@ from torch.utils.tensorboard.writer import SummaryWriter
 from sepsis_osc.ldm.helper_structs import AuxLosses
 from sepsis_osc.ldm.lookup import LatentLookup
 from sepsis_osc.visualisations.viz_model_results import (
+    viz_curves,
     viz_heatmap_concepts,
     viz_plane,
     viz_progression,
     viz_starter,
-    viz_curves,
 )
 
 
@@ -63,26 +63,26 @@ def log_val_metrics(
     print("lims sep ", pred_sep3_p.min(), pred_sep3_p.max())
 
     fig, ax = plt.subplots(1, 1)
-    ax = viz_starter(metrics["latents"]["beta"][:, 0], metrics["latents"]["sigma"][:, 0], filename="", ax=ax)
+    ax = viz_starter(metrics["latents"]["alpha"][0],metrics["latents"]["beta"][0], metrics["latents"]["sigma"][0], lookup=lookup, filename="", figax=(fig, ax))  # only first batch
     writer.add_figure("Latents@0", fig, epoch, close=True)
 
-    fig, ax = plt.subplots(1, 2)
+    fig, ax = plt.subplots(1, 1)
     ax = viz_progression(
         y[..., 0], y[..., 1], metrics["hists"]["sofa_score"], metrics["hists"]["inf_prob"], filename="", ax=ax
     )
     writer.add_figure("Progression", fig, epoch, close=True)
 
-    fig, ax = plt.subplots(1, 2)
-    idx = np.argmax(y[0, :, :, 0].var(axis=-1))
+    fig, ax = plt.subplots(1, 1)
+    seq_idx = np.argmax(y[0, :, :, 0].var(axis=-1))  # highest sofa std in first batch
 
     ax = viz_plane(
-        true_sofa=y[0, idx, :, 0],
-        true_infs=y[0, idx, :, 1],
-        pred_sofa=metrics["hists"]["sofa_score"][0, idx],
-        pred_infs=metrics["hists"]["inf_prob"][0, idx],
-        alphas=metrics["latents"]["alpha"][0, idx],
-        betas=metrics["latents"]["beta"][0, idx],
-        sigmas=metrics["latents"]["sigma"][0, idx],
+        true_sofa=y[0, seq_idx, :, 0],
+        true_infs=y[0, seq_idx, :, 1],
+        pred_sofa=metrics["hists"]["sofa_score"][0, seq_idx],
+        pred_infs=metrics["hists"]["inf_prob"][0, seq_idx],
+        alphas=metrics["latents"]["alpha"][0, seq_idx],
+        betas=metrics["latents"]["beta"][0, seq_idx],
+        sigmas=metrics["latents"]["sigma"][0, seq_idx],
         lookup=lookup,
         cmaps=False,
         filename="",
@@ -126,8 +126,6 @@ def log_val_metrics(
                 "Inf Error", np.asarray(metrics["hists"]["inf_prob"].flatten() - (y[..., 1]).flatten()), epoch
             )
         elif k == "mult":
-            for t, v in enumerate(np.asarray(metrics["mult"]["infection_t"]).mean(axis=(0, 1))):
-                writer.add_scalar(f"infection_per_timestep/t{t}", np.asarray(v), epoch)
             for t, v in enumerate(np.asarray(metrics["mult"]["sofa_t"]).mean(axis=(0, 1))):
                 writer.add_scalar(f"sofa_per_timestep/t{t}", np.asarray(v), epoch)
         elif k == "sepsis_metrics":

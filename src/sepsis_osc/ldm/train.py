@@ -1,6 +1,7 @@
+import gc
 import logging
+from collections.abc import Callable
 from dataclasses import asdict
-from typing import Callable
 
 import equinox as eqx
 import jax
@@ -8,19 +9,27 @@ import jax.numpy as jnp
 import jax.random as jr
 import numpy as np
 import optax
-from jaxtyping import Array, Bool, Float, Int, PyTree, jaxtyped
+from jaxtyping import Array, Float, Int, PyTree, jaxtyped
 from torch.utils.tensorboard.writer import SummaryWriter
 
 from sepsis_osc.dnm.dynamic_network_model import DNMConfig, DNMMetrics
-from sepsis_osc.ldm.ae import Decoder, Encoder, init_decoder_weights, init_encoder_weights
+from sepsis_osc.ldm.ae import (
+    Decoder,
+    Encoder,
+    init_decoder_weights,
+    init_encoder_weights,
+)
 from sepsis_osc.ldm.calibration_model import CalibrationModel
 from sepsis_osc.ldm.checkpoint_utils import load_checkpoint, save_checkpoint
 from sepsis_osc.ldm.commons import (
+    approx_similarity_loss,
     binary_logits,
     custom_warmup_cosine,
+    mahalanobis_similarity_loss,
     ordinal_logits,
     prob_increase,
-    smooth_labels,
+    soft_entropy,
+    uniform_cdf_loss,
 )
 from sepsis_osc.ldm.data_loading import get_data_sets, prepare_batches
 from sepsis_osc.ldm.gru import GRUPredictor
@@ -34,10 +43,14 @@ from sepsis_osc.ldm.helper_structs import (
     TrainingConfig,
 )
 from sepsis_osc.ldm.latent_dynamics import LatentDynamicsModel
-from sepsis_osc.ldm.logging_utils import flatten_dict, log_train_metrics, log_val_metrics
-from sepsis_osc.ldm.lookup import LatentLookup, as_2d_indices, as_3d_indices
+from sepsis_osc.ldm.logging_utils import (
+    flatten_dict,
+    log_train_metrics,
+    log_val_metrics,
+)
+from sepsis_osc.ldm.lookup import LatentLookup, as_2d_indices
 from sepsis_osc.storage.storage_interface import Storage
-from sepsis_osc.utils.config import ALPHA, ALPHA_SPACE, BETA_SPACE, SIGMA_SPACE, jax_random_seed
+from sepsis_osc.utils.config import ALPHA, BETA_SPACE, SIGMA_SPACE, jax_random_seed
 from sepsis_osc.utils.jax_config import EPS, setup_jax, typechecker
 from sepsis_osc.utils.logger import setup_logging
 from sepsis_osc.utils.utils import timing
@@ -55,6 +68,7 @@ def ordinal_loss(
 ) -> Float[Array, " time"]:
     # CORN (Cumulative Ordinal Regression)
     n_classes = thresholds.shape[-1] + 1
+
 
     logits = ordinal_logits(predicted_sofa, thresholds, label_temperature)
 
@@ -91,14 +105,15 @@ def calc_full_directional_loss(
     dp = pred_sofa[None, :] - pred_sofa[:, None]
     dt = true_sofa[None, :] - true_sofa[:, None]
     mask = jnp.triu(jnp.ones((T, T)), k=1)
-    valid = (jnp.abs(dt) > EPS)
+    valid = jnp.abs(dt) > EPS
+    weight = jnp.abs(dt) + 1
 
     alignment = dp * dt
     penalty = (
         penalty_weight * jax.nn.softplus(-alignment)
-        - reward_weight * jax.nn.softplus(alignment)
+        # - reward_weight * jax.nn.softplus(alignment)
     )
-    return (penalty * mask * valid).mean()
+    return (penalty * mask * valid * weight).sum()
 
 
 @jaxtyped(typechecker=typechecker)
@@ -165,10 +180,10 @@ def get_latent_seq(
     drop_keys = jax.vmap(model.encoder.make_keys)(sample_keys)
 
     # --------- Prediction
-    zbeta0, zsigma0, vsofa0, vinf0, h_0 = jax.vmap(model.encoder)(x[:, 0], dropout_keys=drop_keys)
+    zbeta0, zsigma0, vinf0, h_0 = jax.vmap(model.encoder)(x[:, 0], dropout_keys=drop_keys)
 
     # NOTE alpha is only predicted for t=0, and stays constant throughout the prediction horizon for each patient
-    zv0 = jnp.concatenate([zbeta0, zsigma0, vsofa0, vinf0], axis=-1)
+    zv0 = jnp.concatenate([zbeta0, zsigma0, vinf0], axis=-1)
 
     def predict_next(
         carry: tuple[Float[Array, " latent_dim"], Float[Array, " gru_h_dim"]], _: Float[Array, " z_dim"]
@@ -196,7 +211,6 @@ def get_latent_seq(
 
 # === Loss Function ===
 @jaxtyped(typechecker=typechecker)
-@eqx.filter_jit  # (donate="all")
 def loss(
     model: LatentDynamicsModel,
     x: Float[Array, "batch time input_dim"],
@@ -210,76 +224,52 @@ def loss(
 ) -> tuple[Array, AuxLosses]:
     aux = AuxLosses.empty()
     sofa_true, infection_true, sepsis_true = true_concepts[..., 0], true_concepts[..., 1], true_concepts[..., 2]
-    # NOTE
-    # aux.anneal_threshs = cosine_annealing(
-    #     0.0, int(params.anneal_threshs_iter * params.steps_per_epoch), params.steps_per_epoch * 10, step
-    # )
-    aux.anneal_threshs = cosine_annealing(
-        base_val=0.01,
-        num_steps=int(50* params.steps_per_epoch),
-        num_dead_steps=params.steps_per_epoch * 200,
-        current_step=step,
-    )
-    cos_inf = cosine_annealing(
-        base_val=0.0,
-        num_steps=int(250* params.steps_per_epoch),
-        num_dead_steps=params.steps_per_epoch * 1000,
-        current_step=step,
-    )
-    # ordinal_thresholds = model.ordinal_thresholds(aux.anneal_threshs)
     ordinal_thresholds = model.ordinal_thresholds(jnp.array(0.0))
 
-    # aux.thresh_loss = jnp.mean(
-    #     jax.nn.relu((1 / 24) - jax.nn.softmax(model.learned_deltas))
-    # )  # punish deviations from uniform
 
-    z_seq, v_seq = get_latent_seq(model, x, key=key)  # (batch, T, z_dim)
+    z_seq, infection_pred = get_latent_seq(model, x, key=key)  # (batch, T, z_dim)
 
-    vsofa, vinf = v_seq[..., 0], v_seq[..., 1]
     aux.alpha, aux.beta, aux.sigma = jnp.ones_like(z_seq[..., 0]) * model.alpha, z_seq[..., 0], z_seq[..., 1]
 
-    pred_metrics = jax.vmap(lookup_func, in_axes=(1, None, None))(
+    sofa_pred = jax.vmap(lookup_func, in_axes=(1, None, None))(
         jnp.concat([aux.alpha[..., None], z_seq], axis=-1), model.lookup_temperature, 3
     ).swapaxes(0, 1)  # (T, batch, 2) -> (batch, T, 2)
     # NOTE
-    sofa_pred = pred_metrics[..., 0]  # ** model.sofa_exp  # (batch, T, 1)
-    # infection_pred = jnp.ones_like(infection_true) * 0.5# (batch, T, 1)
-    infection_pred = vinf  # (batch, T, 1)
-    # sofa_pred = vsofa  # (batch, T, 1)
 
-    aux.matching_loss = jnp.mean(((vsofa - sofa_pred) ** 2) + ((vinf - infection_pred) ** 2))
+    # --------- Matching Loss
+    # aux.matching_loss = jnp.mean(((vsofa - sofa_pred) ** 2) + ((vinf - infection_pred) ** 2))
 
     # --------- Difference Loss
-    # try to hvae uniformly distributed metrics
-    aux.diff_loss = (sofa_pred.var() - 1 / 12) ** 2
+    # aux.diff_loss = (sofa_pred.var() - 1 / 12) ** 2
 
     # --------- Acceleration Loss
     # https://en.wikipedia.org/wiki/Finite_difference#Higher-order_differences
-    aux.velocity_loss = -1*jnp.mean((z_seq[:, 1:] - z_seq[:, :-1]) ** 2)
-    aux.acceleration_loss = jnp.mean((z_seq[:, 2:] - 2 * z_seq[:, 1:-1] + z_seq[:, :-2]) ** 2)
+    # aux.velocity_loss = -1 * jnp.mean((z_seq[:, 1:] - z_seq[:, :-1]) ** 2)
+    # aux.acceleration_loss = jnp.mean((z_seq[:, 2:] - 2 * z_seq[:, 1:-1] + z_seq[:, :-2]) ** 2)
+
 
     # --------- Recon Loss
     x_recon = jax.vmap(jax.vmap(model.decoder))(
-        jnp.concat([z_seq, infection_pred[..., None], sofa_pred[..., None]], axis=-1)
+        jnp.concat([z_seq, infection_pred, sofa_pred[..., None]], axis=-1)
     )
     aux.recon_loss = jnp.mean((x - x_recon) ** 2)
     sample_keys = jax.vmap(lambda i: jr.fold_in(key, i))(jnp.arange(x.shape[0]))
     sample_keys = jax.vmap(lambda k: jr.split(k, x.shape[1] - 1))(sample_keys)
     drop_keys = jax.vmap(jax.vmap(model.encoder.make_keys))(sample_keys)
-    beta_enc, sigma_enc, _, _, _ = jax.vmap(jax.vmap(model.encoder))(x[:, 1:], dropout_keys=drop_keys)
-    aux.sequence_loss = jnp.mean((jax.lax.stop_gradient(z_seq[:, 1:]) - jnp.concat([beta_enc, sigma_enc], axis=-1)) ** 2)
+    beta_enc, sigma_enc, _, _ = jax.vmap(jax.vmap(model.encoder))(x[:, 1:], dropout_keys=drop_keys)
+    enc_seq = constrain_z(jax.nn.sigmoid(jnp.concat([beta_enc, sigma_enc], axis=-1)))
+    aux.sequence_loss = jnp.mean((z_seq[:, 1:] - enc_seq) ** 2)
 
     # --------- Total correlation loss (one per batch)
-    aux.tc_loss = calc_tc_loss(z_seq)
+    # aux.tc_loss = calc_tc_loss(z_seq)
 
     # --------- Concept losses
-    # class_weights = jnp.log(1.0 + 1.0 / (model.sofa_dist + EPS))
-    # weights_per_sample = 1 + class_weights[sofa_true.astype(jnp.int32)] * 10  # [B]
-    aux.sofa_loss_t = (sofa_pred - (sofa_true / 24.0)) ** 2 #  * weights_per_sample
+    class_weights = jnp.log(1.0 + 1.0 / (model.sofa_dist + EPS))
+    weights_per_sample = class_weights[sofa_true.astype(jnp.int32)]  # [B]
+    aux.sofa_loss_t = (sofa_pred - (sofa_true / 24.0)) ** 2 * weights_per_sample
     aux.sofa_d2_p = jax.vmap(prob_increase, in_axes=(0, None, None))(
-        jax.lax.stop_gradient(sofa_pred), model.d_diff, model.d_scale
+        sofa_pred, model.d_diff, model.d_scale
     )
-    # aux.sofa_d2_p = 1.0 - jnp.prod(1.0 - (jnp.diff(jax.lax.stop_gradient(sofa_pred)) > model.d_diff), axis=-1)
 
     aux.sofa_d2_p_loss = optax.sigmoid_binary_cross_entropy(
         binary_logits(aux.sofa_d2_p),
@@ -289,54 +279,51 @@ def loss(
         binary_logits(infection_pred),
         infection_true,
     )
-    # aux.infection_p_loss_t = jax.vmap(optax.sigmoid_focal_loss, in_axes=(0, 0, None, None))(
-    #     binary_logits(infection_pred),
-    #     infection_true,
-    #     params.w_inf_alpha,
-    #     params.w_inf_gamma,
-    # )
-    aux.susp_inf_p = 1.0 - jnp.prod(1.0 - infection_pred, axis=-1)
+    aux.susp_inf_p = 1.0 - jnp.prod(1.0 - infection_pred.squeeze(), axis=-1)
 
     aux.sep3_p = calibrate_probs_func(jax.lax.stop_gradient(aux.sofa_d2_p), jax.lax.stop_gradient(aux.susp_inf_p))
     aux.sep3_p_loss = optax.sigmoid_focal_loss(
         binary_logits(aux.sep3_p), (sepsis_true == 1.0).any(axis=-1), alpha=0.99, gamma=1.0
     )
+
     # --------- Directional Loss
     aux.directional_loss = jnp.mean(jax.vmap(calc_full_directional_loss)(sofa_pred, sofa_true / 24.0))
 
+    # --------- Spreading Loss
+    aux.spreading_loss = mahalanobis_similarity_loss(x[:, 0], z_seq[:, 0], model.input_sim_scale).sum()
+
     # --------- Total Loss
     sofa_score_pred = jnp.sum(sofa_pred[..., None] > ordinal_thresholds, axis=-1)
-    # aux.hists_sofa_metric = jax.lax.stop_gradient(pred_metrics[..., 0].reshape(-1))
     aux.hists_sofa_score = jax.lax.stop_gradient(sofa_score_pred)
     aux.hists_inf_prob = jax.lax.stop_gradient(infection_pred)
     aux.total_loss = (
-        aux.recon_loss * params.w_recon
-        + aux.sequence_loss * params.w_sequence
-        + uncertainty_scale(jnp.mean(aux.sofa_d2_p_loss) * params.w_sofa_d2, model.sofa_lsigma)
+        uncertainty_scale(aux.recon_loss * params.w_recon, model.recon_lsigma)
+        + uncertainty_scale(aux.sequence_loss * params.w_sequence, model.seq_lsigma)
+        + jnp.mean(aux.sofa_d2_p_loss) * params.w_sofa_d2
+        # + uncertainty_scale(jnp.mean(aux.sofa_d2_p_loss) * params.w_sofa_d2, model.sofa_d2_lsigma)
         # + uncertainty_scale(jnp.mean(aux.infection_p_loss_t) * params.w_inf, model.inf_lsigma)
-        + uncertainty_scale(jnp.mean(aux.infection_p_loss_t) * params.w_inf * cos_inf, model.inf_lsigma)
+        + uncertainty_scale(jnp.mean(aux.infection_p_loss_t) * params.w_inf, model.inf_lsigma)
         # SOFA only for first time point
-        # + uncertainty_scale(jnp.mean(aux.sofa_loss_t) * params.w_sofa_classification, model.sep3_lsigma)
+        + uncertainty_scale(jnp.mean(aux.sofa_loss_t) * params.w_sofa_classification, model.sofa_class_lsigma)
         # + uncertainty_scale(jnp.mean(aux.sofa_loss_t[:, 0:2]) * params.w_sofa_classification, model.sofa_lsigma)
-        + uncertainty_scale(jnp.mean(aux.sofa_loss_t) * params.w_sofa_classification, model.sofa_lsigma)
         # + jnp.mean(aux.sofa_loss_t * jnp.array([1.0, 1.0, 0.5, 0.25, 0.125, 0.0625])[None, :])
         # * params.w_sofa_classification
         # * aux.anneal_threshs
         # + uncertainty_scale(aux.directional_loss * params.w_sofa_direction * aux.anneal_threshs, model.sep3_lsigma)
-        + uncertainty_scale(aux.directional_loss * params.w_sofa_direction, model.sep3_lsigma)
+        + uncertainty_scale(aux.directional_loss * params.w_sofa_direction, model.sofa_dir_lsigma)
         # + jnp.mean(aux.sep3_p_loss) * params.w_sep3  #  * aux.anneal_threshs
         # + aux.matching_loss * params.w_matching
         # + aux.trend_loss * params.w_sofa_trend
-        + aux.tc_loss * params.w_tc
-        + aux.acceleration_loss * params.w_acceleration
-        + aux.velocity_loss * params.w_velocity
-        + aux.diff_loss * params.w_diff
+        # + aux.tc_loss * params.w_tc
+        # + aux.acceleration_loss * params.w_acceleration
+        # + uncertainty_scale(aux.velocity_loss * params.w_velocity, model.velo_lsigma)
+        + uncertainty_scale(aux.spreading_loss * params.w_spreading, model.spread_lsigma)
+        # + aux.diff_loss * params.w_diff
         # + aux.thresh_loss * params.w_thresh
     )
     return aux.total_loss, aux
 
 
-@eqx.filter_jit
 def step_model(
     x_batch: jnp.ndarray,
     true_c_batch: jnp.ndarray,
@@ -446,19 +433,17 @@ def process_val_epoch(
     calibrate_probs_func: Callable,
     lookup_func: Callable,
     loss_params: LossesConfig,
-) -> tuple[jnp.ndarray, AuxLosses]:
+) -> tuple[AuxLosses]:
     model_params, model_static = eqx.partition(model, eqx.is_inexact_array)
 
-    key, _ = jr.split(key)
-
     def scan_step(
-        carry: tuple[PyTree, jnp.ndarray],
+        carry: tuple[PyTree, jnp.ndarray, int],
         batch: tuple[Float[Array, "batch time input_dim"], Float[Array, "bath time 3"]],
-    ) -> tuple[tuple[PyTree, jnp.ndarray], AuxLosses]:
-        model_flat, key = carry
+    ) -> tuple[tuple[PyTree, jnp.ndarray, int], AuxLosses]:
+        model_flat, key, i = carry
         batch_x, batch_true_c = batch
 
-        key, batch_key = jr.split(key)
+        batch_key = jr.fold_in(key, i)
 
         model_full = eqx.combine(model_flat, model_static)
 
@@ -473,15 +458,15 @@ def process_val_epoch(
             step=step,
         )
 
-        return (model_flat, key), aux_losses
+        return (model_flat, key, i + 1), aux_losses
 
-    carry = (model_params, key)
+    carry = (model_params, key, int(0.0))
     batches = (x_data, y_data)
     carry, step_losses = jax.lax.scan(scan_step, carry, batches)
 
-    model_params, key = carry
+    model_params, key, _ = carry
 
-    return (key, step_losses)
+    return step_losses
 
 
 if __name__ == "__main__":
@@ -492,35 +477,36 @@ if __name__ == "__main__":
 
     model_conf = ModelConfig(
         z_latent_dim=2,
-        v_latent_dim=2,
+        v_latent_dim=1,
         input_dim=52,
-        enc_hidden=256,
+        enc_hidden=128,
         dec_hidden=64,
         predictor_z_hidden=4,
         predictor_v_hidden=2,
         dropout_rate=0.3,
     )
-    # TODO
-    # velocity loss?
-    train_conf = TrainingConfig(batch_size=1024, window_len=1+6, epochs=int(10e3), perc_train_set=1.0, validate_every=5)
-    lr_conf = LRConfig(init=0.0, peak=1e-4, peak_decay=0.5, end=5e-8, warmup_epochs=100, enc_wd=1e-3, grad_norm=0.7)
+    train_conf = TrainingConfig(
+        batch_size=512, window_len=1 + 6, epochs=int(10e3), perc_train_set=1.0, validate_every=5
+    )
+    lr_conf = LRConfig(init=0.0, peak=5e-3, peak_decay=0.5, end=1e-8, warmup_epochs=100, enc_wd=1e-3, grad_norm=1.0)
     loss_conf = LossesConfig(
-        w_recon=1e-3,
-        w_sequence=0.0,
+        w_recon=1e-1,
+        w_sequence=1.0,
         w_tc=0.0,
         w_acceleration=0.0,
         w_velocity=0.0,
         w_diff=0.0,
-        w_sofa_direction=1e-3,
+        w_sofa_direction=30.0,
         w_sofa_trend=0.0,
-        w_sofa_classification=10.0,
-        w_sofa_d2=1.0,
+        w_sofa_classification=100.0,
+        w_sofa_d2=10.0,
         w_inf=0.0,
         w_inf_alpha=0.0,
         w_inf_gamma=0.0,
         w_sep3=0.0,
         w_thresh=0.0,
         w_matching=0.0,
+        w_spreading= 2.0,
         anneal_threshs_iter=5 * 1 / train_conf.perc_train_set,
     )
     load_conf = LoadingConfig(from_dir="", epoch=0)
@@ -535,7 +521,6 @@ if __name__ == "__main__":
     logger.info(f"Validation shape - Y {val_y.shape},  X {val_x.shape}")
     logger.info(f"Test shape       - Y {test_y.shape},  X {test_x.shape}")
 
-    train_x, train_y = test_x, test_y
     db_str = "Daisy2"
     sim_storage = Storage(
         key_dim=9,
@@ -574,9 +559,9 @@ if __name__ == "__main__":
     # === Initialization ===
     key = jr.PRNGKey(jax_random_seed)
     key_enc, key_dec, key_predictor = jr.split(key, 3)
-    metrics = jnp.sort(lookup_table.relevant_metrics[..., 0])
+    metrics = jnp.sort(lookup_table.relevant_metrics)
     # TODO dont do this for the windowed
-    sofa_dist, _ = jnp.histogram(train_y[..., 0], bins=25, density=False)
+    sofa_dist, _ = jnp.histogram(train_y[..., 0], bins=24, range=(0, 23), density=True)
     sofa_dist = sofa_dist / jnp.sum(sofa_dist)
     deltas = metrics[jnp.round(jnp.cumsum(sofa_dist) * len(metrics)).astype(dtype=jnp.int32)]
     deltas = jnp.ones_like(deltas)  # NOTE
@@ -600,8 +585,8 @@ if __name__ == "__main__":
         dtype=dtype,
     )
     key_enc_weights, key_dec_weights = jr.split(key, 2)
-    # encoder = init_encoder_weights(encoder, key_enc_weights)
-    # decoder = init_decoder_weights(decoder, key_dec_weights)
+    encoder = init_encoder_weights(encoder, key_enc_weights)
+    decoder = init_decoder_weights(decoder, key_dec_weights)
     gru = GRUPredictor(
         key=key_predictor,
         z_dim=model_conf.z_latent_dim,
@@ -652,10 +637,11 @@ if __name__ == "__main__":
     )
     writer.add_hparams(hyper_params, metric_dict={}, run_name=".")
 
-    shuffle_val_key, key = jr.split(key, 2)
+    shuffle_val_key = jr.fold_in(key, jax_random_seed)
     val_x, val_y, nval_batches = prepare_batches(val_x, val_y, train_conf.batch_size, key=shuffle_val_key)
     for epoch in range(load_conf.epoch if load_conf.from_dir else 0, train_conf.epochs):
-        shuffle_key, key = jr.split(key)
+        shuffle_key = jr.fold_in(key, epoch)
+        train_key = jr.fold_in(key, epoch + 1)
         x_shuffled, y_shuffled, ntrain_batches = prepare_batches(
             train_x,
             train_y,
@@ -674,7 +660,8 @@ if __name__ == "__main__":
             update=optimizer.update,
             key=key,
             calibrate_probs_func=calibration_model.get_sepsis_probs,
-            lookup_func=lookup_table.soft_get_local,
+            # lookup_func=lookup_table.soft_get_local,
+            lookup_func=lookup_table.soft_get_global if epoch < 50 else lookup_table.soft_get_local,
             loss_params=loss_conf,
         )
         model = eqx.combine(params_model, static_model)
@@ -693,24 +680,25 @@ if __name__ == "__main__":
             )
             logger.error(f"betas: {calibration_model.betas}, a: {calibration_model.a} b: {calibration_model.b}")
             val_model = eqx.nn.inference_mode(model, value=True)
-            key, _ = jr.split(key)
-            key, val_metrics = process_val_epoch(
+            val_key = jr.fold_in(key, epoch + 2)
+            val_metrics = process_val_epoch(
                 val_model,
                 x_data=val_x,
                 y_data=val_y,
                 step=opt_state[1][0].count,
-                key=key,
+                key=val_key,
                 calibrate_probs_func=calibration_model.get_sepsis_probs,
                 lookup_func=lookup_table.hard_get_fsq,
                 loss_params=loss_conf,
             )
             log_msg = log_val_metrics(val_metrics, val_y, lookup_table, epoch, writer)
             logger.warning(log_msg)
-            del val_metrics
             model = eqx.nn.inference_mode(val_model, value=False)
+            del val_metrics, val_model
 
         del x_shuffled, y_shuffled
         del train_metrics
+        gc.collect()
 
         # --- Save checkpoint ---
         if (epoch + 1) % save_conf.save_every == 0 and save_conf.perform:

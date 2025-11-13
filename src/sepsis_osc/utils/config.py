@@ -1,10 +1,10 @@
 from numpy.random import default_rng
 
 # Random seeds
-jax_random_seed = 123
-np_random_seed = 123
+jax_random_seed = 12345
+np_random_seed = 12345
 np_rng = default_rng(np_random_seed)
-random_seed = 123
+random_seed = 12345
 
 # Workers
 max_workers = 22 * 2
@@ -14,7 +14,9 @@ db_parameter_keys = "storage/SepsisParameters_index.bin"
 db_metrics_key_value = "storage/SepsisMetrics.db"
 
 # YAIB data
-yaib_data_dir = "/home/unartig/Desktop/uni/ResearchProject/YAIB-cohorts/data/inf_sofa/mimic"
+target_name = "sep3_alt_first"
+cohort_name = "sep3_alt_first_with_marginals_ramp"
+yaib_data_dir = f"/home/unartig/Desktop/uni/ResearchProject/YAIB-cohorts/data/{cohort_name}/miiv"
 
 
 # Log Config
@@ -30,18 +32,18 @@ sequence_files = "data/sequence_"
 
 ALPHA_SPACE = (-0.28 -0.001, -0.28 + 0.001, 0.001)  # only original slice
 ALPHA = -0.28
-# BETA_SPACE = (0.4, 0.7, 0.01)  # only original area
+BETA_SPACE = (0.4, 0.7, 0.01)  # only original area
 # BETA_SPACE = (0.0, 1.0, 0.01)
 # SIGMA_SPACE = (0.0, 1.5, 0.01)
-# SIGMA_SPACE = (0.0, 1.0, 0.01)  # only original area
+SIGMA_SPACE = (0.0, 1.5, 0.015)  # only original area
 
 # DAISY 2
 # ALPHA_SPACE = (-0.84, 0.84+0.28, 0.28)  # full with mirror
 # ALPHA_SPACE = (-0.84, -0.84+3*0.28, 0.28)  # only negative slice
-BETA_SPACE = (0.0, 1.0, 0.01)
-SIGMA_SPACE = (0.0, 1.5, 0.015)
+# BETA_SPACE = (0.0, 1.0, 0.01)
+# SIGMA_SPACE = (0.0, 1.5, 0.015)
 
 # DAISY HALF
-# BETA_SPACE = (0.0, 1.0, 0.01 * 2)
+# BETA_SPACE = (0.4, 0.7, 0.01 * 2)
 # SIGMA_SPACE = (0.0, 1.5, 0.015 * 2)
 
