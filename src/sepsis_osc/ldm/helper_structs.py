@@ -21,7 +21,6 @@ class AuxLosses:
     velocity_loss: Array
     diff_loss: Array
     thresh_loss: Array
-    matching_loss: Array
     spreading_loss: Array
 
     hists_sofa_score: Array
@@ -32,8 +31,7 @@ class AuxLosses:
     sofa_d2_p_loss: Array
     infection_p_loss_t: Array
     sep3_p_loss: Array
-    directional_loss: Array
-    trend_loss: Array
+    sofa_directional_loss: Array
 
     anneal_threshs: Array
 
@@ -54,8 +52,7 @@ class AuxLosses:
                 "sigma": self.sigma,
             },
             "concepts": {
-                "directional_loss": self.directional_loss,
-                "trend_loss": self.trend_loss,
+                "sofa_directional_loss": self.sofa_directional_loss,
                 "sofa": self.sofa_loss_t,
                 "sofa_d2": self.sofa_d2_p_loss,
                 "infection": self.infection_p_loss_t,
@@ -70,7 +67,6 @@ class AuxLosses:
                 "velocity_loss": self.velocity_loss,
                 "diff_loss": self.diff_loss,
                 "thresh_loss": self.thresh_loss,
-                "matching_loss": self.matching_loss,
                 "spreading_loss": self.spreading_loss,
             },
             "hists": {
@@ -146,12 +142,9 @@ class LossesConfig:
     w_velocity: float
     w_diff: float
     w_sofa_direction: float
-    w_sofa_trend: float
     w_sofa_classification: float
     w_sofa_d2: float
     w_inf: float
-    w_inf_alpha: float
-    w_inf_gamma: float
     w_sep3: float
     w_matching: float
     w_spreading: float

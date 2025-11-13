@@ -22,14 +22,10 @@ from sepsis_osc.ldm.ae import (
 from sepsis_osc.ldm.calibration_model import CalibrationModel
 from sepsis_osc.ldm.checkpoint_utils import load_checkpoint, save_checkpoint
 from sepsis_osc.ldm.commons import (
-    approx_similarity_loss,
     binary_logits,
     custom_warmup_cosine,
     mahalanobis_similarity_loss,
-    ordinal_logits,
     prob_increase,
-    soft_entropy,
-    uniform_cdf_loss,
 )
 from sepsis_osc.ldm.data_loading import get_data_sets, prepare_batches
 from sepsis_osc.ldm.gru import GRUPredictor
@@ -59,42 +55,6 @@ INT_INF = jnp.astype(jnp.inf, jnp.int32)
 
 
 @jaxtyped(typechecker=typechecker)
-def ordinal_loss(
-    predicted_sofa: Float[Array, " time"],
-    true_sofa: Float[Array, " time"],
-    thresholds: Float[Array, " n_classes_minus_1"],
-    label_temperature: Float[Array, "1"],
-    sofa_dist: Float[Array, " n_classes"],
-) -> Float[Array, " time"]:
-    # CORN (Cumulative Ordinal Regression)
-    n_classes = thresholds.shape[-1] + 1
-
-
-    logits = ordinal_logits(predicted_sofa, thresholds, label_temperature)
-
-    targets = jnp.arange(n_classes - 1)  # [0, 1, ..., 22]
-    true_sofa = true_sofa.squeeze()
-    true_ord_targets = true_sofa[:, None] > targets[None, :]  # [B, 23]
-    loss_per_sample = jnp.mean(optax.sigmoid_binary_cross_entropy(logits, true_ord_targets), axis=-1)
-
-    # return loss_per_sample
-    # NOTE
-    class_weights = jnp.log(1.0 + 1.0 / (sofa_dist + EPS))
-
-    weights_per_sample = 1 + class_weights[true_sofa.astype(jnp.int32)]  # [B]
-    return weights_per_sample * loss_per_sample
-
-
-@jaxtyped(typechecker=typechecker)
-def calc_directional_loss(
-    pred_sofa: Int[Array, " time"] | Float[Array, " time"], true_sofa: Float[Array, " time"]
-) -> Float[Array, " time-1"]:
-    tdelta = true_sofa[1:] - true_sofa[:-1]
-    pdelta = pred_sofa[1:] - pred_sofa[:-1]
-    return jax.nn.softplus(-pdelta * tdelta) * jax.nn.relu(tdelta)
-
-
-@jaxtyped(typechecker=typechecker)
 def calc_full_directional_loss(
     pred_sofa: Float[Array, " time"],
     true_sofa: Float[Array, " time"],
@@ -114,15 +74,6 @@ def calc_full_directional_loss(
         # - reward_weight * jax.nn.softplus(alignment)
     )
     return (penalty * mask * valid * weight).sum()
-
-
-@jaxtyped(typechecker=typechecker)
-def calc_trend_loss(
-    pred_sofa: Int[Array, " time"] | Float[Array, " time"], true_sofa: Float[Array, " time"]
-) -> Float[Array, ""]:
-    ttrend = true_sofa[-1] - true_sofa[0]
-    ptrend = pred_sofa[-1] - pred_sofa[0]
-    return jax.nn.softplus(-ptrend * ttrend)
 
 
 @jaxtyped(typechecker=typechecker)
@@ -224,7 +175,7 @@ def loss(
 ) -> tuple[Array, AuxLosses]:
     aux = AuxLosses.empty()
     sofa_true, infection_true, sepsis_true = true_concepts[..., 0], true_concepts[..., 1], true_concepts[..., 2]
-    ordinal_thresholds = model.ordinal_thresholds(jnp.array(0.0))
+    ordinal_thresholds = model.ordinal_thresholds
 
 
     z_seq, infection_pred = get_latent_seq(model, x, key=key)  # (batch, T, z_dim)
@@ -287,7 +238,7 @@ def loss(
     )
 
     # --------- Directional Loss
-    aux.directional_loss = jnp.mean(jax.vmap(calc_full_directional_loss)(sofa_pred, sofa_true / 24.0))
+    aux.sofa_directional_loss = jnp.mean(jax.vmap(calc_full_directional_loss)(sofa_pred, sofa_true / 24.0))
 
     # --------- Spreading Loss
     aux.spreading_loss = mahalanobis_similarity_loss(x[:, 0], z_seq[:, 0], model.input_sim_scale).sum()
@@ -299,27 +250,11 @@ def loss(
     aux.total_loss = (
         uncertainty_scale(aux.recon_loss * params.w_recon, model.recon_lsigma)
         + uncertainty_scale(aux.sequence_loss * params.w_sequence, model.seq_lsigma)
-        + jnp.mean(aux.sofa_d2_p_loss) * params.w_sofa_d2
-        # + uncertainty_scale(jnp.mean(aux.sofa_d2_p_loss) * params.w_sofa_d2, model.sofa_d2_lsigma)
-        # + uncertainty_scale(jnp.mean(aux.infection_p_loss_t) * params.w_inf, model.inf_lsigma)
+        + uncertainty_scale(jnp.mean(aux.sofa_d2_p_loss) * params.w_sofa_d2, model.sofa_d2_lsigma)
         + uncertainty_scale(jnp.mean(aux.infection_p_loss_t) * params.w_inf, model.inf_lsigma)
-        # SOFA only for first time point
         + uncertainty_scale(jnp.mean(aux.sofa_loss_t) * params.w_sofa_classification, model.sofa_class_lsigma)
-        # + uncertainty_scale(jnp.mean(aux.sofa_loss_t[:, 0:2]) * params.w_sofa_classification, model.sofa_lsigma)
-        # + jnp.mean(aux.sofa_loss_t * jnp.array([1.0, 1.0, 0.5, 0.25, 0.125, 0.0625])[None, :])
-        # * params.w_sofa_classification
-        # * aux.anneal_threshs
-        # + uncertainty_scale(aux.directional_loss * params.w_sofa_direction * aux.anneal_threshs, model.sep3_lsigma)
-        + uncertainty_scale(aux.directional_loss * params.w_sofa_direction, model.sofa_dir_lsigma)
-        # + jnp.mean(aux.sep3_p_loss) * params.w_sep3  #  * aux.anneal_threshs
-        # + aux.matching_loss * params.w_matching
-        # + aux.trend_loss * params.w_sofa_trend
-        # + aux.tc_loss * params.w_tc
-        # + aux.acceleration_loss * params.w_acceleration
-        # + uncertainty_scale(aux.velocity_loss * params.w_velocity, model.velo_lsigma)
+        + uncertainty_scale(aux.sofa_directional_loss * params.w_sofa_direction, model.sofa_dir_lsigma)
         + uncertainty_scale(aux.spreading_loss * params.w_spreading, model.spread_lsigma)
-        # + aux.diff_loss * params.w_diff
-        # + aux.thresh_loss * params.w_thresh
     )
     return aux.total_loss, aux
 
@@ -497,12 +432,9 @@ if __name__ == "__main__":
         w_velocity=0.0,
         w_diff=0.0,
         w_sofa_direction=30.0,
-        w_sofa_trend=0.0,
         w_sofa_classification=100.0,
         w_sofa_d2=10.0,
         w_inf=0.0,
-        w_inf_alpha=0.0,
-        w_inf_gamma=0.0,
         w_sep3=0.0,
         w_thresh=0.0,
         w_matching=0.0,
