@@ -53,7 +53,7 @@
   fill: orange.lighten(80%),
 )
 #let TODO = inline-note
-// #let multicite(x) = "[" + 
+// #let multicite(x) = "[" +
 
 #TODO[
   #list(
@@ -99,6 +99,7 @@ Out of the need for an update of these outdated definitions and partly misleadin
 Their resolution, named "Third International Consensus Definitions for Sepsis and Septic Shock" @Sepsis3, provides until today the most widely used sepsis definition and guidance on sepsis identification.
 
 In general, sepsis does not classify as a specific illness, rather a multifaceted condition of "physiologic, pathologic, and biochemical abnormalities" @Sepsis3, and septic patients are largely heterogeneous.
+Also the trigger is explicitly non-specific, since different triggers can cause the same septic condition.
 Most commonly the underlying cause of sepsis is diarrhoeal disease, road traffic injury the most common underlying injury and maternal disorders the most common non-communicable disease causing sepsis @rudd2020global.
 
 According to the Sepsis-3 definition, a patient is in a septic condition if the following two criteria are fulfilled:
@@ -126,7 +127,7 @@ The overall score is calculated as sum of each individual system.
 It includes the respiratory system, the coagulation/clotting of blood, i.e. changing from liquid to gel, the liver system, the cardiovascular system, the central nervous system and the renal system/kidney function.
 A more detailed listing of corresponding markers for each organ assessment can be found in table @tab:sofa in the @sec:appendix.
 The magnitude of a patients initial #acr("SOFA")-score captures preexisting organ dysfunction.
-An increase in SOFA score $>=2$ corresponds to an acute worsening of organ functionalities and a drastic worsening in the patients condition, the indicator for a dysregulated response.
+An increase in #acr("SOFA") score $>=2$ corresponds to an acute worsening of organ functionalities and a drastic worsening in the patients condition, the indicator for a dysregulated response.
 
 === Sepsis Classification
 The Sepsis-3 definition not only provides the clinical criteria of septic conditions, but also introduces the necessary time windows for sepsis classification.
@@ -160,11 +161,23 @@ For a faster bedside assessment @SOFAscore also introduced a clinical score term
   align(center, list(
     align(left, [Respiratory rate $>=$ 22/min]),
     align(left, [Altered mentation]),
-    align(left, [Systolic blood pressure $<=$ 100 mm Hg]),
+    align(left, [Systolic blood pressure $<=$ 100 mmHg]),
   ))
 )
 Patients fulfilling at least two of these criteria have an increased risk of organ failure.
 While the #acr("qSOFA") has a significantly reduced complexity and is faster to assess it is not as accurate as the #acr("SOFA") score, meaning it has less predictive validity for in-house mortality @SOFAscore.
+
+There is also the notion of a septic shock, also defined in @Sepsis3, which an in-hospital mortality above 40%.
+Patients with a septic shock are can be identified by:
+#(
+  align(center, list(
+    align(left, [Sepsis]),
+    align(left, [Persisting hypotension requiring\
+      vasopressors to maintain MAP $>=$ 65mmHg]),
+    align(left, [Serum lactate level > 2 mmol/L, despite volume resusciation.]),
+  ))
+)
+
 
 == Biology of Sepsis <sec:sepbio>
 This part tries to give an introduction into the biological phenomena that underlie sepsis.
@@ -176,22 +189,25 @@ More detailed explanations can be found in the primary resources provided throug
 === Cellular Origins <sec:cell>
 Human organ tissue can be differentiated into two broad cell-families called _parenchymal_ and _stroma_ which are separated by a thin, specialized boundary layer known as the _basal lamina_.
 
-The parenchymal cells perform the primary physiological functions of an organ, with every organ hosting distinct parenchymal cells.
- For example the so called hepatocytes in the liver, nephrons in the kidney, or neurons in the brain @Placeholder.
+The parenchymal cells perform the primary physiological functions of an organ, with every organ hosting distinct parenchymal cells @VanHara2020Guide.
+
 Everything not providing organ-specific functionalities forms the stroma, that includes the structural or connective tissue, blood vessels and nerves.
 The stroma not only contributes to the tissues structure, but it also actively participates in biochemical signaling and immune regulation.
 This way it helps to maintain a healthy and balanced tissue, the _homeostasis_, and enables coordinated responses to injury or infection @Honan2021stroma.
 
-A pathogen is summarizes all types of organisms that can be harmful to the body, this includes germs, fungi, algae or parasites.
-When a pathogen enters the body through the skin, a mucous membrane or an open wound, the first line of non-specific defense, the innate immune system @InnateImmuneSystemWiki, gets activated.
+A pathogen is summarizes all types of organisms that can be harmful to the body, this includes germs, fungi, algae, or parasites.
+When a pathogen enters the body through the skin, a mucous membrane or an open wound, the first line of non-specific defense, the innate immune system @Fischer2022Innit, gets activated.
+
 This rapid response does not require the body to have seen the specific pathogen before.
-Instead the innate immune system can be triggered by sensing commonly shared features of pathogens, in case of germs known as #acr("PAMP"), for injury called #acr("DAMP") @Jarczak2021sepsis.
-The #acr("PAMP")s and #acr("DAMP")s can be detected by #acr("PRR"), which are found in resident immune cells, as well as stroma cells.
+Instead, the innate immune system can be triggered by sensing commonly shared features of pathogens, in case of germs known as #acr("PAMP"), for injury called #acr("DAMP") @Jarczak2021sepsis.
+The #acr("PAMP")'s and #acr("DAMP")'s can be detected by #acr("PRR"), which are found in resident immune cells, as well as stroma cells.
 Once a pathogen is detected a chain reaction inside the cell leads to the creation and release of signaling proteins called _cytokines_ @Zhang2007cyto.
 
-Cytokines are a diverse group of small signaling proteins which play a special role in the communication between other cells, both neighboring and across larger distances through the bloodstream
+Cytokines are a diverse group of small signaling proteins which play a special role in the communication between other cells, both neighboring and across larger distances through the bloodstream.
 They are acting as molecular messengers that coordinate the recruitment of circulating immune cells and will guide them to the location of infection or injury @Zhang2007cyto.
-Besides their role in immune activation where they regulate the production of anti- and pro-inflammatory immune cells which help with the elimination of pathogens and trigger the healing process right after, they are also participating in the growing process of blood cells.
+
+Besides their role in immune activation where cytokines regulate the production of anti- and pro-inflammatory immune cells which help with the elimination of pathogens and trigger the healing process right after.
+They are also participating in the growing process of blood cells.
 
 One specialty of these relatively simple proteins is that they can be produced by almost every other cell, with different cells being able to produce the same cytokine.
 Further, cytokines are redundant, meaning targeted cells can show identical responses to different cytokines @House2007cyto, these features seems to fulfill some kind of safety mechanism to guarantee vital communication flow.
@@ -225,8 +241,7 @@ As a result, metabolic by-products such as lactate accumulate making the surroun
 
 At the same time, the mitochondria, the "power house" of the cells, start to fail.
 The walls of blood vessels become leaky, allowing fluids to move into surrounding tissue.
-This causes swelling and lowers the blood pressure, which in turn reduces the oxygen supply even further.
-Additionally, tiny blood clogs begin to form inside vessels, potentially blocking blood flow and preventing oxygen to reach the cells, creating areas of local tissue death @Jarczak2021sepsis.
+This causes swelling and lowers the blood pressure, which in turn reduces the oxygen supply even further @Jarczak2021sepsis.
 
 Step by step, the death of cells spreads throughout the body and affects organ functionality.
 When multiple organs fail simultaneously, the condition becomes irreversible @Sepsis3.
@@ -234,11 +249,35 @@ At this stage, multi-organ-failure is the final and most lethal form of sepsis, 
 
 
 == The need for sepsis prediction <sec:sepwhy>
-#TODO[Important to finish]
-In @EiniPorat2022, a survey among clinicians regarding AI-assistance in healthcare, one participant emphasizes that specific vitals signs might not be to be of less importance, rather the change/trend of a patients trajectory.
-Another piece of finding of the same study was the preference of trajectories over plain event predictions.
 
+To this day sepsis, and the more extreme septic shock, remains as an extreme burden to the worldwide healthcare system.
+It is associated with high rates of incidence, high mortality and significant morbidity.
+Despite overall advancements in medical care and slowly decreasing prevalence numbers, sepsis continues to be the leading cause of in-hospital death @Via2024Burden.
 
+In germany it was estimated in 2022 that at least 17.9% of intensive care patients develop sepsis, and 41.7% of all hospital treated sepsis patients die during their stay @fleischmann2022sepsis.
+The economic burden is equally severe, with the annual cost of sepsis treatment in germany estimated to be €7.7 billion based on extrapolated data from 2013.
+
+Globally , the situation is even more concerning, as sepsis remains to be under-diagnosed significantly due to its non-specific symptoms.
+Environmental and socioeconomic factors such as insufficient sanitation, limited access to clean water and healthcare increases the incidence particularly in low- to middle income countries @rudd2020global@Via2024Burden.
+
+A meta-analysis of seven sepsis alert systems found no evidence for improvement in patient outcomes, suggesting insufficient predictive power of analyzed alert systems or inadequate system integration @Alshaeba2025Effect.
+Nevertheless, positive treatment outcomes depend heavily on timely recognition and intervention @Via2024Burden.
+Each hour of delayed treatment increases mortality risk, underscoring the critical importance of early detection @seymour2017time while structured screening and early warning systems have demonstrated reductions in time-to-antibiotics and improvements in outcomes @Westphal2009Early.
+These findings confirm that in principle earlier identification of sepsis improves clinical results, even if existing tools are not yet capable enough, and emphasizes the need for more research in that direction.
+
+A recent study suggests a paradigm shift in sepsis detection—from a symptom-based to a systems-based approach @Dobson2024Revolution.
+Instead of waiting for clinical signs, early recognition should integrate multiple physiological and biochemical signals to capture the transition from infection to organ dysfunction.
+This aligns with the findings of a survey among clinicians regarding AI-Assistance in healthcare @EiniPorat2022.
+One participant emphasizes that specific vitals signs might be of less importance, rather the change/trend of a patients trajectory should be the prediction target.
+Another piece of finding of the same study was the preference of trajectories over plain binary event predictions.
+
+However, implementation any data-driven prediction approaches into clinical practice presents challenges.
+Implementation studies consistently identify barriers such as alert fatigue, workflow disruption, and inconsistent screening uptake.
+To be effective, predictive systems must integrate seamlessly into and existing workflows provide interpretable output and aid the clinical expertise @EiniPorat2022.
+
+Taken together, these insights highlight both the need and the opportunity for improved sepsis prediction.
+The global burden and clinical urgency justify the development of more reliable prediction systems.
+At the same time, the limitations of current alert systems and implementation barriers underline the necessity for models that can integrate dynamic patient data and capture clinical trajectories.
 
 = Problem definition <sec:problemdef>
 
@@ -267,7 +306,7 @@ To summarize, the specific research questions include:
 #TODO[End this]
 
 
-= Dynamic Network Model (DNM) <sec:dnm>
+= Model Background (Dynamic Network Model) <sec:dnm>
 
 As outlined in @sec:sepsis, the macroscopic multi-organ failure associated with sepsis is driven by a dysregulated cascade of signaling processes on a microscopic level (see @sec:sepbio).
 This cascade involves a massive amount of interconnected components, where the connections mechanics and strengths vary over time and space.
@@ -327,7 +366,7 @@ In between these two regimes there is a transition-phase of partial synchronizat
 
 === Extensions to the Kuramoto Model <sec:extent>
 To more accurately describe real world systems, various extensions of the basic Kuramoto model have been proposed and studied numerically and analytically.
-Several extensions are directly relevant to the #acr("DNM") and their definitions and effects on synchronization will be shortly introduced:
+Several extensions are directly relevant to the #acr("DNM") and their definitions and effects on synchronization will be shortly introduced, with additional terms being indicated by the red color:
 
 *Phase Lag $alpha$* introduced in @Placeholder (Kuramoto Sakaguchi 86) #todo[cite], brings a frustration into the synchronization process:
 $
@@ -488,7 +527,7 @@ Terms in the form $sin(theta_l-theta_m)$ were expanded as:
 $
   sin(theta_l-theta_m)=sin(theta_l)cos(theta_m) - cos(theta_l)sin(theta_m) "    " forall l,m in {1,...,N}
 $
-By caching the terms $sin(theta_l)$, $sin(theta_m)$, $cos(theta_l)$, $cos(theta_m)$ once per iteration, the number of trigonometric evaluations per iteration is reduced from $2*[N (N-1)]$ to $2*[4N]$, significantly improving performance for mid to large oscillator populations.
+By caching the terms $sin(theta_l)$, $sin(theta_m)$, $cos(theta_l)$, $cos(theta_m)$ once per iteration, the number of trigonometric evaluations per iteration is reduced from $2dot[N (N-1)]$ to $2dot[4N]$, significantly improving performance for mid to large oscillator populations.
 
 Additionally, an alternative implementation based on Lie-algebra formulations was also explored, utilizing their natural representation for rotations in N-D-space.
 Although theoretically promising in terms of numerical accuracy and integration stability, this approach did not yield practical advantages in performance.
@@ -500,7 +539,7 @@ For the present implementation the parameterization is adopted from the original
 
 The majority of their parameter choices heavily simplify the model.
 First of all, the different natural frequencies are treated as equal and are set to 0 giving $omega^1 = omega^2 = omega = 0$, any other choice of $omega$ just changes the frame of reference (co-rotating frame), the dynamics stay unchanged @osc2.
-The phase lag parameters for the inter layer coupling are both set to $alpha^(1 2) = alpha^(2 1) = 0$, yielding instantaneous interactions, the intralayer phase lags are set to $alpha^11 = alpha^22 = -0.28pi$, which was  the prominently used configuration in @osc2 yielding the desired dynamical properties.
+The phase lag parameters for the inter layer coupling are both set to $alpha^(1 2) = alpha^(2 1) = 0$, yielding instantaneous interactions, the intralayer phase lags are set to $alpha^11 = alpha^22 = -0.28pi$, which was the prominently used configuration in @osc2 yielding the desired dynamical properties.
 The constant intralayer coupling in the parenchymal is chosen as global coupling $a_(i j) = 1 " if " i!=j " else " 0$.
 
 The adaptation rates are chosen as $epsilon^1=0.03$ and $epsilon^2=0.3$, creating the two dynamical timescales for slow parenchymal and faster immune cells.
@@ -607,6 +646,8 @@ In the following subsection multiple simulation results are presented, starting 
 Afterward, the transient and temporal behavior of the metrics $s^ot$ and $R^ot$ is for the same parameterization, as well as the introduction of the $beta, sigma$ phase space of these metrics.
 
 In @fig:snap snapshots of the system variables are shown for different parameterization, differing only in the choice $beta$ and $sigma$, configurations A, B, C and D are listed in @tab:siminit, other parameters are shared between the configurations and are stated in @tab:init.
+Each configuration is expected to represent a single patient state.
+
 All following results are for a system with $N=200$ oscillators, and snapshots taken at time $t=2000$, the end of the integration time, and show the stationary values at that time point.
 
 #figure(
@@ -650,9 +691,11 @@ Where lower values for $R^ot$ indicate decoherence in phases, with its minimum $
 #figure(
   image("images/ensembles.svg", width: 100%),
   caption: [
-    Transient and temporal evolution of the synchronization metrics $s^ot$ and $R^ot$, for ensembles of the #acr("DNM") for the configurations listed in @tab:siminit.
+    Transient and temporal evolution of the phase- and frequency-synchronization metrics $R^ot$ and $s^ot$, for ensembles of the #acr("DNM") for the configurations listed in @tab:siminit.
+    Emphasizing the influence of $beta$ and $sigma$ on the systems synchronization behavior, and presenting different stable emergent system states.
   ],
 ) <fig:ensemble>
+
 Every ensemble in @fig:ensemble shows decoherence for early time-points, which is expected for randomly initialized variables, but changes relatively fast through a transient phase $t in [0.0, 200]$ into systematic stable behavior.
 The stable states align with the observations made for @fig:snap, configuration A has, besides small jitter, mostly synchronized frequencies $s^ot tilde(=) 0$.
 Also the phases of configuration A are mostly synchronized with $R^ot tilde(=) 1$, only two initializations show decoherence and are oscillating between weak clustering and almost full incoherence.
@@ -672,24 +715,88 @@ Coordinates of the configurations A, B, C, and D are also labeled.
 #figure(
   image("images/phase.svg", width: 100%),
   caption: [
-    Phase space of the parameters $beta$ and $sigma$ and illustrating their influence on the frequency and phase synchronization of the #acr("DNM").
+    Phase space of the parameters $beta$ and $sigma$ and illustrating the broader picture their influence on the frequency and phase synchronization of the #acr("DNM").
+    White rectangle indicates the grid-limits of the original publication @osc2.
   ],
 ) <fig:phase>
 Generally there is a similarity between phase and frequency desynchronization but no full equality, meaning there are parameter regions where the phase is synchronized and frequency desynchronized and vice versa.
 Another observation, that smaller values of $beta < 0.55$ correspond to less desynchronization and stronger coherence, which is in line with the medical interpretation of $beta$ where smaller values indicate a younger and more healthy biological age.
 When crossing a critical value of $beta_c tilde(=) 0.55$ for the frequency and $beta_c tilde(=) 0.6$ for the phases, the synchronization behavior suddenly changes and tends towards incoherence, clustering and pathological interpretations.
 
-For small values of $sigma < 0.5$ the synchronization behavior significantly differs for immune and organ layer, where the immune layer tends to desynchronize and the organ layer seems to be more stable, especially for the phases.
-With larger values of $sigma > 0.5$ the dynamics more or less harmonize between layers and metrics and mostly depend on $beta$.
+For small values of $sigma < 0.5$ the frequency synchronization and $sigma < 0.25$ for the phase synchronization, the behavior significantly differs between immune and organ layer.
+The immune layer tends to fully desynchronize, instead the organ layer only the frequency desynchronizes for larger $beta > 0.7$ .
+With larger values of $sigma > 0.5$ the dynamics more or less harmonize between layers and metrics and are mostly depend on $beta$.
+
+== Why care about the DNM?
+
+= Method (Latent Dynamics Model) <sec:ldm>
+
+This chapter introduces the methodological framework used to address the first research question stated in @sec:problemdef:
+#align(center,[*Usability of the #acr("DNM")*: How and to what extent can the #acr("ML")-determined trajectories of the #acr("DNM") be used for detection and prediction, especially of critical infection states and mortality.#todo[format]])
+
+To investigate this, a deep learning pipeline has been developed, in which the #acr("DNM") is embedded as central component.
+The complete architecture, consisting of the #acr("DNM") and several auxiliary modules, whole will be referred to as the #acr("LDM") from now on.
+
+In chapter proceeds with the stated research question to be reiterated in a more technical fashion and the definition of desired prediction properties, followed by a detailed introduction to the individual #acr("LDM") components, and the #acr("DNM") integration.
+Lastly, the overall modeling choices are discussed and design decisions justified. #todo[ref sections]
 
 
-= State of the Art <sec:sota>
-== Model Based Methods
-== Data Based Methods
-=== Selected Works
-
-= Latent Dynamics Model (LDM) <sec:ldm>
 == The high level ideas
+In automated clinical prediction systems, a patient is typically represented through their #acr("EHR").
+Where the #acr("EHR") aggregates several clinical variables, such as laboratory biomarker, for example from blood or urine tests, or physiological scores and, further demographic information, e.g. age and gender.
+
+=== EHR Representation
+Let the #acr("EHR") at time $t=0$ consist of $n$ variables.
+After imputation of missing values, normalization and encoding of non-numerical quantities, each variable is mapped to a numerical value:
+$
+  mu_j in RR, " " j = 1,...,n
+$
+These values are collected into a column-vector:
+$
+  bold(mu) = (mu_1,...,mu_n)^T in RR^n
+$
+
+=== Prediction Goal
+For an #acr("ICU") patient with current stat $bold(mu)$ is to predict the risk of sepsis within the next $T$ future time steps, with target probability:
+$
+  P("sepsis onset within the next T time steps"|bold(mu))
+$
+Making use of the Sepsis-3 definition, which was introduced in @sec:sep3def, _sepsis onset event_ in the interval $t=1,...,T$ can be decomposed as follows:
+$
+S_T = I inter union.big_(t=1)^T {Delta"SOFA"_t>2}
+$
+where $I$ is a #acl("SI") indicator and $Delta"SOFA"_t="SOFA"_t-"SOFA"_0$, yielding:
+$
+  P(S_T|bold(mu))
+$
+as the primary prediction task.
+In the #acr("LDM") each target component is predicted individually by distinct modules.
+While for the #acr("SI") indicator the ground truth is estimated directly by a function $f_theta: RR^n -> [0,1]$, with parameters $theta$:
+$
+  hat(I)=f_theta (bold(mu))
+$
+the estimation for #acr("SOFA") increase incorporates the #acr("DNM").
+
+==== SOFA increase prediction
+Recalling that the pathological conditions of the organ are characterized by frequency clustering in the parenchymal layer of the #acr("DNM").
+The amount of frequency desynchronization measured by the ensemble average standard deviation of the mean phase velocity $s^1$ directly translates to a patients #acr("SOFA")-score.
+This way, increasing values of $s^1$ indicate a higher #acr("SOFA")-score and a worse condition of the patients organ.
+
+Inside the #acr("LDM"), a function with learnable parameters $theta$ maps the higher dimensional #acr("EHR") to a two dimensional latent representation $g_theta: RR^n -> RR^2$ consisting of the two parameters $beta$ and $sigma$:
+$
+  (hat(z)_beta, hat(z)_sigma) = hat(z) = g_theta (bold(mu))
+$
+Through the integration of the #acr("DNM") parameterized by the estimation for #acr("SOFA") is produced:
+$
+  s^1_(hat(z)_beta, hat(z)_sigma) = #todo[how to denote diff eq integration?]
+$
+Not only the first #acr("SOFA")-score is relevant but also subsequent ones.
+From $hat(z)_0$ and information prior $bold(mu)$ the #acr("SOFA") scores of the next $T$ time steps are also estimated.
+$
+  hat(z)_t = h_theta (z_(t-1), bold(mu)), t = 1,...,T
+$
+
+
 ==== Representation Learning
 ==== Semantics and Latent Spaces
 ==== Autoregressive Prediction
@@ -753,6 +860,11 @@ Increases in SOFA score $>=2$ could then be used as definition for sepsis.
   But for the suspected infection it is problematic, maybe use si_upr and si_lwr provided by @ricu (https://eth-mds.github.io/ricu/reference/label_si.html).
   These would be 48h - SI - 24h adapted from @sep3_assessment, maybe a bit too much.]
 
+
+= State of the Art <sec:sota>
+== Model Based Methods
+== Data Based Methods
+=== Selected Works
 = Experiments
 == Task - Definition of Ins and Outs
 == Data
