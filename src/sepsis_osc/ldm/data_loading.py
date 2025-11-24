@@ -115,11 +115,12 @@ def prepare_sequences(
 
 
 def get_data_sets(
-    window_len: int = 6, dtype: jnp.dtype = jnp.float32
+    window_len: int = 6, dtype: jnp.dtype = jnp.float32, swapaxes_y: tuple[int, int, int] = (0, 1, 2)
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
-    if Path(sequence_files + f"len_{window_len}_{cohort_name}.npz").exists():
+    file_name = f"len_{window_len}_{cohort_name}"
+    if Path(sequence_files + f"{file_name}.npz").exists():
         logger.info("Processed sequence files found. Loading data from disk...")
-        loaded = np.load(sequence_files + f"len_{window_len}.npz")
+        loaded = np.load(sequence_files + f"{file_name}.npz")
         train_x, train_y = loaded["train_x"], loaded["train_y"]
         val_x, val_y = loaded["val_x"], loaded["val_y"]
         test_x, test_y = loaded["test_x"], loaded["test_y"]
@@ -143,7 +144,7 @@ def get_data_sets(
         test_x, test_y = prepare_sequences(test_x, test_y, window_len)
 
         np.savez_compressed(
-            sequence_files + f"len_{window_len}_{cohort_name}",
+            sequence_files + f"{file_name}",
             train_x=train_x,
             train_y=train_y,
             val_x=val_x,
@@ -156,11 +157,11 @@ def get_data_sets(
     # reorder for (sofa, susp_inf_ramp, sep3_alt)
     return (
         train_x.astype(dtype),
-        train_y.astype(dtype),
+        train_y.astype(dtype)[..., swapaxes_y],
         val_x.astype(dtype),
-        val_y.astype(dtype),
+        val_y.astype(dtype)[..., swapaxes_y],
         test_x.astype(dtype),
-        test_y.astype(dtype),
+        test_y.astype(dtype)[..., swapaxes_y],
     )
 
 
