@@ -1,11 +1,12 @@
 import logging
-from typing import Callable, TypeVar
+from collections.abc import Callable
+from typing import TypeVar
 
 import equinox as eqx
 import jax
 import jax.numpy as jnp
 import jax.random as jr
-from jaxtyping import Array, Float, jaxtyped, PyTree
+from jaxtyping import Array, Float, PyTree, jaxtyped
 from numpy.typing import DTypeLike
 
 from sepsis_osc.utils.jax_config import typechecker
@@ -14,7 +15,7 @@ logger = logging.getLogger(__name__)
 
 
 # === Model Definitions ===
-class Encoder(eqx.Module):
+class CoordinateEncoder(eqx.Module):
     # Layers
     dropout: eqx.nn.Dropout
     linear1: eqx.nn.Linear
@@ -33,8 +34,6 @@ class Encoder(eqx.Module):
     beta: eqx.nn.Linear
     sigma: eqx.nn.Linear
 
-    vinf: eqx.nn.Linear
-
     h: eqx.nn.Linear
 
     # Hyperparams
@@ -49,7 +48,7 @@ class Encoder(eqx.Module):
         input_dim: int,
         enc_hidden: int,
         pred_hidden: int,
-        dropout_rate: float = 0.2,
+        dropout_rate: float,
         dtype: DTypeLike = jnp.float32,
     ) -> None:
         (
@@ -61,14 +60,16 @@ class Encoder(eqx.Module):
             key_head,
             key_beta,
             key_sigma,
-            key_vinf,
             key_h,
-        ) = jax.random.split(key, 10)
+        ) = jax.random.split(key, 9)
 
         self.input_dim = input_dim
         self.enc_hidden = enc_hidden
         self.pred_hidden = pred_hidden
         self.dropout_rate = dropout_rate
+
+        # Gating
+        self.attn = eqx.nn.Linear(input_dim, input_dim, key=key_attn, dtype=dtype)
 
         # Initial layers
         self.dropout = eqx.nn.Dropout(dropout_rate)
@@ -76,21 +77,17 @@ class Encoder(eqx.Module):
         self.norm1 = eqx.nn.LayerNorm(enc_hidden, dtype=dtype)
         self.linear2 = eqx.nn.Linear(enc_hidden, enc_hidden, key=key_lin2, dtype=dtype)
 
-        # Gating
-        self.attn = eqx.nn.Linear(input_dim, input_dim, key=key_attn, dtype=dtype)
-
         # Final encoder layers
-        self.linear3 = eqx.nn.Linear(enc_hidden, 128, key=key_lin3, dtype=dtype)
-        self.linear4 = eqx.nn.Linear(128, 32, key=key_lin4, dtype=dtype)
+        self.linear3 = eqx.nn.Linear(enc_hidden, 64, key=key_lin3, dtype=dtype)
+        self.linear4 = eqx.nn.Linear(64, 32, key=key_lin4, dtype=dtype)
         self.norm2 = eqx.nn.LayerNorm(32, dtype=dtype)
         self.head_proj = eqx.nn.Linear(32, 32, key=key_head)
 
         # Output heads
         self.beta = eqx.nn.Linear(32, 1, key=key_beta, dtype=dtype)
         self.sigma = eqx.nn.Linear(32, 1, key=key_sigma, dtype=dtype)
+        self.h = eqx.nn.Linear(32, pred_hidden, key=key_h, dtype=dtype, use_bias=False)
 
-        self.vinf = eqx.nn.Linear(32, 1, key=key_vinf, dtype=dtype)
-        self.h = eqx.nn.Linear(32, pred_hidden, key=key_h, dtype=dtype)
 
     @property
     def n_params(self) -> int:
@@ -103,8 +100,9 @@ class Encoder(eqx.Module):
     def __call__(
         self, x: Float[Array, " input_dim"], *, dropout_keys: jnp.ndarray
     ) -> tuple[
-        Float[Array, "1"], Float[Array, "1"], Float[Array, "1"], Float[Array, " pred_hidden"]
+        Float[Array, "1"], Float[Array, "1"], Float[Array, " pred_hidden"]
     ]:
+        # k1, k2 = self.make_keys(dropout_keys)
         k1, k2 = dropout_keys
 
         weights = jax.nn.softmax(self.attn(x))
@@ -118,22 +116,113 @@ class Encoder(eqx.Module):
         enc = self.dropout(enc, key=k2)
         enc = jax.nn.gelu(self.linear4(enc))
 
-        head = jax.nn.tanh(self.head_proj(self.norm2(enc)))
+        head = jax.nn.gelu(self.head_proj(self.norm2(enc)))
 
         return (
             self.beta(head),
             self.sigma(head),
-            self.vinf(head),
             jax.nn.tanh(self.h(head)),
         )
 
+class InfectionPredictor(eqx.Module):
+    # Layers
+    dropout: eqx.nn.Dropout
+    linear1: eqx.nn.Linear
+    norm1: eqx.nn.LayerNorm
+
+    linear2: eqx.nn.Linear
+    norm2: eqx.nn.LayerNorm
+
+    attn: eqx.nn.Linear
+
+    linear3: eqx.nn.Linear
+    linear4: eqx.nn.Linear
+    head_proj: eqx.nn.Linear
+
+    # Output heads
+    inf: eqx.nn.Linear
+
+    # Hyperparams
+    input_dim: int
+    enc_hidden: int
+    dropout_rate: float
+
+    def __init__(
+        self,
+        key: Array,
+        input_dim: int,
+        enc_hidden: int,
+        dropout_rate: float,
+        dtype: DTypeLike = jnp.float32,
+    ) -> None:
+        (
+            key_lin1,
+            key_lin2,
+            key_attn,
+            key_lin3,
+            key_lin4,
+            key_head,
+            key_beta,
+        ) = jax.random.split(key, 7)
+
+        self.input_dim = input_dim
+        self.enc_hidden = enc_hidden
+        self.dropout_rate = dropout_rate
+
+        # Gating
+        self.attn = eqx.nn.Linear(input_dim, input_dim, key=key_attn, dtype=dtype)
+
+        # Initial layers
+        self.dropout = eqx.nn.Dropout(dropout_rate)
+        self.linear1 = eqx.nn.Linear(input_dim, enc_hidden, key=key_lin1, dtype=dtype)
+        self.norm1 = eqx.nn.LayerNorm(enc_hidden, dtype=dtype)
+        self.linear2 = eqx.nn.Linear(enc_hidden, enc_hidden, key=key_lin2, dtype=dtype)
+
+
+        # Final encoder layers
+        self.linear3 = eqx.nn.Linear(enc_hidden, 64, key=key_lin3, dtype=dtype)
+        self.linear4 = eqx.nn.Linear(64, 32, key=key_lin4, dtype=dtype)
+        self.norm2 = eqx.nn.LayerNorm(32, dtype=dtype)
+        self.head_proj = eqx.nn.Linear(32, 32, key=key_head)
+
+        # Output heads
+        self.inf = eqx.nn.Linear(32, 1, key=key_beta, dtype=dtype)
+
+    @property
+    def n_params(self) -> int:
+        return sum(x.size if isinstance(x, jnp.ndarray) else 1 for x in jax.tree_util.tree_leaves(self))
+
+    def make_keys(self, base_key: jnp.ndarray) -> jnp.ndarray:
+        return jr.split(base_key, 2)
+
+    @jaxtyped(typechecker=typechecker)
+    def __call__(
+        self, x: Float[Array, " input_dim"], *, dropout_keys: jnp.ndarray
+    ) ->Float[Array, "1"]:
+        # k1, k2 = self.make_keys(dropout_keys)
+        k1, k2 = dropout_keys
+
+        weights = jax.nn.softmax(self.attn(x))
+
+        # === Initial Layers ===
+        h = jax.nn.gelu(self.linear1(x * weights))
+        h = jax.nn.gelu(self.linear2(self.norm1(h)))
+        h = self.dropout(h, key=k1)
+
+        # === Final Layers ===
+        enc = jax.nn.gelu(self.linear3(h))
+        enc = self.dropout(enc, key=k2)
+        enc = jax.nn.gelu(self.linear4(enc))
+
+        head = jax.nn.gelu(self.head_proj(self.norm2(enc)))
+
+        return jax.nn.sigmoid(self.inf(head))
 
 class Decoder(eqx.Module):
     layers: list
 
     input_dim: int
     z_latent_dim: int
-    v_latent_dim: int
     dec_hidden: int
 
     def __init__(
@@ -141,7 +230,6 @@ class Decoder(eqx.Module):
         key: jnp.ndarray,
         input_dim: int,
         z_latent_dim: int,
-        v_latent_dim: int,
         dec_hidden: int,
         dtype: jnp.dtype = jnp.float32,
     ) -> None:
@@ -149,17 +237,17 @@ class Decoder(eqx.Module):
 
         self.input_dim = input_dim
         self.z_latent_dim = z_latent_dim
-        self.v_latent_dim = v_latent_dim
         self.dec_hidden = dec_hidden
         self.layers = [
-            eqx.nn.Linear(in_features=z_latent_dim + v_latent_dim + 1, out_features=16, key=key1, dtype=dtype),
-            jax.nn.swish,
+            # latent dim + sofa pred + inf pred
+            eqx.nn.Linear(in_features=z_latent_dim + 1 + 1, out_features=16, key=key1, dtype=dtype),
+            jax.nn.gelu,
             eqx.nn.Linear(in_features=16, out_features=32, key=key2, dtype=dtype),
-            jax.nn.swish,
+            jax.nn.gelu,
             eqx.nn.Linear(in_features=32, out_features=dec_hidden, key=key3, dtype=dtype),
-            jax.nn.swish,
+            jax.nn.gelu,
             eqx.nn.Linear(in_features=dec_hidden, out_features=dec_hidden, key=key5, dtype=dtype),
-            jax.nn.swish,
+            jax.nn.gelu,
             eqx.nn.Linear(in_features=dec_hidden, out_features=input_dim, key=key4, dtype=dtype),
             jax.nn.tanh
         ]
@@ -178,7 +266,8 @@ class Decoder(eqx.Module):
         return z * 5
 
 
-EncDec = TypeVar("EncDec", Encoder, Decoder)
+
+EncDec = TypeVar("EncDec", CoordinateEncoder, Decoder)
 InitFn = Callable[[Array, Array], Array]
 
 
@@ -231,7 +320,7 @@ def apply_initialization(model: EncDec, init_fn_weight: InitFn, init_fn_bias: In
     )
 
 
-def init_encoder_weights(encoder: Encoder, key: jnp.ndarray, scale: float = 1.0) -> Encoder:
+def init_encoder_weights(encoder: CoordinateEncoder, key: jnp.ndarray, scale: float = 1.0) -> CoordinateEncoder:
     encoder = apply_initialization(encoder, he_uniform_init, zero_bias_init, key)
     encoder = eqx.tree_at(lambda e: e.beta.weight, encoder, encoder.beta.weight * scale)
     encoder = eqx.tree_at(lambda e: e.sigma.weight, encoder, encoder.sigma.weight * scale)
@@ -242,9 +331,9 @@ def init_decoder_weights(decoder: Decoder, key: jnp.ndarray) -> Decoder:
     return apply_initialization(decoder, he_uniform_init, zero_bias_init, key)
 
 
-def make_encoder(key: jnp.ndarray, input_dim: int, enc_hidden: int, pred_hidden: int, dropout_rate: float) -> Encoder:
-    return Encoder(key, input_dim, enc_hidden, pred_hidden, dropout_rate=dropout_rate)
+def make_encoder(key: jnp.ndarray, input_dim: int, enc_hidden: int, pred_hidden: int, dropout_rate: float) -> CoordinateEncoder:
+    return CoordinateEncoder(key, input_dim, enc_hidden, pred_hidden, dropout_rate=dropout_rate)
 
 
-def make_decoder(key: jnp.ndarray, input_dim: int, z_latent_dim: int, v_latent_dim: int, dec_hidden: int) -> Decoder:
-    return Decoder(key, input_dim, z_latent_dim, v_latent_dim, dec_hidden)
+def make_decoder(key: jnp.ndarray, input_dim: int, z_latent_dim: int, dec_hidden: int) -> Decoder:
+    return Decoder(key, input_dim, z_latent_dim, dec_hidden)

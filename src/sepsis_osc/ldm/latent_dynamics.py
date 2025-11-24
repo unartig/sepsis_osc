@@ -3,7 +3,7 @@ import jax
 import jax.numpy as jnp
 from jaxtyping import Array, Float
 
-from sepsis_osc.ldm.ae import Decoder, Encoder
+from sepsis_osc.ldm.ae import CoordinateEncoder, Decoder, InfectionPredictor
 from sepsis_osc.ldm.gru import GRUPredictor
 
 ones_24 = jnp.ones(24)
@@ -11,14 +11,16 @@ ones_25 = jnp.ones(25)
 
 
 class LatentDynamicsModel(eqx.Module):
-    encoder: Encoder
+    encoder: CoordinateEncoder
+    inf_predictor: InfectionPredictor
     predictor: GRUPredictor
     decoder: Decoder
+
+    kernel_size: int
 
     # Parameter
     _sofa_dist: Array = eqx.field(static=True)
 
-    _label_temperature: Array
     _lookup_temperature: Array
     _prior_deltas: Array = eqx.field(static=True)
 
@@ -37,30 +39,36 @@ class LatentDynamicsModel(eqx.Module):
     _recon_lsigma: Array
     _seq_lsigma: Array
     _spread_lsigma: Array
+    _tc_lsigma: Array
+    _distr_lsigma: Array
 
     def __init__(
         self,
-        encoder: Encoder,
+        encoder: CoordinateEncoder,
+        inf_predictor: InfectionPredictor,
         predictor: GRUPredictor,
         decoder: Decoder,
         alpha: float,
         ordinal_deltas: Float[Array, "25"] = ones_25,
         sofa_dist: Float[Array, "24"] = ones_24,
+        kernel_size: int = 5,
     ) -> None:
         self.encoder = encoder
+        self.inf_predictor = inf_predictor
         self.predictor = predictor
         self.decoder = decoder
+
+        self.kernel_size = kernel_size
 
         # Parameter
         self._alpha = alpha
         self._sofa_dist = sofa_dist
 
-        self._label_temperature = jnp.log(jnp.ones((1,), dtype=jnp.float32) * 0.05)
         self._lookup_temperature = jnp.log(jnp.ones((1,), dtype=jnp.float32) * 0.05)
         self._prior_deltas = ordinal_deltas
 
         self._d_diff = jnp.log(jnp.ones((1,), dtype=jnp.float32) * 1 / 25)
-        self._d_scale = jnp.log(jnp.ones((1,), dtype=jnp.float32))
+        self._d_scale = jnp.log(jnp.ones((1,), dtype=jnp.float32) * 10)
         self._input_sim_scale = jnp.ones((encoder.input_dim,), dtype=jnp.float32)
 
         self._sofa_dir_lsigma = jnp.zeros((1,), dtype=jnp.float32)
@@ -72,6 +80,8 @@ class LatentDynamicsModel(eqx.Module):
         self._recon_lsigma = jnp.zeros((1,), dtype=jnp.float32)
         self._seq_lsigma = jnp.zeros((1,), dtype=jnp.float32)
         self._spread_lsigma = jnp.zeros((1,), dtype=jnp.float32)
+        self._tc_lsigma = jnp.zeros((1,), dtype=jnp.float32)
+        self._distr_lsigma = jnp.zeros((1,), dtype=jnp.float32)
 
     @property
     def n_params(self) -> int:
@@ -84,10 +94,6 @@ class LatentDynamicsModel(eqx.Module):
     @property
     def sofa_dist(self) -> Float[Array, "24"]:
         return self._sofa_dist
-
-    @property
-    def label_temperature(self) -> Float[Array, "1"]:
-        return jnp.exp(self._label_temperature)
 
     @property
     def lookup_temperature(self) -> Float[Array, "3"]:
@@ -135,6 +141,13 @@ class LatentDynamicsModel(eqx.Module):
         return jnp.exp(self._spread_lsigma)
 
     @property
+    def tc_lsigma(self) -> Float[Array, "1"]:
+        return jnp.exp(self._tc_lsigma)
+    @property
+    def distr_lsigma(self) -> Float[Array, "1"]:
+        return jnp.exp(self._distr_lsigma)
+
+    @property
     def recon_lsigma(self) -> Float[Array, "1"]:
         return jnp.exp(self._recon_lsigma)
 
@@ -148,7 +161,6 @@ class LatentDynamicsModel(eqx.Module):
 
     def params_to_dict(self) -> dict[str, jnp.ndarray]:
         return {
-            "label_temperature": self.label_temperature,
             "lookup_temperature": self.lookup_temperature,
             "d_diff": self.d_diff,
             "d_scale": self.d_scale,
@@ -167,14 +179,11 @@ class LatentDynamicsModel(eqx.Module):
         hyper_dec = {
             "input_dim": self.decoder.input_dim,
             "z_latent_dim": self.decoder.z_latent_dim,
-            "v_latent_dim": self.decoder.v_latent_dim,
             "dec_hidden": self.decoder.dec_hidden,
         }
 
         hyper_pred = {
             "z_dim": self.decoder.z_latent_dim,
             "z_hidden_dim": self.predictor.z_hidden_dim,
-            "v_dim": self.decoder.v_latent_dim,
-            "v_hidden_dim": self.predictor.v_hidden_dim,
         }
         return hyper_enc, hyper_dec, hyper_pred

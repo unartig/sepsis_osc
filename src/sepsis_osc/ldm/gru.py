@@ -9,32 +9,24 @@ from sepsis_osc.utils.jax_config import typechecker
 
 
 class GRUPredictor(eqx.Module):
-    z_gru_cell: eqx.nn.GRUCell
+    gru_cell: eqx.nn.GRUCell
     z_proj_out: eqx.nn.Linear
-    v_gru_cell: eqx.nn.GRUCell
-    v_proj_out: eqx.nn.Linear
 
     z_hidden_dim: int = eqx.field(static=True)
-    v_hidden_dim: int = eqx.field(static=True)
 
     def __init__(
         self,
         key: jnp.ndarray,
         z_dim: int,
-        v_dim: int,
         z_hidden_dim: int,
-        v_hidden_dim: int,
         dtype: DTypeLike = jnp.float32,
     ) -> None:
-        keyz, keyv = jr.split(key, 2)
+        keyz, _ = jr.split(key, 2)
 
         self.z_hidden_dim = z_hidden_dim
-        self.v_hidden_dim = v_hidden_dim
 
-        self.z_gru_cell = eqx.nn.GRUCell(z_dim, z_hidden_dim, key=keyz, dtype=dtype)
-        self.v_gru_cell = eqx.nn.GRUCell(v_dim, v_hidden_dim, key=keyv, dtype=dtype)
-        self.z_proj_out = eqx.nn.Linear(z_hidden_dim, z_dim, key=keyz, dtype=dtype)
-        self.v_proj_out = eqx.nn.Linear(v_hidden_dim, v_dim, key=keyv, dtype=dtype)
+        self.gru_cell = eqx.nn.GRUCell(z_dim, z_hidden_dim, key=keyz, dtype=dtype)
+        self.z_proj_out = eqx.nn.Linear(z_hidden_dim, z_dim, key=keyz, dtype=dtype, use_bias=False)
 
     @property
     def n_params(self) -> int:
@@ -43,19 +35,20 @@ class GRUPredictor(eqx.Module):
     @jaxtyped(typechecker=typechecker)
     def __call__(
         self,
-        zv_t: Float[Array, " latent_dim"],
+        z_t: Float[Array, " latent_dim"],
         h_prev: Float[Array, " pred_hidden"],
     ) -> tuple[Float[Array, " latent_dim"], Float[Array, " pred_hidden"]]:
-        hz_prev, hv_prev = h_prev[: self.z_hidden_dim], h_prev[self.z_hidden_dim :]
-        z_t, v_t = zv_t[: self.z_proj_out.out_features], zv_t[self.z_proj_out.out_features :]
+        h_next = self.gru_cell(z_t, h_prev)
+        z_pred = self.z_proj_out(h_next)
+        return z_pred, h_next
 
-        hz_next = self.z_gru_cell(z_t, hz_prev)
-        z_pred = self.z_proj_out(hz_next)
+def init_gru_weights(gru: GRUPredictor, key: jnp.ndarray) -> GRUPredictor:
+    A = jax.random.normal(key, gru.gru_cell.weight_ih.shape, dtype=jnp.float32)
+    Q, _ = jnp.linalg.qr(A)
+    gru= eqx.tree_at(lambda e: e.gru_cell.weight_ih, gru, Q)
+    gru= eqx.tree_at(lambda e: e.gru_cell.bias, gru, gru.gru_cell.bias)
+    return gru
 
-        hv_next = self.v_gru_cell(v_t, hv_prev)
-        v_pred = self.v_proj_out(hv_next)
-        return jnp.concat([z_pred, v_pred]), jnp.concat([hz_next, hv_next])
 
-
-def make_predictor(key: jnp.ndarray, z_dim: int, v_dim: int, z_hidden_dim: int, v_hidden_dim: int) -> GRUPredictor:
-    return GRUPredictor(key, z_dim, v_dim, z_hidden_dim, v_hidden_dim)
+def make_predictor(key: jnp.ndarray, z_dim: int, z_hidden_dim: int) -> GRUPredictor:
+    return GRUPredictor(key, z_dim, z_hidden_dim)

@@ -46,19 +46,17 @@ class CalibrationModel(eqx.Module):
     @jaxtyped(typechecker=typechecker)
     def get_sepsis_logits(
         self,
-        p_sofa: Float[Array, " samples"] | Float[Array, " batch time"],
-        p_inf: Float[Array, " samples"] | Float[Array, " batch time"],
+        sofa: Float[Array, " samples"] | Float[Array, " batch time"],
+        inf: Float[Array, " samples"] | Float[Array, " batch time"],
         betas: Float[Array, "4"] | None = None,
     ) -> Float[Array, " samples"] | Float[Array, " batch time"]:
         betas = betas if betas is not None else self.betas
-        # l_sofa = binary_logits(p_sofa)
-        # l_inf = binary_logits(p_inf)
         X = jnp.stack(
             [
-                jnp.ones_like(p_sofa),  # intercept
-                p_sofa,  # sofa
-                p_inf,  # infection
-                p_sofa * p_inf,  # interaction
+                jnp.ones_like(sofa),  # intercept
+                sofa,  # sofa
+                inf,  # infection
+                sofa * inf,  # interaction
             ],
             axis=-1,
         )
@@ -90,15 +88,15 @@ class CalibrationModel(eqx.Module):
         def loss_fn_interaction(parameters: CalibrationModel, args: tuple[Float[Array, " samples"], ...]) -> ScalarLike:
             p_sofa, p_inf, y = args
             logits = self.get_sepsis_logits(p_sofa, p_inf, parameters.betas)
-            return jnp.mean(optax.sigmoid_focal_loss(logits, y.astype(jnp.float32), alpha=0.99, gamma=1.0))
+            return jnp.mean(optax.sigmoid_binary_cross_entropy(logits, y.astype(jnp.float32)))
 
         res = minimise(
             fn=loss_fn_interaction,
             solver=solver,
-            y0=CalibrationModel(),  # initial parameter guess
+            y0=self,  # initial parameter guess
             args=(p_sofa, p_inf, p_sepsis),
             throw=False,
-            max_steps=int(5e3),
+            max_steps=int(1e3),
         )
 
         def loss_fn_calibration(parameters: CalibrationModel, args: tuple[Float[Array, " samples"], ...]) -> ScalarLike:
