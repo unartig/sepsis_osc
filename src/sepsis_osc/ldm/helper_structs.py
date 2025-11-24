@@ -22,6 +22,7 @@ class AuxLosses:
     diff_loss: Array
     thresh_loss: Array
     spreading_loss: Array
+    distr_loss: Array
 
     hists_sofa_score: Array
     hists_sofa_metric: Array
@@ -68,6 +69,7 @@ class AuxLosses:
                 "diff_loss": self.diff_loss,
                 "thresh_loss": self.thresh_loss,
                 "spreading_loss": self.spreading_loss,
+                "distr_loss": self.distr_loss,
             },
             "hists": {
                 "sofa_score": self.hists_sofa_score,
@@ -91,12 +93,11 @@ class AuxLosses:
 @dataclass
 class ModelConfig:
     z_latent_dim: int
-    v_latent_dim: int
     input_dim: int
     enc_hidden: int
+    inf_pred_hidden: int
     dec_hidden: int
     predictor_z_hidden: int
-    predictor_v_hidden: int
     dropout_rate: float
 
 
@@ -148,6 +149,7 @@ class LossesConfig:
     w_sep3: float
     w_matching: float
     w_spreading: float
+    w_distr: float
     w_thresh: float
     anneal_threshs_iter: float
     steps_per_epoch: int = 0

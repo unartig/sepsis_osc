@@ -68,7 +68,7 @@ class LatentLookup(eqx.Module):
         self,
         query_vectors: Float[Array, "batch latent"],
         temperature: Float[Array, "1"],  # placeholder to make compatible with soft get
-        kernel_size: int = 11,
+        kernel_size: int | Int[Array, ""] = 3,
     ) -> Float[Array, " batch"]:
         orig_dtype = query_vectors.dtype
         query_vectors = jax.lax.stop_gradient(query_vectors)
@@ -89,7 +89,7 @@ class LatentLookup(eqx.Module):
         self,
         query_vectors: Float[Array, "batch latent"],
         temperature: Float[Array, "1"] | Float[Array, "batch latent"],  # placeholder to make compatible with soft get
-        kernel_size: int = 11,
+        kernel_size: int | Int[Array, ""] = 3,
     ) -> Float[Array, " batch"]:
         rel_pos = (query_vectors - self.grid_origin) / self.grid_spacing
         center_idx = self.round_ste(rel_pos).astype(jnp.int32)
@@ -103,6 +103,7 @@ class LatentLookup(eqx.Module):
             ]
 
         return jax.vmap(index_single)(center_idx)
+
 
     @jaxtyped(typechecker=typechecker)
     @filter_jit
@@ -147,7 +148,7 @@ class LatentLookup(eqx.Module):
         self,
         query_vectors: Float[Array, "batch latent"],
         temperature: Float[Array, "1"],
-        kernel_size: int = 15,
+        kernel_size: int | Int[Array, ""] = 3,
     ) -> Float[Array, " batch"]:
         orig_dtype = query_vectors.dtype
         q = query_vectors.astype(self.dtype)
@@ -188,22 +189,20 @@ class LatentLookup(eqx.Module):
         self,
         query_vectors: Float[Array, "batch latent"],
         temperature: Float[Array, "1"],
-        kernel_size: int = 11,
+        kernel_size: int | Int[Array, ""] = 3,
     ) -> Float[Array, " batch"]:
         orig_dtype = query_vectors.dtype
         q = query_vectors.astype(self.dtype)
 
-        @jaxtyped(typechecker=typechecker)
-        def per_query(q: Float[Array, " latent"]) -> Float[Array, ""]:
-            q_norm = jnp.sum(q**2, axis=-1, keepdims=True)
+        q_norm = jnp.sum(q**2, axis=-1, keepdims=True)
 
-            dot_prod = q @ self.indices_T  # (num_indices,)
-            dists = q_norm + self.i_norm - 2 * dot_prod
+        dot_prod = q @ self.indices_T  # (num_indices,)
+        dists = q_norm + self.i_norm - 2 * dot_prod
 
-            weights = jax.nn.softmax(-dists / (temperature + EPS), axis=-1).squeeze()
-            return jnp.sum(weights * self.relevant_metrics)
+        weights = jax.nn.softmax(-dists / (temperature + EPS), axis=-1).squeeze()
+        weights = weights * (1 - (weights < 0.001))
 
-        return eqx.filter_vmap(per_query)(q).astype(orig_dtype)
+        return jnp.sum(weights * self.relevant_metrics, axis=-1).astype(orig_dtype)
 
     @jaxtyped(typechecker=typechecker)
     @filter_jit
@@ -211,7 +210,7 @@ class LatentLookup(eqx.Module):
         self,
         query_vectors: Float[Array, "batch latent"],
         temperature: Float[Array, "1"],
-        kernel_size: int = 11,
+        kernel_size: int | Int[Array, ""] = 11,
     ) -> Float[Array, " batch"]:
         orig_dtype = query_vectors.dtype
         q = query_vectors.astype(self.dtype)
