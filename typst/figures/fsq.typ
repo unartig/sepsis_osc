@@ -11,22 +11,22 @@
 #let zc = (2.8, 2.3)
 
 #let fsq_fig = canvas({
-  content(
-    (x-range / 2, y-range + 1),
-    align(
-      text(
-        "Quantized Latent-Lookup",
-        size: 16pt,
-      )
-        + text(
-          "\nwith Gaussian Kernel Smoothing",
-          size: 12pt,
-        ),
-      center,
-    ),
-    anchor: "south",
-    padding: .3em,
-  )
+  // content(
+  //   (x-range / 2, y-range + 1),
+  //   align(
+  //     text(
+  //       "Quantized Latent-Lookup",
+  //       size: 16pt,
+  //     )
+  //       + text(
+  //         "\nwith Gaussian Kernel Smoothing",
+  //         size: 12pt,
+  //       ),
+  //     center,
+  //   ),
+  //   anchor: "south",
+  //   padding: .3em,
+  // )
 
   // Draw kernel
   circle(
@@ -71,7 +71,7 @@
         fill: gradient
           .linear(..color.map.viridis)
           .sample(calc.sin(x) * 50% + calc.sin(y) * 50%),
-        stroke: .5pt + black,
+        stroke: none,// .5pt + black,
       )
     }
   }
@@ -95,7 +95,7 @@
   circle(zc, radius: 2pt, fill: red, stroke: none, name: "zp")
   content(
     (rel: (.15, 0.15), to: zc),
-    $z$,
+    $hat(z)$,
     anchor: "west",
   )
   content(
@@ -117,13 +117,13 @@
   line((-netend, y-range / 2), (-0.5, y-range / 2), name: "flow1", mark: emark)
   content(
     (rel: (0.2, -0.2), to: "flow1"),
-    $z=(z_cmbeta(beta), z_cmsigma(sigma))$,
+    $hat(z)=(hat(z)_cmbeta(beta), hat(z)_cmsigma(sigma))$,
     anchor: "north",
   )
 
   content(
     (x-range / 2 + .5, -1),
-    $tilde(s)=sum_(x in cmred(cal(N)_(3 times 3))(tilde(z))) "softmax"(-(||z-x||^2)/T)s_(cmbeta(beta), cmsigma(sigma))$,
+    $tilde(s)=sum_(x in cmred(cal(N)_(3 times 3))(tilde(z))) "softmax"(-(||hat(z)-x||^2)/T)s_(cmbeta(beta), cmsigma(sigma))$,
   )
 })
 #figure(fsq_fig)
