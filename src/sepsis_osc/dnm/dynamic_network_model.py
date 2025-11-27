@@ -1,4 +1,4 @@
-from typing import Callable, Optional
+from collections.abc import Callable
 
 import equinox as eqx
 import jax.numpy as jnp
@@ -7,7 +7,6 @@ import jax.tree as jtree
 import numpy as np
 from jax import vmap
 from jax.debug import print as jprint
-
 from jaxtyping import Array, Bool, Float, Int, ScalarLike, jaxtyped
 
 from sepsis_osc.dnm.abstract_ode import ConfigArgBase, ConfigBase, MetricBase, ODEBase, StateBase
@@ -48,9 +47,9 @@ class DNMConfig(ConfigBase):
 
     # Used for steady state detection
     tau: float = 0.5
-    T_init: Optional[int] = None
-    T_max: Optional[int] = None
-    T_step: Optional[int] = None
+    T_init: int | None = None
+    T_max: int | None = None
+    T_step: int | None = None
 
     @property
     def as_args(self) -> DNMConfigArgs:
@@ -172,13 +171,13 @@ class DNMMetrics(MetricBase):
     cs_1: Float[Array, "*t"] | Float[Array, "... 1"] | np.ndarray
     cs_2: Float[Array, "*t"] | Float[Array, "... 1"] | np.ndarray
     # Splay State Ratio
-    sr_1: Optional[Float[Array, "*t"] | Float[Array, "... 1"] | np.ndarray] = None
-    sr_2: Optional[Float[Array, "*t"] | Float[Array, "... 1"] | np.ndarray] = None
+    sr_1: Float[Array, "*t"] | Float[Array, "... 1"] | np.ndarray | None = None
+    sr_2: Float[Array, "*t"] | Float[Array, "... 1"] | np.ndarray | None = None
     # Splay State Ratio
-    cm_1: Optional[Float[Array, "*t"] | Float[Array, "... 1"] | np.ndarray] = None
-    cm_2: Optional[Float[Array, "*t"] | Float[Array, "... 1"] | np.ndarray] = None
+    cm_1: Float[Array, "*t"] | Float[Array, "... 1"] | np.ndarray | None = None
+    cm_2: Float[Array, "*t"] | Float[Array, "... 1"] | np.ndarray | None = None
     # Measured mean transient time
-    tt: Optional[Float[Array, "*t"] | Float[Array, "... 1"] | np.ndarray] = None
+    tt: Float[Array, "*t"] | Float[Array, "... 1"] | np.ndarray | None = None
 
     def add_follow_ups(self) -> "DNMMetrics":
         if self.sr_1 is None and self.r_1.size > 1:
@@ -402,7 +401,7 @@ class DynamicNetworkModel(ODEBase):
         self, deriv: Callable, dtype: jnp.dtype = jnp.float16, *, save_y: bool = True, save_dy: bool = True
     ) -> Callable:
         def full_compressed_save(
-            _t: ScalarLike, y: DNMState, args: Optional[DNMConfigArgs]
+            _t: ScalarLike, y: DNMState, args: DNMConfigArgs | None
         ) -> tuple[DNMState, DNMState] | DNMState:
             y.enforce_bounds()
             if save_y and not save_dy:
@@ -417,7 +416,7 @@ class DynamicNetworkModel(ODEBase):
     def generate_steady_state_check(
         self, eps_m: float = 1e-10, eps_v: float = 1e-3, t_min: float = 1.0
     ) -> Callable[..., Bool[Array, "1"]]:
-        def check(t: ScalarLike, y: DNMState, _args: tuple, **kwargs) -> Bool[Array, "1"]:
+        def check(t: float, y: DNMState, _args: tuple, **kwargs) -> Bool[Array, "1"]:
             is_late = t > t_min
 
             # Compute errors per batch
@@ -436,8 +435,8 @@ if __name__ == "__main__":
 
     from sepsis_osc.storage.storage_interface import Storage
     from sepsis_osc.utils.config import jax_random_seed
-    from sepsis_osc.utils.logger import setup_logging
     from sepsis_osc.utils.jax_config import setup_jax
+    from sepsis_osc.utils.logger import setup_logging
 
     setup_logging("info", console_log=True)
     setup_jax(simulation=True)
@@ -446,23 +445,21 @@ if __name__ == "__main__":
     rand_key = jr.key(jax_random_seed)
     num_parallel_runs = 50
 
-    beta_step = 0.01
-    betas = np.arange(0.0, 1.0, beta_step)
+    beta_step = 0.003
+    betas = np.arange(0.4, 0.7, beta_step)
     sigma_step = 0.015
     sigmas = np.arange(0.0, 1.5, sigma_step)
-    C_step = 0.05
-    Cs = jnp.arange(0, 0.2, C_step)
     T_max_base = 2000
     T_step_base = 100
-    total = len(betas) * len(sigmas) * len(Cs)
+    total = len(betas) * len(sigmas)
     logger.info(
-        f"Starting to map parameter space of {len(betas)} beta, {len(sigmas)} sigma, {len(Cs)} Cs, total {total}"
+        f"Starting to map parameter space of {len(betas)} beta, {len(sigmas)} sigma, total {total}"
     )
 
-    dnm = DynamicNetworkModel(full_save=False, steady_state_check=True, progress_bar=True)
+    dnm = DynamicNetworkModel(full_save=False, steady_state_check=False, progress_bar=False)
     solver = Tsit5(scan_kind="bounded")
 
-    db_str = "Daisy0"
+    db_str = "Final"
     storage = Storage(
         key_dim=9,
         metrics_kv_name=f"data/{db_str}SepsisMetrics.db/",
@@ -472,36 +469,37 @@ if __name__ == "__main__":
     overwrite = False
 
     i = 0
-    for C in Cs:
-        for beta in betas:
-            for sigma in sigmas:
-                N = 200
-                run_conf = DNMConfig(
-                    N=N,
-                    C=float(C),  # phase lage
-                    beta=float(beta),  # age parameter
-                    sigma=float(sigma),
+    for beta in betas:
+        for sigma in sigmas:
+            N = 200
+            run_conf = DNMConfig(
+                N=N,
+                C=0.2,  # phase lage
+                alpha=-0.28,
+                beta=beta,  # age parameter
+                sigma=sigma,
+            )
+            logger.info(f"New config {run_conf.as_index}")
+            logger.info(f" ~~~~~~~~~~~ {i}/{total} - {i / total * 100:.4f}% ~~~~~~~~~~~ ")
+            if storage.read_result(run_conf.as_index, DNMMetrics, 1e-15) is None or overwrite:
+                logger.info("Starting solve")
+                sol = dnm.integrate(
+                    config=run_conf,
+                    M=num_parallel_runs,
+                    solver=solver,
+                    key=rand_key,
+                    T_init=0,
+                    T_max=T_max_base,
+                    T_step=T_step_base,
                 )
-                logger.info(f"New config {run_conf.as_index}")
-                logger.info(f" ~~~~~~~~~~~ {i}/{total} - {i / total * 100:.4f}% ~~~~~~~~~~~ ")
-                if storage.read_result(run_conf.as_index, DNMMetrics, 0.0) is None or overwrite:
-                    logger.info("Starting solve")
-                    sol = dnm.integrate(
-                        config=run_conf,
-                        M=num_parallel_runs,
-                        solver=solver,
-                        key=rand_key,
-                        T_init=0,
-                        T_max=T_max_base,
-                        T_step=T_step_base,
+                logger.info(f"Solved in {sol.stats['num_steps']} steps")
+                if sol.ys:
+                    logger.info("Saving Result")
+                    storage.add_result(
+                        run_conf.as_index, sol.ys.remove_infs().as_single().serialise(), overwrite=overwrite
                     )
-                    logger.info(f"Solved in {sol.stats['num_steps']} steps")
-                    if sol.ys:
-                        logger.info("Saving Result")
-                        storage.add_result(
-                            run_conf.as_index, sol.ys.remove_infs().as_single().serialise(), overwrite=overwrite
-                        )
-                i += 1
-            storage.write()
-
+            else:
+                logger.error("Keeping existing result")
+            i += 1
+        storage.write()
     storage.close()
