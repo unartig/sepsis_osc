@@ -102,7 +102,6 @@ class CoordinateEncoder(eqx.Module):
     ) -> tuple[
         Float[Array, "1"], Float[Array, "1"], Float[Array, " pred_hidden"]
     ]:
-        # k1, k2 = self.make_keys(dropout_keys)
         k1, k2 = dropout_keys
 
         weights = jax.nn.softmax(self.attn(x))
@@ -131,13 +130,11 @@ class InfectionPredictor(eqx.Module):
     norm1: eqx.nn.LayerNorm
 
     linear2: eqx.nn.Linear
-    norm2: eqx.nn.LayerNorm
 
     attn: eqx.nn.Linear
 
     linear3: eqx.nn.Linear
     linear4: eqx.nn.Linear
-    head_proj: eqx.nn.Linear
 
     # Output heads
     inf: eqx.nn.Linear
@@ -161,9 +158,8 @@ class InfectionPredictor(eqx.Module):
             key_attn,
             key_lin3,
             key_lin4,
-            key_head,
             key_beta,
-        ) = jax.random.split(key, 7)
+        ) = jax.random.split(key, 6)
 
         self.input_dim = input_dim
         self.enc_hidden = enc_hidden
@@ -180,13 +176,11 @@ class InfectionPredictor(eqx.Module):
 
 
         # Final encoder layers
-        self.linear3 = eqx.nn.Linear(enc_hidden, 64, key=key_lin3, dtype=dtype)
-        self.linear4 = eqx.nn.Linear(64, 32, key=key_lin4, dtype=dtype)
-        self.norm2 = eqx.nn.LayerNorm(32, dtype=dtype)
-        self.head_proj = eqx.nn.Linear(32, 32, key=key_head)
+        self.linear3 = eqx.nn.Linear(enc_hidden, 16, key=key_lin3, dtype=dtype)
+        self.linear4 = eqx.nn.Linear(16, 8, key=key_lin4, dtype=dtype)
 
         # Output heads
-        self.inf = eqx.nn.Linear(32, 1, key=key_beta, dtype=dtype)
+        self.inf = eqx.nn.Linear(8, 1, key=key_beta, dtype=dtype)
 
     @property
     def n_params(self) -> int:
@@ -199,7 +193,6 @@ class InfectionPredictor(eqx.Module):
     def __call__(
         self, x: Float[Array, " input_dim"], *, dropout_keys: jnp.ndarray
     ) ->Float[Array, "1"]:
-        # k1, k2 = self.make_keys(dropout_keys)
         k1, k2 = dropout_keys
 
         weights = jax.nn.softmax(self.attn(x))
@@ -214,9 +207,9 @@ class InfectionPredictor(eqx.Module):
         enc = self.dropout(enc, key=k2)
         enc = jax.nn.gelu(self.linear4(enc))
 
-        head = jax.nn.gelu(self.head_proj(self.norm2(enc)))
+        # head = jax.nn.gelu(self.head_proj(self.norm2(enc)))
 
-        return jax.nn.sigmoid(self.inf(head))
+        return jax.nn.sigmoid(self.inf(enc))
 
 class Decoder(eqx.Module):
     layers: list
