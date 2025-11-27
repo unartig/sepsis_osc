@@ -1,5 +1,5 @@
 // #import "@preview/numberingx:0.0.1"
-#import "@preview/acrostiche:0.5.2": *
+#import "@preview/acrostiche:0.7.0": *
 #import "@preview/equate:0.3.1": equate
 
 // Workaround for the lack of an `std` scope.
@@ -15,7 +15,8 @@
 // Colors used across the template.
 #let stroke-color = luma(200)
 #let fill-color = luma(250)
-
+#let tof = outline(title: [List of figures], target: figure.where(kind:image))
+#let tot = outline(title: [List of tables], target: figure.where(kind:table)) 
 // This function gets your whole document as its `body`.
 #let thesis(
   // The title for your work.
@@ -55,7 +56,9 @@
   // The result of a call to the `outline` function or `none`.
   // Set this to `none`, if you want to disable the table of contents.
   // More info: https://typst.app/docs/reference/model/outline/
-  table-of-contents: outline(),
+  table-of-contents: outline(depth:2),
+  table-of-figures: none,
+  table-of-tables: none,
   acronyms: none,
   // Display an appendix after the body but before the bibliography.
   appendix: (
@@ -205,7 +208,7 @@
   // Configure paragraph properties.
   set par(
     leading: leading,
-    spacing: 1.5em, // probably 1em is correct
+    spacing: 1em, // TODO probably 1em is correct
     justify: true,
     linebreaks: "optimized",
     first-line-indent: 0pt,
@@ -274,16 +277,22 @@
   // Indent nested entires in the outline.
   set outline(indent: auto)
 
-  // Display table of contents.
+  init-acronyms(acronyms)
+  // Display tables of contents.
   if table-of-contents != none {
     v(12.5%)
     table-of-contents
   }
 
-  // TODO right?
-  init-acronyms(acronyms)
-  pagebreak(to: "odd", weak: true)
-  print-index()
+  pagebreak(weak:true)
+  if table-of-tables != none {
+    tot
+  }
+  if table-of-figures != none {
+    tof
+  }
+  pagebreak(weak:true)
+  print-index(row-gutter: 4pt)
 
   if notation != none {
     pagebreak(weak: true, to: "odd")

@@ -117,13 +117,13 @@
   line((-netend, y-range / 2), (-0.5, y-range / 2), name: "flow1", mark: emark)
   content(
     (rel: (0.2, -0.2), to: "flow1"),
-    $hat(z)=(hat(z)_cmbeta(beta), hat(z)_cmsigma(sigma))$,
+    $hat(bold(z))=(hat(z)_cmbeta(beta), hat(z)_cmsigma(sigma))$,
     anchor: "north",
   )
 
-  content(
-    (x-range / 2 + .5, -1),
-    $tilde(s)=sum_(x in cmred(cal(N)_(3 times 3))(tilde(z))) "softmax"(-(||hat(z)-x||^2)/T)s_(cmbeta(beta), cmsigma(sigma))$,
-  )
+  // content(
+  //   (x-range / 2 + .5, -1),
+  //   $tilde(s)=sum_(bold(x) in cmred(cal(N)_(3 times 3))(tilde(bold(z)))) "softmax"(-(||hat(bold(z))-bold(x)||^2)/T)s^1_bold(x)$,
+  // )
 })
 #figure(fsq_fig)

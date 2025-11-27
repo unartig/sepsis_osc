@@ -28,7 +28,7 @@
   // line((rel:(0, 0.5), to: "ehr"), (rel: (0, 0.0), to: "coord"), name: "flow1", mark: emark)
 
   bezier((rel: (1.25, 0), to: data), (rel: (0, -0.65), to: coord), (2.5, 4), mark: emark)
-  content((rel: (1.5, -0.6), to: midp(coord, data)), "Encoding\n" + $g_theta (bold(mu)_0)$, anchor:"west")
+  content((rel: (1.5, -0.6), to: midp(coord, data)), "Encoding\n" + $e_theta (bold(mu)_0)$, anchor:"west")
   
   line((rel: (1.5, -0.2), to: coord), (rel: (-0.7, -0.2), to: zzz), name:"auto", mark:emark)
   arc((rel: (0, 0.3), to: midp(coord, zzz)),

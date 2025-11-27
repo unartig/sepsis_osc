@@ -41,6 +41,9 @@
     "YAIB": "Yet Another ICU Benchmark",
   ),
   bibliography: bibliography("bibliography.bib"),
+  // TODO what about notation?
+  table-of-figures: none,  // TODO and make pretty smh
+  table-of-tables: true,
   // acknowledgements: [
   //   This thesis was written with the help of many people.
   //   I would like to thank all of them.
