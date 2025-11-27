@@ -237,15 +237,15 @@ def loss(
         binary_logits(aux.sofa_d2_p), (jnp.diff(sofa_true / 24.0, axis=-1) > 0.0).any(axis=-1).astype(jnp.float32)
     )
     aux.infection_p_loss_t = jax.vmap(optax.sigmoid_binary_cross_entropy)(
-        binary_logits(infection_pred),
-        jnp.ones_like(infection_true) * infection_true.max(axis=-1)[:, None],
+        binary_logits(infection_pred.mean(axis=-1)),
+        infection_true.max(axis=-1),
     )
     aux.susp_inf_p = 1.0 - jnp.prod(1.0 - infection_pred.squeeze(), axis=-1)
 
-    aux.sep3_p = calibrate_probs_func(jax.lax.stop_gradient(aux.sofa_d2_p), jax.lax.stop_gradient(aux.susp_inf_p))
-    aux.sep3_p_loss = optax.sigmoid_focal_loss(
-        binary_logits(aux.sep3_p), (sepsis_true == 1.0).any(axis=-1), alpha=0.99, gamma=1.0
-    )
+    aux.sep3_p = jax.lax.stop_gradient(aux.sofa_d2_p) * jax.lax.stop_gradient(aux.susp_inf_p)
+    # aux.sep3_p_loss = optax.sigmoid_focal_loss(
+    #     binary_logits(aux.sep3_p), (sepsis_true == 1.0).any(axis=-1), alpha=0.99, gamma=1.0
+    # )
 
     # --------- Directional Loss
     aux.sofa_directional_loss = jnp.mean(jax.vmap(calc_full_directional_loss)(sofa_pred, sofa_true / 24.0))
@@ -486,7 +486,7 @@ if __name__ == "__main__":
         init_value=lr_conf.init,
         peak_value=lr_conf.peak,
         warmup_steps=lr_conf.warmup_epochs * steps_per_epoch,
-        steps_per_cycle=[steps_per_epoch * n for n in [100]],  # cycle durations
+        steps_per_cycle=[steps_per_epoch * n for n in [10]],  # cycle durations
         end_value=lr_conf.end,
         peak_decay=lr_conf.peak_decay,
     )
@@ -519,7 +519,7 @@ if __name__ == "__main__":
         dropout_rate=model_conf.dropout_rate,
         dtype=dtype,
     )
-    stop_inf = EarlyStopping(patience=1, direction=-1)
+    stop_inf = EarlyStopping(patience=0, direction=-1)
     gru = GRUPredictor(
         key=key_predictor,
         z_dim=model_conf.z_latent_dim,
@@ -630,12 +630,12 @@ if __name__ == "__main__":
         logger.info(log_msg)
 
         if epoch % train_conf.validate_every == 0:
-            calibration_model = calibration_model.calibrate(
-                p_sofa=train_metrics.sofa_d2_p.flatten(),
-                p_inf=train_metrics.susp_inf_p.flatten(),
-                p_sepsis=jnp.asarray((y_shuffled[..., -1] == 1.0).any(axis=-1).flatten(), dtype=jnp.float32),
-            )
-            logger.error(f"betas: {calibration_model.betas}, a: {calibration_model.a} b: {calibration_model.b}")
+            # calibration_model = calibration_model.calibrate(
+            #     p_sofa=train_metrics.sofa_d2_p.flatten(),
+            #     p_inf=train_metrics.susp_inf_p.flatten(),
+            #     p_sepsis=jnp.asarray((y_shuffled[..., -1] == 1.0).any(axis=-1).flatten(), dtype=jnp.float32),
+            # )
+            # logger.error(f"betas: {calibration_model.betas}, a: {calibration_model.a} b: {calibration_model.b}")
             val_model = eqx.nn.inference_mode(model, value=True)
             val_key = jr.fold_in(key, epoch + 2)
             val_metrics = process_val_epoch(
@@ -655,7 +655,7 @@ if __name__ == "__main__":
             if stop_inf.step(val_metrics.infection_p_loss_t.mean()):
                 logger.info("Freezing Infection Encoder Parameter")
                 filter_spec = eqx.tree_at(
-                    lambda m: m.inf_predictor,  # the submodule you want to freeze partially
+                    lambda m: m.inf_predictor,
                     filter_spec,
                     replace=False,
                 )
