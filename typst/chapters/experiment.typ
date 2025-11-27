@@ -19,4 +19,5 @@ RICU and YAIB use delta_cummin function, i.e. the delta #acr("SOFA") increase is
 ==== ricu-Concepts
 == Implementation Details
 === Latent Lookup Implementation <sec:impl_fsq> 
+#todo[explain STE (straight through estimation)]
 == Metrics (How to validate performance?)
