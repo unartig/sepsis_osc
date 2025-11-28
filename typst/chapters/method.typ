@@ -293,5 +293,15 @@ It helps the encoder $e_theta$ to learn a meaningful alignment between #acr("EHR
 Using this regularization the recurrent predictor $e_theta$ and the auto-regressive predictor $r_theta$ are encouraged to map temporally consecutive to spatially near latent coordinates, since it is expected that consecutive #acr("EHR")s do not exhibit drastic changes.
 Leading smooth patient trajectories through the latent space.
 
-== Overall Training Objective and Metrics
-#todo[should summarize objectives again, maybe table?]
+== Summary of Methods
+This chapter introduced the proposed model for short-term and interpretable risk prediction of developing sepsis for #acr("ICU") patients, referred to as #acl("LDM").
+Starting from the formal task definition, the full processing pipeline and detailed the architecture of the encoder, recurrent latent dynamics module, decoder, and the infection-indicator classifier have been presented.
+A key component of the approach is the integration of the functional #acr("DNM") into the latent dynamics, enabling physiologically meaningful and interpretable temporal modeling.
+
+The training losses used for each component were defined contributing to the overall optimization objective.
+Finally the chapter also introduced the notation and training setup that will used throughout the remainder of the thesis.
+
+The next @sec:experiment presents the #acr("MIMIC")-III database, a widely used #acr("ICU") used to benchmark sepsis prediction models.
+After a short overview of the state of the art, the relevant evaluation metrics #acr("AUROC") and #acr("AUPRC") used to assess the predictive performance are introduced.
+The chapter concludes with implementation details for training the #acr("LDM") on the #acr("MIMIC")-III data.
+Final quantitative and qualitative results are presented and analyzed in @sec:results.

@@ -1,7 +1,6 @@
 #import "../thesis_env.typ": *
 
 = Medical Background (Sepsis) <sec:sepsis>
-
 As the most extreme course of an infectious disease, sepsis poses a very serious health threat, with a high mortality rate and frequent long-term consequences for survivors.
 In 2017, an estimated 48.9 million people worldwide suffered from sepsis and the same year, 11.0 million deaths were associated with sepsis @rudd2020global, which makes up 19.7% of yearly deaths, making it the most common cause of in-hospital deaths.
 Untreated, the disease is always fatal and even with successful treatment, around 40\% of those affected suffer long-term consequences, such as cognitive, physical or physiological problems, the so called _post-sepsis syndrome_ @vanderSlikke2020post.
@@ -21,7 +20,7 @@ A recent study @seymour2017time highlights the importance of early recognition a
 Each hour of earlier detection can significantly increase the chance of survival @seymour2017time, it urges to develop accurate and robust detection and prediction methods, i.e. reducing the time to receive the appropriate medical attention.
 In @sec:sepwhy the necessity for reliable and clinically practical sepsis prediction systems is discussed.
 
-== The Sepsis-3 Definition <sec:sep3def>
+== Sepsis-3 Definition <sec:sep3def>
 Earlier definitions (Sepsis-1, Sepsis-2 @Placeholder) primarily emphasized #acr("SIRS") @Placeholder criteria, focusing on the inflammatory origins of sepsis.
 These definitions were later criticized for low specificity and under-representation of the multi organ failure due to sepsis.
 Out of the need for an update of these outdated definitions and partly misleading sepsis models a task force led by the "Society of Critical Care Medicine and the European Society of Intensive Care Medicine", was formed in 2016.
@@ -39,7 +38,7 @@ According to the Sepsis-3 definition, a patient is in a septic condition if the 
   ))
 )
 The combination of the two criteria represents an exaggerated immune reaction that results in organ dysfunction, when infection is first suspected, even modest organ dysfunction is linked to a 10% increase of in-hospital mortality.
-A more pathobiological explanation of what a "dysregulated host response" means is given in the next @sec:sepbio.
+A more medical explanation of what a _dysregulated host response_ means is given in the next @sec:sepbio.
 
 *Confirmed or Suspected Infection* has no strict medical definition and classification what counts as #acr("SI") remains a little vague, ultimately it is left for the medical personnel to classify infections or the suspicion of infections. For retrospective data-driven classification it is suggested to characterize any patient prescribed with #acr("ABX") followed by the cultivation of body fluids, or the other way around, with a #acr("SI") @Sepsis3.
 The timings of prescription and fluid samplings play a crucial role.
@@ -54,13 +53,13 @@ The #acr("SOFA") score is calculated at least every 24 hours and assess six diff
 The overall score is calculated as sum of each individual system.
 
 It includes the respiratory system, the coagulation/clotting of blood, i.e. changing from liquid to gel, the liver system, the cardiovascular system, the central nervous system and the renal system/kidney function.
-A more detailed listing of corresponding markers for each organ assessment can be found in table @tab:sofa in the @sec:appendix.
+A more detailed listing of corresponding markers for each organ assessment can be found in table @tab:sofa in the @a:sofa.
 The magnitude of a patients initial #acr("SOFA")-score captures preexisting organ dysfunction.
 An increase in #acr("SOFA") score $>=2$ corresponds to an acute worsening of organ functionalities and a drastic worsening in the patients condition, the indicator for a dysregulated response.
 
 === Sepsis Classification
 The Sepsis-3 definition not only provides the clinical criteria of septic conditions, but also introduces the necessary time windows for sepsis classification.
-An increase of #acr("SOFA") $>=2$ in the 48h before or 24h after the #acr("SI") time, the so called #acr("SI")-window, is per Sepsis-3 definition the "sepsis onset time".
+An increase of #acr("SOFA") $>=2$ in the 48h before or 24h after the #acr("SI") time, the so called #acr("SI")-window, is per Sepsis-3 definition the _sepsis onset time_.
 A schematic of the timings is shown in figure @fig:ricu.
 
 With respect to which value the increase in #acr("SOFA") is measured, i.e. the baseline score, is not clearly stated in the consensus and leaves room for interpretation, commonly used approaches include:
