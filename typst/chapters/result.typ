@@ -1,3 +1,3 @@
 #import "../thesis_env.typ": *
 
-= Results
+= Results <sec:results>
