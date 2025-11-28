@@ -1,19 +1,17 @@
 #import "thesis_template.typ": thesis
 #import "thesis_env.typ": *
 
-#import "figures/tree.typ": tree_fig
-
-
-
+// #import "figures/tree.typ": tree_fig
 
 #show: thesis.with(
-  title: "Comprehensive Guidelines and Templates for Thesis Writing",
-  summary: [
-  ],
+  title: "Combining Machine-Learning and Dynamic Network Models to Improve Sepsis Prediction",
+  summary: [],
   // abstract_de: [
   // ],
   acronyms: (
     "ABX": "Antibiotics",
+    "AUPRC": "Area Under Precision Recall Curve",
+    "AUROC": "Area Under Receiver Operationg Curve",
     "BCE": "Binary Cross Entropy",
     "DAMP": "Damage-Associated Molecular Patterns",
     "DL": "Deep Learning",
@@ -25,6 +23,7 @@
     "ICU": "Intensive Care Unit",
     "JIT": "Just In Time Compilation",
     "LDM": "Latent Dynamics Model",
+    "MIMIC": "Medical Information Mart for Intensive Care",
     "ML": "Machine Learning",
     "MSE": "Mean Squared Error",
     "ODE": "Ordinary Differential Equation",
@@ -40,6 +39,8 @@
     "TUHH": "Hamburg University of Technology",
     "YAIB": "Yet Another ICU Benchmark",
   ),
+  
+  appendix-file: "chapters/appendix.typ",
   bibliography: bibliography("bibliography.bib"),
   // TODO what about notation?
   table-of-figures: none,  // TODO and make pretty smh
@@ -54,12 +55,13 @@
 
 #TODO[
   #list(
-    [Sections to Chapters],
-    [Styling],
-    [Appendix to real Appendix],
-    [Fix ACR separation],
-    [Fix newline/linebreak after Headings],
+    [Styling level 1 header],
+    [Figure short captions],
+    [fix Bibliography in TOC],
+    [fix figure captions],
     [Sources misc + link],
+    [Eq/fig numberings],
+    [TUHH address wrong in template],
   )
 ]
 #TODO[actual functional model
@@ -83,8 +85,4 @@
 #include "chapters/result.typ"
 
 #include "chapters/discussion.typ"
-
-#include "chapters/appendix.typ"
-
-
 

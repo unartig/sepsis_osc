@@ -1,7 +1,7 @@
 #import "../thesis_env.typ": *
 
 = Appendix
-<sec:appendix>
+== SOFA - Details <a:sofa>
 #figure(
   table(
     columns: (1fr, auto, auto, auto, auto, auto),
@@ -34,3 +34,5 @@
   ),
 ) <tab:sofa>
 #todo[caption]
+
+== DNM as Lie Formulation <a:lie>
