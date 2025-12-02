@@ -123,6 +123,17 @@ Everything not providing organ-specific functionalities forms the stroma, that i
 The stroma not only contributes to the tissues structure, but it also actively participates in biochemical signaling and immune regulation.
 This way it helps to maintain a healthy and balanced tissue, the _homeostasis_, and enables coordinated responses to injury or infection @Honan2021stroma.
 
+
+#figure(
+  grid(
+  columns: 2,
+  image("../images/overview_cells.jpg"),
+
+  image("../images/cells_micro_cropped.jpg", width:60%)),
+
+  caption: [@DigitalHistology_cells@DigitalHistology_overview]
+) <fig:cells>
+
 A pathogen is summarizes all types of organisms that can be harmful to the body, this includes germs, fungi, algae, or parasites.
 When a pathogen enters the body through the skin, a mucous membrane or an open wound, the first line of non-specific defense, the innate immune system @Fischer2022Innit, gets activated.
 

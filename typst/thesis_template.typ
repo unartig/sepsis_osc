@@ -71,7 +71,7 @@
   // Whether to display a maroon circle next to external links.
   external-link-circle: true,
   head-font: "Nimbus Sans",
-  body-font: "TeX Gyre Heros",
+  body-font: "TeX Gyre Termes",
   raw-font: "Bitstream Vera Sans Mono",
   // The content of your work.
   body,
@@ -173,10 +173,8 @@
     pagebreak(to: "odd", weak: true)
   }
 
-  // Indent nested entires in the outline.
+  // TABLE OF CONTENTS / FIGURES / TABLES
   set outline(indent: auto)
-
-
   init-acronyms(acronyms)
   if table-of-contents != none {
     // Display tables of contents.
@@ -188,6 +186,10 @@
     show outline.entry.where(level: 1): it => link(it.element.location(),
                                                    it.indented(text(it.prefix(),font:head-font, 10pt, weight: "bold"),
                                                                      text(it.body() + box(width:1fr, "") +  "   " + it.page(), font:head-font, 10pt, weight: "bold")))
+    show outline.entry: it => {
+      show linebreak: none
+      it
+    }
 
     v(12.5%)
     table-of-contents
@@ -215,6 +217,7 @@
 
   // PAGE
   set page(
+    // FOOTER FOR FIRST PAGE IN CHAPTER
     footer: context {
       let i = counter(page).at(here()).first()
       let abs-page-number = here().page()
@@ -222,6 +225,7 @@
       let chapter-page =  if query(heading.where(level: 1)).any(it => (it.location().page() == abs-page-number)) {true} else {false}
       if not chapter-page {return} else {align(right, text([#i], 14pt))}
     },
+    // ELSE HEADER - ALTERNATING
     header: context {
       let i = counter(page).at(here()).first()
       let abs-page-number = here().page()
@@ -231,7 +235,7 @@
         let before = query(heading.where(level:1).before(here()))
         if before.len() > 0 {
           let current = before.last()
-          let chapter = current.body
+          let chapter = {show linebreak: none; current.body}
           if current.numbering != none {
             if is-odd {
               text([#chapter], 14pt) + h(1fr) + text([#i], 14pt)

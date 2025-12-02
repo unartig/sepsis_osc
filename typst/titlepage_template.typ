@@ -23,7 +23,7 @@
   
   #line(length: 100%, stroke: gray)
   #v(-0.3em)
-  #align(left, text(thesis-type + " thesis", size: 1.5em))
+  #align(left, text(thesis-type + " Thesis", size: 1.5em))
   #v(-0.7em)
   #line(length: 100%, stroke: gray)
   #v(1fr)
