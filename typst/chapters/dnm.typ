@@ -1,7 +1,7 @@
 #import "../thesis_env.typ": *
 #import "../figures/kuramoto.typ": kuramoto_fig
 
-= Model Background (Dynamic Network Model) <sec:dnm>
+= Model Background \ (Dynamic Network Model) <sec:dnm>
 
 As outlined in @sec:sepsis, the macroscopic multi-organ failure associated with sepsis is driven by a dysregulated cascade of signaling processes on a microscopic level (see @sec:sepbio).
 This cascade involves a massive amount of interconnected components, where the connections mechanics and strengths vary over time and space.

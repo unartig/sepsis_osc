@@ -2,7 +2,7 @@
 #import "../figures/high_level.typ": high_fig
 #import "../figures/fsq.typ": fsq_fig
 
-= Method (Latent Dynamics Model) <sec:ldm>
+= Method \ (Latent Dynamics Model) <sec:ldm>
 This chapter introduces the methodological framework used to address the first research question stated in @sec:problemdef:
 #align(
   center,
