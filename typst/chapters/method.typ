@@ -249,7 +249,7 @@ fsq_fig,
 caption: [Quantized latent lookup of precomputed synchronization metrics.
 Point colors represent the amount of desynchronization $s^1$ in the parenchymal layer.
 Neighboring points, the $cal(N)_(3times 3)$ sub-grid indicated by the red outlines around $tilde(bold(z))$, are used smoothed using a Gaussian-like kernel, represented by the color gradient around estimation point $hat(z)$.
-This allows continuous interpolation the parameter space.
+This allows continuous interpolation the parameter space. #todo[out arrow]
 ],
 ) <fig:fsq>
 
