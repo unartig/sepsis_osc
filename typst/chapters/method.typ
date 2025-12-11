@@ -1,6 +1,7 @@
 #import "../thesis_env.typ": *
 #import "../figures/high_level.typ": high_fig
 #import "../figures/fsq.typ": fsq_fig
+#import "../figures/on_vs_off.typ": oo_fig
 
 = Method \ (Latent Dynamics Model) <sec:ldm>
 This chapter introduces the methodological framework used to address the first research question stated in @sec:problemdef:
@@ -11,6 +12,13 @@ This chapter introduces the methodological framework used to address the first r
 
 To investigate this, a deep learning pipeline has been developed, in which the #acr("DNM") is embedded as central part.
 Instead of predicting the sepsis directly, the two components, #acl("SI") and increase in #acr("SOFA") scores are predicted as direct proxies creating more nuanced and more interpretable prediction results.
+
+#figure(
+  scale(oo_fig, 80%),
+  caption: [
+    #TODO[Caption] @Moor2021Review
+  ]
+) <fig:oo>
 
 To predict the increase in #acr("SOFA"), namely the worsening of organ functionality, the main idea is to utilize parameter level synchronization dynamics inside the parenchymal layer of the functional #acr("DNM"), which is expected to model systemic organ failure.
 Particularly the parameters $cmbeta(beta)$ and $cmsigma(sigma)$, interpreted as biological age and amount of cellular interaction between immune cells and functional organ cells, are of great interest.
