@@ -30,6 +30,7 @@ def viz_starter(
     sigmas: jnp.ndarray,
     lookup: LatentLookup,
     *,
+    mask: np.ndarray,
     cmaps: bool = True,
     figax: tuple[Figure, Axes] | None = None,
     figure_dir: str = "figures/model",
@@ -63,10 +64,11 @@ def viz_starter(
         figax=(fig, ax),
     )
     N, T = betas.shape
-    betas = betas.ravel()  # row-major flatten
-    sigmas = sigmas.ravel()
+    betas = betas[mask].ravel()  # row-major flatten
+    sigmas = sigmas[mask].ravel()
 
     t_idx = np.tile(np.arange(T), N)
+    t_idx = t_idx[mask.ravel()]          # filter with mask
 
     beta_scale = len(betas_space) * (betas - BETA_SPACE[0]) / (BETA_SPACE[1] - BETA_SPACE[0])
     sigma_scale = len(sigmas_space) * (1 - (sigmas - SIGMA_SPACE[0]) / (SIGMA_SPACE[1] - SIGMA_SPACE[0]))
@@ -84,7 +86,8 @@ def viz_progression(
     true_infs: jnp.ndarray | np.ndarray,
     pred_sofa: jnp.ndarray | np.ndarray,
     pred_infs: jnp.ndarray | np.ndarray,
-    ax: Optional[Axes] = None,
+    mask: np.ndarray,
+    ax: Axes | None = None,
     figure_dir: str = "figures/model",
     filename: str = "latent_plane",
 ) -> Axes:
@@ -94,13 +97,14 @@ def viz_progression(
     NB, B, T = pred_sofa.shape
 
     # --- SOFA
-    mean_sofa = (pred_sofa - true_sofa).mean(axis=((0, 1)))
-    std_sofa = (pred_sofa - true_sofa).std(axis=(0, 1))
+    mean_sofa = (pred_sofa - true_sofa).mean(axis=(0, 1), where=mask)
+    std_sofa = (pred_sofa - true_sofa).std(axis=(0, 1), where=mask)
     ci95_sofa = 1.96 * std_sofa / np.sqrt(NB * B)
 
     ax.plot(np.arange(T), mean_sofa, label="SOFA Error")
     ax.plot(np.arange(T), mean_sofa + ci95_sofa, linestyle="--", color="gray")
     ax.plot(np.arange(T), mean_sofa - ci95_sofa, linestyle="--", color="gray")
+    ax.set_title("Progression Prediction - True")
 
     plt.tight_layout()
     ax.grid()
@@ -111,17 +115,16 @@ def viz_progression(
 
 def viz_plane(
     true_sofa: jnp.ndarray | np.ndarray,
-    true_infs: jnp.ndarray | np.ndarray,
-    pred_sofa: jnp.ndarray | np.ndarray,
-    pred_infs: jnp.ndarray | np.ndarray,
     alphas: jnp.ndarray,
     betas: jnp.ndarray,
     sigmas: jnp.ndarray,
     lookup: LatentLookup,
-    cmaps=True,
+    mask: np.ndarray,
     figax: tuple[Figure, Axes] | None = None,
     figure_dir: str = "figures/model",
     filename: str = "latent_plane",
+    *,
+    cmaps: bool = True,
 ) -> Axes:
     if figax is not None:
         fig, ax = figax
@@ -150,15 +153,15 @@ def viz_plane(
         figure_dir=figure_dir,
         figax=(fig, ax),
     )
-    beta_scale = len(betas_space) * (betas - BETA_SPACE[0]) / (BETA_SPACE[1] - BETA_SPACE[0])
-    sigma_scale = len(sigmas_space) * (1 - (sigmas - SIGMA_SPACE[0]) / (SIGMA_SPACE[1] - SIGMA_SPACE[0]))
+    beta_scale = len(betas_space) * (betas[mask] - BETA_SPACE[0]) / (BETA_SPACE[1] - BETA_SPACE[0])
+    sigma_scale = len(sigmas_space) * (1 - (sigmas[mask] - SIGMA_SPACE[0]) / (SIGMA_SPACE[1] - SIGMA_SPACE[0]))
     cm = plt.colormaps.get_cmap("copper")
     if cmaps:
         sm = ScalarMappable(cmap=cm)
         sm.set_array([])
         cbar2 = plt.colorbar(sm, ax=ax, shrink=0.8)
         cbar2.set_label("Actual SOFA-score")
-    ax.scatter(beta_scale, sigma_scale, c=true_sofa / 24, cmap=cm)
+    ax.scatter(beta_scale, sigma_scale, c=(true_sofa / 24)[mask], cmap=cm)
 
     # plt.tight_layout()
     if filename and figure_dir:

@@ -1,10 +1,10 @@
 from numpy.random import default_rng
 
 # Random seeds
-jax_random_seed = 12345
-np_random_seed = 12345
+jax_random_seed = 123
+np_random_seed = 123
 np_rng = default_rng(np_random_seed)
-random_seed = 12345
+random_seed = 123
 
 # Workers
 max_workers = 22 * 2
@@ -15,7 +15,7 @@ db_metrics_key_value = "storage/SepsisMetrics.db"
 
 # YAIB data
 target_name = "sep3_alt_first"
-cohort_name = "sep3_alt_first_with_marginals_ramp"
+cohort_name = f"{target_name}_with_marginals_ramp"
 yaib_data_dir = f"/home/unartig/Desktop/uni/ResearchProject/YAIB-cohorts/data/{cohort_name}/miiv"
 
 
@@ -47,3 +47,6 @@ SIGMA_SPACE = (0.0, 1.5, 0.015)  # only original area
 # BETA_SPACE = (0.4, 0.7, 0.01 * 2)
 # SIGMA_SPACE = (0.0, 1.5, 0.015 * 2)
 
+# FINAL
+# BETA_SPACE = (0.4, 0.7, 0.003)
+# SIGMA_SPACE = (0.0, 1.5, 0.015)  # only original area
