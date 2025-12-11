@@ -51,7 +51,7 @@ class LatentDynamicsModel(eqx.Module):
         alpha: float,
         ordinal_deltas: Float[Array, "25"] = ones_25,
         sofa_dist: Float[Array, "24"] = ones_24,
-        kernel_size: int = 5,
+        kernel_size: int = 3,
     ) -> None:
         self.encoder = encoder
         self.inf_predictor = inf_predictor
@@ -68,7 +68,7 @@ class LatentDynamicsModel(eqx.Module):
         self._prior_deltas = ordinal_deltas
 
         self._d_diff = jnp.log(jnp.ones((1,), dtype=jnp.float32) * 1 / 25)
-        self._d_scale = jnp.log(jnp.ones((1,), dtype=jnp.float32) * 10)
+        self._d_scale = jnp.log(jnp.ones((1,), dtype=jnp.float32) * 50)
         self._input_sim_scale = jnp.ones((encoder.input_dim,), dtype=jnp.float32)
 
         self._sofa_dir_lsigma = jnp.zeros((1,), dtype=jnp.float32)
@@ -109,7 +109,7 @@ class LatentDynamicsModel(eqx.Module):
         return jax.nn.soft_sign(self._input_sim_scale)
 
     @property
-    def d_diff(self) -> Float[Array, "1"]:
+    def d_thresh(self) -> Float[Array, "1"]:
         return jnp.exp(self._d_diff)
 
     @property
@@ -162,7 +162,7 @@ class LatentDynamicsModel(eqx.Module):
     def params_to_dict(self) -> dict[str, jnp.ndarray]:
         return {
             "lookup_temperature": self.lookup_temperature,
-            "d_diff": self.d_diff,
+            "d_diff": self.d_thresh,
             "d_scale": self.d_scale,
             "sofa_lsigma": self.sofa_class_lsigma,
             "inf_lsigma": self.inf_lsigma,

@@ -42,13 +42,15 @@ class GRUPredictor(eqx.Module):
         z_pred = self.z_proj_out(h_next)
         return z_pred, h_next
 
+
 def init_gru_weights(gru: GRUPredictor, key: jnp.ndarray) -> GRUPredictor:
     A = jax.random.normal(key, gru.gru_cell.weight_ih.shape, dtype=jnp.float32)
     Q, _ = jnp.linalg.qr(A)
-    gru= eqx.tree_at(lambda e: e.gru_cell.weight_ih, gru, Q)
-    gru= eqx.tree_at(lambda e: e.gru_cell.bias, gru, gru.gru_cell.bias)
+    gru = eqx.tree_at(lambda e: e.gru_cell.weight_ih, gru, Q)
+    gru = eqx.tree_at(lambda e: e.gru_cell.bias, gru, gru.gru_cell.bias)
     return gru
 
 
 def make_predictor(key: jnp.ndarray, z_dim: int, z_hidden_dim: int) -> GRUPredictor:
     return GRUPredictor(key, z_dim, z_hidden_dim)
+

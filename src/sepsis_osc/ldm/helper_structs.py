@@ -73,8 +73,6 @@ class AuxLosses:
             },
             "hists": {
                 "sofa_score": self.hists_sofa_score,
-                "sofa_metric": self.hists_sofa_metric,
-                "inf_prob": self.hists_inf_prob,
             },
             "mult": {
                 "sofa_t": self.sofa_loss_t,
@@ -93,7 +91,9 @@ class AuxLosses:
 @dataclass
 class ModelConfig:
     z_latent_dim: int
-    input_dim: int
+    var_features: int
+    stat_features: int
+    w_indicator: bool
     enc_hidden: int
     inf_pred_hidden: int
     dec_hidden: int
