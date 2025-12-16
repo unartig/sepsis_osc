@@ -32,7 +32,8 @@
 
     [], [or Urine Output [$"ml"/"day"$]], [], [], [< 500], [< 200],
   ),
+
+  caption: flex-caption(short: [TODO], long: [#todo[]])
 ) <tab:sofa>
-#todo[caption]
 
 == DNM as Lie Formulation <a:lie>

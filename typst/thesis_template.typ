@@ -1,7 +1,14 @@
-// #import "@preview/numberingx:0.0.1"
 #import "@preview/acrostiche:0.7.0": *
 #import "@preview/equate:0.3.1": equate
 #import "titlepage_template.typ": make-titlepage
+
+#let in-outline = state("in-outline", false)
+// #show outline: it => {
+//   in-outline.update(true)
+//   it
+//   in-outline.update(false)
+// }
+#let flex-caption(short: none, long: none) = context if in-outline.get() { short } else { long }
 
 // Workaround for the lack of an `std` scope.
 #let std-bibliography = bibliography
@@ -195,15 +202,19 @@
     table-of-contents
   }
 
-  set outline(indent: auto)
+  // set outline(indent: auto)
   pagebreak(weak:true)
   if table-of-tables != none {
     let tot = outline(title: [List of tables], target: figure.where(kind:table)) 
+    in-outline.update(true)
     tot
+    in-outline.update(false)
   }
   if table-of-figures != none {
     let tof = outline(title: [List of figures], target: figure.where(kind:image))
+    in-outline.update(true)
     tof
+    in-outline.update(false)
   }
   pagebreak(weak:true)
   print-index(row-gutter: 4pt)

@@ -36,6 +36,7 @@
     "PRR": "Pattern Recognition Receptors",
     "qSOFA": "Quick Sequential Organ Failure Assessment",
     "RAG": "Retrieval Augmented Generation",
+    "RNN": "Recurrent Neural Networks",
     "SIRS": "Systemic Inflammatory Response Syndrome",
     "SI": "Suspected Infection",
     "SOFA": "Sequential Organ Failure Assessment",
@@ -47,7 +48,7 @@
   appendix-file: "chapters/appendix.typ",
   bibliography: bibliography("bibliography.bib"),
   // TODO what about notation?
-  table-of-figures: none,  // TODO and make pretty smh
+  table-of-figures: true,  // TODO and make pretty smh
   table-of-tables: true,
   // acknowledgements: [
   //   This thesis was written with the help of many people.
@@ -81,6 +82,8 @@
 #include "chapters/problem_def.typ"
 
 #include "chapters/dnm.typ"
+
+#include "chapters/soa.typ"
 
 #include "chapters/method.typ"
 
