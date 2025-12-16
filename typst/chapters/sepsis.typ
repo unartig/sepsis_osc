@@ -78,9 +78,11 @@ Using the lowest #acr("SOFA") score as baseline, the increase $>=2$ for patients
 
 #figure(
   image("../images/sofa-sep-3-1.png", width: 100%),
-  caption: [
+  caption: flex-caption(
+  short: [Timings of the Sepsis-3 definition],
+  long: [
     Graphical representation of the timings in the Sepsis-3 definition, taken from @ricufig
-  ],
+  ]),
 )<fig:ricu>
 
 Up until today, even though #acr("SOFA") was created as a clinical bedside score, some of the markers used in it are not always available to measure or at least not at every 24h @moreno2023sofaupdate.
@@ -131,7 +133,7 @@ This way it helps to maintain a healthy and balanced tissue, the _homeostasis_, 
 
   image("../images/cells_micro_cropped.jpg", width:60%)),
 
-  caption: [@DigitalHistology_cells@DigitalHistology_overview]
+  caption: flex-caption(short: [TODO], long:[#todo[]@DigitalHistology_cells@DigitalHistology_overview])
 ) <fig:cells>
 
 A pathogen is summarizes all types of organisms that can be harmful to the body, this includes germs, fungi, algae, or parasites.

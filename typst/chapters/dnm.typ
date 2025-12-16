@@ -55,7 +55,9 @@ In between these two regimes there is a transition-phase of partial synchronizat
 
 #figure(
   scale(kuramoto_fig, 110%),
-  caption: [Schematic transition between the two stable regimes for the basic Kuramoto model. From an incoherent system state with desynchronized oscillators (heterogeneous phases and frequencies), to a synchronized system state with phase- and frequency-locked oscillators with increasing coupling strength $Kappa$).],
+  caption: flex-caption(
+  short: [Kuramoto Model Synchronization],
+  long: [Schematic transition between the two stable regimes for the basic Kuramoto model. From an incoherent system state with desynchronized oscillators (heterogeneous phases and frequencies), to a synchronized system state with phase- and frequency-locked oscillators with increasing coupling strength $Kappa$).]),
 ) <fig:sync>
 
 
@@ -110,7 +112,7 @@ At the core, the model does differentiate between two broad classes of cells, in
 It also includes the cell interaction through cytokine proteins and an information flow through the basal membrane.
 Importantly, the model only handles the case of already infected subjects and tries to grasp if the patients state is prone to a dysregulated host response.
 
-Cells of one type are aggregated into layers, everything associated with parenchymal cells is indicated with an $""^1$ superscript and is called the _organ layer_, stroma cells are indicated with $""^2$ and is referred to as non specific _immune layer_.
+Cells of one type are aggregated into layers, everything associated with parenchymal cells is indicated with an $dot^1$ superscript and is called the _organ layer_, stroma cells are indicated with $dot^2$ and is referred to as non specific _immune layer_.
 Each layer consists of $N$ phase oscillators $phi^ot_i in [0, 2pi)$.
 To emphasize again the function aspect of the model: individual oscillators do not correspond to single cells, rather the layer as a whole is associated with the overall state of all organs or immune system functionality respectively.
 
@@ -177,7 +179,7 @@ All the systems variables and parameters are summarized in <tab:dnm> #todo[why n
     [Standard deviation of frequency \ (see @eq:std)],
     [Pathogenicity (Parenchymal Layer)],
   ),
-  caption: [todo],
+  caption: flex-caption(short: [TODO], long: [#todo[]]),
 ) <tab:dnm>
 #todo[left out superscripts for better readability]
 
@@ -271,8 +273,10 @@ An exhaustive summary of all variable initializations and parameter choices can 
     [$omega_1, omega_2$], [0.0], [$A^1$], [$bb(1) - I$],
     [$epsilon^1$], [0.03], [$epsilon^2$], [0.3],
   ),
-  caption: [Parameterization and initialization of the #acr("DNM") used for the numerical integration.],
-)<tab:init> #todo[Non breakable tables?]
+  caption: flex-caption(
+  short: [Simulation Parameterization],
+  long: [Parameterization and initialization of the #acr("DNM") used for the numerical integration.]),
+)<tab:init>
 
 Initial values for the system variables, i.e. the phases and coupling strengths, were not parametrized explicitly, rather sampled from probability distributions.
 The initial phases $phi(0)^ot_i$ are randomly and uniformly distributed around the unit circle for both layers, i.e. $phi(0)^ot_i ~ cal(U)[0, 2pi)$.
@@ -288,13 +292,16 @@ An example for initial variable values of a system with $N=200$ and $C=0.2$ is s
 
 #figure(
   image("../images/init.svg", width: 100%),
-  caption: [
+  caption:
+  flex-caption(
+  short: [DNM Initialization],
+  long: [
     Initializations for the variable values of a #acr("DNM") with $N=200$ oscillators per layer.
     The middle two plots show the phases of the oscillators, with $phi^1_i$ for parenchymal and $phi^2_i$ for the immune layer, sampled from a uniform random distribution from 0 to $2pi$.
     On the left-hand side is the initialization of the parenchymal intralayer coupling matrix $bold(Kappa)^1$ from a uniform distribution in the interval from -1 to 1.
     On the right-hand side is the two cluster initialization for the coupling matrix $bold(Kappa)^2$ of the immune layer, with a cluster size of $C=0.2$, where each cluster is intra-connected, but without connections between the clusters.
     #todo[index for immune]
-  ],
+  ]),
 ) <fig:init>
 
 To average out the influence of specific random initial values, simulations are performed for ensembles, combining $m in 1,2...M$ ensemble members.
@@ -309,7 +316,7 @@ There are two relevant states or system configurations that should be identifiab
 $
   R^ot_2 = 1/N abs(sum^N_j e^(i dot phi^ot_j (t))) "   with " 0<=R^ot_2<=1
 $
-where $R^mu_2=0$ corresponds to total desynchronization, the splay-state and $R^mu_2=1$ corresponds to fully synchronized state, for convenience from now on the subscript $""_2$ is omitted, denoting the Kuramoto Order Parameter simply as $R^ot$.
+where $R^mu_2=0$ corresponds to total desynchronization, the splay-state and $R^mu_2=1$ corresponds to fully synchronized state, for convenience from now on the subscript $dot_2$ is omitted, denoting the Kuramoto Order Parameter simply as $R^ot$.
 
 *Frequency synchronization* measurements are more involved, as a starting point first the notion of a layers _mean phase velocity_ has to be introduced, which can be calculated as follows:
 
@@ -359,7 +366,7 @@ All following results are for a system with $N=200$ oscillators, and snapshots t
     [$beta$], [$0.5 pi$], [$0.58 pi$], [$0.7 pi$], [$0.5 pi$],
     [$sigma$], [$1.0$], [$1.0$], [$1.0$], [$0.2$],
   ),
-  caption: [Specific $beta$-$sigma$ combinations to illustrate simulation results.],
+  caption: flex-caption(short: [Specific $beta$-$sigma$ combinations to illustrate simulation results], long:[Specific $beta$-$sigma$ combinations to illustrate simulation results.]),
 )<tab:siminit>
 
 In @fig:snap the left-most columns depicts the coupling matrices for the organ layer $bold(Kappa)^1$ followed by two columns showing the phase velocities for each oscillator $dot(phi)_i^ot$ and two columns showing the oscillator phases each layer $phi_i^ot$.
@@ -369,12 +376,14 @@ Rows C and C' share the same parameterization but are different samples from the
 
 #figure(
   image("../images/snapshots.svg", width: 100%),
-  caption: [
+  caption: flex-caption(
+  short: [Snapshots of simulated system states],
+  long: [
     Snapshots of different #acr("DNM") parametrization and initialization. Configuration A can be regarded as healthy, with phases and frequencies being fully synchronized.
     In contrast, B and C are pathologic, due to their clustering in $dot(phi)^1$. Configuration C' corresponds to a vulnerable state, because of uniformly distributed phases (splay state).
     Lastly, D is regarded as resilient, since the phases exhibit clustering, but the frequencies $dot(phi)^1$ are synchronized.
     #TODO[$Kappa$ colorbar]
-  ],
+  ]),
 ) <fig:snap>
 Row A in @fig:snap is fully synchronized/coherent since it not only has the frequencies synchronized but also the phases and can therefore interpreted as healthy.
 The coherence can also be seen in the fully homogeneous coupling matrices where both $bold(Kappa)^ot$ show the same coupling strength for every oscillator pair.
@@ -391,10 +400,12 @@ The plots show the temporal evolution of metrics for quantifying phase and frequ
 Where lower values for $R^ot$ indicate decoherence in phases, with its minimum $R^ot = 0$ coincides with a splay state, and for $s^ot$ higher values indicate a larger amount of frequency decoherence and clustering.
 #figure(
   image("../images/ensembles.svg", width: 100%),
-  caption: [
-    Transient and temporal evolution of the phase- and frequency-synchronization metrics $R^ot$ and $s^ot$, for ensembles of the #acr("DNM") for the configurations listed in @tab:siminit.
+  caption:
+  flex-caption(
+  short: [Temporal evolution of the phase- and frequency-synchronization metrics],
+  long: [Transient and temporal evolution of the phase- and frequency-synchronization metrics $R^ot$ and $s^ot$, for ensembles of the #acr("DNM") for the configurations listed in @tab:siminit.
     Emphasizing the influence of $beta$ and $sigma$ on the systems synchronization behavior, and presenting different stable emergent system states.
-  ],
+  ]),
 ) <fig:ensemble>
 
 Every ensemble in @fig:ensemble shows decoherence for early time-points, which is expected for randomly initialized variables, but changes relatively fast through a transient phase $t in [0.0, 200]$ into systematic stable behavior.
@@ -415,10 +426,12 @@ The white rectangle indicates the simulated region in @osc2, $beta in [0.4, 0.7]
 Coordinates of the configurations A, B, C, and D are also labeled.
 #figure(
   image("../images/phase.svg", width: 100%),
-  caption: [
+  caption: flex-caption(
+  short: [Phase Space of $sigma$ and $beta$],
+  long: [
     Phase space of the parameters $beta$ and $sigma$ and illustrating the broader picture their influence on the frequency and phase synchronization of the #acr("DNM").
     White rectangle indicates the grid-limits of the original publication @osc2.
-  ],
+  ]),
 ) <fig:phase>
 Generally there is a similarity between phase and frequency desynchronization but no full equality, meaning there are parameter regions where the phase is synchronized and frequency desynchronized and vice versa.
 Another observation, that smaller values of $beta < 0.55$ correspond to less desynchronization and stronger coherence, which is in line with the medical interpretation of $beta$ where smaller values indicate a younger and more healthy biological age.
