@@ -1,6 +1,7 @@
 from abc import ABC, abstractmethod
+from collections.abc import Callable
 from dataclasses import fields
-from typing import Callable, TypeVar
+from typing import TypeVar
 
 import equinox as eqx
 import jax.numpy as jnp
@@ -20,8 +21,8 @@ from diffrax import (
     diffeqsolve,
 )
 from jax import tree as jtree
-from jaxtyping import Array, Bool, Float
-from numpy.typing import DTypeLike
+from jaxtyping import Array, Bool, DTypeLike, Float, PRNGKeyArray, ScalarLike
+from typing_extensions import Self
 
 from sepsis_osc.utils.utils import timing
 
@@ -69,14 +70,14 @@ class TreeBase(eqx.Module):
     def reshape(self, shape: tuple[int, ...]) -> StateT:
         return jtree.map(lambda x: jnp.reshape(x, shape) if x is not None and ~jnp.isnan(x).any() else None, self)
 
-    def astype(self, dtype: jnp.dtype = jnp.float32) -> StateT:
+    def astype(self, dtype: DTypeLike = jnp.float32) -> StateT:
         return jtree.map(lambda x: x.astype(dtype) if x is not None else None, self)
 
     def squeeze(self) -> StateT:
         return jtree.map(lambda x: x.squeeze() if x is not None else None, self)
 
     @classmethod
-    def copy(cls: type[StateT]) -> StateT:
+    def copy(cls) -> Self:
         return cls(**{f.name: getattr(cls, f.name) for f in fields(cls)})
 
     def remove_infs(self) -> "TreeBase":
@@ -111,13 +112,13 @@ class MetricBase(ABC, TreeBase):
         return msgpack.packb({f.name: np.asarray(getattr(self, f.name)) for f in fields(self)}, default=mnp.encode)
 
     @classmethod
-    def deserialise(cls: type[MetricT], data_bytes: bytes) -> MetricT:
+    def deserialise(cls, data_bytes: bytes) -> Self:
         unpacked = msgpack.unpackb(data_bytes, object_hook=mnp.decode)
         return cls(**unpacked)
 
     def insert_at(self, index: tuple[int, ...], other: MetricT) -> MetricT:
         if not isinstance(other, type(self)):
-            raise TypeError(f"Expected type {type(self)}, but got {type(other)}")  # noqa: TRY003
+            raise TypeError(f"Expected type {type(self)}, but got {type(other)}")
 
         def insert_leaf(self_leaf: Float[Array, "*"], other_leaf: Float[Array, "*"]) -> Float[Array, "*"] | None:
             if isinstance(self_leaf, np.ndarray):
@@ -125,7 +126,7 @@ class MetricBase(ABC, TreeBase):
                 return None
             if isinstance(self_leaf, jnp.ndarray):
                 return self_leaf.at[index].set(other_leaf)
-            raise ValueError("Unexpected Leaf Type")  # noqa: TRY003
+            raise ValueError("Unexpected Leaf Type")
             return None
 
         return jtree.map(insert_leaf, self, other)
@@ -142,10 +143,12 @@ class ODEBase(ABC):
         steady_state_check: bool = False,
         progress_bar: bool = True,
     ) -> None:
-        deriv = self.system_deriv
+        deriv: Callable = self.system_deriv
         self.init_sampler = self.generate_init_sampler()
         self.term = ODETerm(deriv)
-        self.save_method = self.generate_full_save(deriv, dtype=full_save_dtype) if full_save else self.generate_metric_save(deriv)
+        self.save_method = (
+            self.generate_full_save(deriv, dtype=full_save_dtype) if full_save else self.generate_metric_save(deriv)
+        )
         self.steady_state_check = Event(cond_fn=self.generate_steady_state_check()) if steady_state_check else None
         self.pid_controller = PIDController(rtol=step_rtol, atol=step_atol)
         self.progress_bar = TqdmProgressMeter() if progress_bar else NoProgressMeter()
@@ -159,7 +162,7 @@ class ODEBase(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def generate_metric_save(self) -> Callable:
+    def generate_metric_save(self, deriv: Callable) -> Callable:
         raise NotImplementedError
 
     @abstractmethod
@@ -176,14 +179,18 @@ class ODEBase(ABC):
         config: ConfigBase,
         *,
         M: int,
-        key: jnp.ndarray,
+        key: PRNGKeyArray,
         T_init: float,
         T_max: float,
         T_step: float,
         solver: AbstractSolver,
-        ts: list | None = None
+        ts: list | None = None,
     ) -> Solution:
-        saveat = SaveAt(t0=True, ts=ts, fn=self.save_method) if ts is not None else SaveAt(t0=True, t1=True, fn=self.save_method)
+        saveat = (
+            SaveAt(t0=True, ts=ts, fn=self.save_method)
+            if ts is not None
+            else SaveAt(t0=True, t1=True, fn=self.save_method)
+        )
         return diffeqsolve(
             self.term,
             solver,
