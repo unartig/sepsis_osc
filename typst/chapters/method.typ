@@ -80,7 +80,8 @@ Yet this assumption is necessary because the #acr("DNM"), which is an essential 
 Additionally, this separation improves interpretability, since each component can be analyzed individually.
 
 As a second assumption, although the indication $I_t$ is binary, the target is a temporally smoothed version.
-The surrogate label $overline(I)_t in [0, 1]$ increases linearly in the (48 h) hours preceding the infection onset, it reaches maximum at onset, and it decays exponentially afterwards (24 h), mimicking temporal uncertainty of establishment and resolution, for example due to delayed documentation and treatment effects such as antibiotic half-life.
+The surrogate label $overline(I)_t in [0, 1]$ increases linearly in the (48 h) hours preceding the infection onset, it reaches maximum at onset, and it decays exponentially afterwards (24 h).
+This is mimicking temporal uncertainty of establishment and resolution, for example due to delayed documentation and treatment effects such as antibiotic half-life.
 
 Thus the overall prediction requires two separate risk estimators:
 $
