@@ -3,8 +3,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 from equinox import field, filter_jit
-from jaxtyping import Array, Float, Int, jaxtyped
-from numpy.typing import DTypeLike
+from jaxtyping import Array, Float, Int, jaxtyped, DTypeLike
 
 from sepsis_osc.dnm.dynamic_network_model import MetricBase
 from sepsis_osc.utils.jax_config import EPS, typechecker
@@ -20,7 +19,7 @@ class LatentLookup(eqx.Module):
     # norm for faster distance calculation
     i_norm: Float[Array, "db_size 3"] = field(static=True)
 
-    grid_shape: tuple[int, int, int] = field(static=True)
+    grid_shape: Int[Array, "3"] = field(static=True)
     grid_origin: Float[Array, "3"] = field(static=True)
     grid_spacing: Float[Array, "3"] = field(static=True)
     indices_3d: Float[Array, "na nb ns 3"] = field(static=True)

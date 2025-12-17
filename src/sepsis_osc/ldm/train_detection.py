@@ -15,14 +15,21 @@ from jaxtyping import Array, Bool, Float, Int, PyTree, jaxtyped
 from torch.utils.tensorboard.writer import SummaryWriter
 
 from sepsis_osc.dnm.dynamic_network_model import DNMConfig, DNMMetrics
-from sepsis_osc.ldm.ae import CoordinateEncoder, Decoder, init_decoder_weights, init_encoder_weights
+from sepsis_osc.ldm.ae import (
+    Decoder,
+    LatentEncoder,
+    init_latent_encoder_weights,
+)
 from sepsis_osc.ldm.calibration_model import CalibrationModel
-from sepsis_osc.ldm.checkpoint_utils import load_checkpoint, save_checkpoint
+
+# from sepsis_osc.ldm.checkpoint_utils import load_checkpoint, save_checkpoint
 from sepsis_osc.ldm.commons import (
     binary_logits,
+    causal_probs,
     causal_smoothing,
     custom_warmup_cosine,
     prob_increase_steps,
+    smooth_labels,
 )
 from sepsis_osc.ldm.data_loading import get_data_sets_detection, prepare_batches_mask
 from sepsis_osc.ldm.gru_detector import GRUDetector, init_gru_weights
@@ -56,6 +63,7 @@ class AuxLosses:
     recon_loss: Array
     spreading_loss: Array
     sofa_loss_t: Array
+    sofa_loss_sum: Array
     sofa_d2_p_loss: Array
     infection_p_loss_t: Array
     sep3_p_loss: Array
@@ -83,6 +91,7 @@ class AuxLosses:
                 "recon_loss": self.recon_loss,
                 "sofa_directional_loss": self.sofa_directional_loss,
                 "sofa": self.sofa_loss_t,
+                "sofa_sum": self.sofa_loss_sum,
                 "sofa_d2": self.sofa_d2_p_loss,
                 "infection": self.infection_p_loss_t,
                 "sepsis-3": self.sep3_p_loss,
@@ -133,8 +142,20 @@ def calc_full_directional_loss(
     return (penalty * mask2d * triu_mask * valid * weight).sum(axis=0)
 
 
+@jaxtyped(typechecker=typechecker)
+def masked_cov(
+    x: Float[Array, "batch time latent_dim"], mask: Bool[Array, "batch time"]
+) -> Float[Array, "latent_dim latent_dim"]:
+    mask_f = mask.astype(x.dtype)
+    w = jnp.sum(mask_f)
+    mean = jnp.sum(x * mask_f[..., None], axis=(0, 1)) / w
+    xc = ((x - mean) * mask_f[..., None]).reshape(-1, x.shape[-1])
+    cov = xc.T @ xc / (w - 1)
+    return cov
+
+
 def constrain_z(z: Float[Array, "batch time zlatent_dim"]) -> Float[Array, "batch time zlatent_dim"]:
-    z = jnp.clip(z, 0, 1)
+    # z = jnp.clip(z, 0, 1)
     beta, sigma = jnp.split(z, 2, axis=-1)
     beta = beta * (BETA_SPACE[1] - BETA_SPACE[0]) + BETA_SPACE[0]
     sigma = sigma * (SIGMA_SPACE[1] - SIGMA_SPACE[0]) + SIGMA_SPACE[0]
@@ -154,9 +175,10 @@ def cosine_annealing(base_val: float, num_steps: int, num_dead_steps: int, curre
     return base_val + (1.0 - base_val) * (1.0 - cosine)
 
 
-def mask_padding(
-    loss: Float[Array, "*"], log_sigma: Float[Array, ""], mask: Float[Array, "*"] = _1
-) -> Float[Array, "*"]:
+def mask_padding(loss: Float[Array, "*"], mask: Float[Array, "*"] | None = None) -> Float[Array, "*"]:
+    if mask is None:
+        mask = jnp.ones_like(loss)
+    print(mask.shape, loss.shape)
     return (loss * mask).sum() / mask.sum()
 
 
@@ -166,7 +188,7 @@ def loss(
     model: GRUDetector,
     x: Float[Array, "batch time input_dim"],
     true_concepts: Float[Array, "batch time 3"],
-    mask: Bool[Array, "batch time"],
+    mask: Bool[Array, "batch time"] = _1,
     step: Int[Array, ""] = INT_INF,
     *,
     key: jnp.ndarray,
@@ -176,66 +198,79 @@ def loss(
     B, T, D = x.shape
     aux = AuxLosses.empty()
     sofa_true, infection_true, sepsis_true = true_concepts[..., 0], true_concepts[..., 1], true_concepts[..., 2]
-    # ordinal_thresholds = model.ordinal_thresholds
-    batch_keys = jax.vmap(lambda i: jr.fold_in(key, i))(jnp.arange(B))
-    z_seq, inf_seq = jax.vmap(model)(x, batch_keys)
+    batch_keys = jax.vmap(lambda i: jr.fold_in(key, i))(jnp.arange(B, dtype=jnp.int32))
+    z_seq, inf_seq = jax.vmap(model.online_sequence)(x, batch_keys)
     z_seq = constrain_z(z_seq)
 
+    ann_s3 = cosine_annealing(
+        0.0, num_steps=400 * params.steps_per_epoch, num_dead_steps=800 * params.steps_per_epoch, current_step=step
+    )
+    ann_recon = cosine_annealing(
+        0.0, num_steps=200 * params.steps_per_epoch, num_dead_steps=200 * params.steps_per_epoch, current_step=step
+    )
     alpha, aux.beta, aux.sigma = jnp.ones_like(z_seq[..., 0]) * model.alpha, z_seq[..., 0], z_seq[..., 1]
 
-    sofa_pred = jax.vmap(lookup_func, in_axes=(1, None, None))(
+    sofa_pred = jax.vmap(lookup_func, in_axes=(0, None, None))(
         jnp.concat([alpha[..., None], z_seq], axis=-1), model.lookup_temperature, model.kernel_size
-    ).swapaxes(0, 1)  # (T, batch, 2) -> (batch, T, 2)
-
+    )
     # --------- Recon Loss
     x_recon = jax.vmap(jax.vmap(model.decoder))(z_seq)
-    x_vals, x_indicator = x[..., : D // 2], 1 - x[..., D // 2 :]
-    aux.recon_loss = jnp.mean(((x_vals - x_recon) * x_indicator) ** 2)
+    x_vals = x[..., : D // 2]
+    aux.recon_loss = jnp.mean((x_vals - x_recon) ** 2, axis=-1)
 
     # --------- Concept losses
     class_weights = jnp.log(1.0 + 1.0 / (model.sofa_dist + EPS))
     weights_per_sample = class_weights[sofa_true.astype(jnp.int32)]
-    aux.sofa_loss_t = (sofa_pred - (sofa_true / 23.0)) ** 2 * weights_per_sample
+    aux.sofa_loss_t = (sofa_pred - (sofa_true / 23.0)) ** 2 * (weights_per_sample)
+    # aux.sofa_loss_sum = ((mask * sofa_pred).sum(axis=-1) - (mask * sofa_true / 23.0).sum(axis=-1)) ** 2
 
     aux.infection_p_loss_t = optax.sigmoid_binary_cross_entropy(inf_seq.squeeze(), infection_true)
 
     aux.susp_inf_p = jax.nn.sigmoid(inf_seq).squeeze()
+    # sofa_pred = sofa_true.astype(jnp.float32) / 23.0
+    # aux.susp_inf_p = infection_true
 
-    p_increase = jax.vmap(prob_increase_steps, in_axes=(0, None, None))(sofa_pred, model.d_thresh, model.d_scale)
+    aux.sofa_d2_p = jax.vmap(prob_increase_steps, in_axes=(0, None, None))(sofa_pred, model.d_thresh, model.d_scale)
 
-    sofa_d2_true = jnp.concat([jnp.expand_dims(jnp.zeros(B), axis=1), (jnp.diff(sofa_true, axis=-1) > 0)], axis=-1)
-    aux.sofa_d2_p_loss = optax.sigmoid_focal_loss(
-        binary_logits(p_increase),
-        sofa_d2_true,
-        alpha=0.7,
-        gamma=2.0,
+    sofa_d2_true = jnp.concat(
+        [jnp.expand_dims(jnp.zeros(B, dtype=jnp.bool), axis=1), (jnp.diff(sofa_true, axis=-1) > 0)], axis=-1
+    )
+    aux.sofa_d2_p_loss = (
+        optax.sigmoid_focal_loss(binary_logits(aux.sofa_d2_p), sofa_d2_true, alpha=0.7, gamma=1.5)  # * ann_d2
     )
 
-    aux.sofa_d2_p = causal_smoothing(p_increase, decay=model.sofa_d2_label_smooth, radius=12)
-    aux.sep3_p = aux.sofa_d2_p * aux.susp_inf_p.squeeze()
-    aux.sep3_p_loss = optax.sigmoid_binary_cross_entropy(binary_logits(aux.sep3_p), sepsis_true)
+    # aux.sofa_d2_p = jax.vmap(causal_probs)(p_increase)
+    aux.sep3_p = causal_smoothing(aux.sofa_d2_p, decay=model.sofa_d2_label_smooth, radius=12) * aux.susp_inf_p
+    aux.sep3_p_loss = optax.sigmoid_binary_cross_entropy(binary_logits(aux.sep3_p), sepsis_true)  #  * ann_s3
 
     # --------- Directional Loss
     aux.sofa_directional_loss = jax.vmap(calc_full_directional_loss)(sofa_pred, sofa_true / 23.0, mask)
 
     # --------- Spreading Loss
-    # zcov = jnp.cov(z_seq.reshape(-1, z_seq.shape[-1]), rowvar=False)
-    # det_loss = -jnp.log(jnp.linalg.det(zcov + EPS))
-    # trace_loss = -jnp.log(jnp.trace(zcov) + EPS)
-    # aux.spreading_loss = det_loss  # + trace_loss
+    zcov = masked_cov(z_seq, mask)
+    det_loss  = -jnp.log(jnp.linalg.det(zcov + EPS))
+    trace_loss = -jnp.log(jnp.trace(zcov) + EPS)
+
+    # theta = jnp.arctan2(dz_seq[...,0], dz_seq[...,1])
+    # dz_seq = z_seq[:, 1:] - z_seq[:, :-1]
+    # dzcov = masked_cov(dz_seq, mask[:, 1:])
+    # _sign, det_loss = -jnp.linalg.slogdet(dzcov + EPS)
+    # trace_loss = -jnp.log(jnp.trace(dzcov) + EPS)
+    aux.spreading_loss = det_loss  # + trace_loss
 
     # --------- Total Loss
     thresholds = jnp.cumsum(jnp.ones(25) / 25)
     sofa_score_pred = jnp.sum(sofa_pred[..., None] > thresholds, axis=-1)
     aux.hists_sofa_score = jax.lax.stop_gradient(sofa_score_pred)
     aux.total_loss = (
-        mask_padding(aux.recon_loss * params.w_recon, model.recon_lsigma, mask)
-        + mask_padding(aux.sofa_d2_p_loss * params.w_sofa_d2, model.sofa_d2_lsigma, mask)
-        + mask_padding(aux.infection_p_loss_t * params.w_inf, model.inf_lsigma, mask)
-        + mask_padding(aux.sofa_loss_t * params.w_sofa_classification, model.sofa_class_lsigma, mask)
-        + mask_padding(aux.sep3_p_loss * params.w_sep3, model.sep3_lsigma, mask)
-        + mask_padding(aux.sofa_directional_loss * params.w_sofa_direction, model.sofa_dir_lsigma, mask)
-        + mask_padding(aux.spreading_loss * params.w_spreading, model.spread_lsigma, mask)
+        mask_padding(aux.recon_loss * params.w_recon, mask)
+        + mask_padding(aux.sofa_d2_p_loss * params.w_sofa_d2, mask)
+        + mask_padding(aux.infection_p_loss_t * params.w_inf, mask)
+        + mask_padding(aux.sofa_loss_t * params.w_sofa_classification, mask)
+        + mask_padding(aux.sep3_p_loss * params.w_sep3, mask)
+        + mask_padding(aux.sofa_directional_loss * params.w_sofa_direction, mask)
+        + mask_padding(aux.sofa_loss_sum * params.w_sofa_classification)
+        + mask_padding(aux.spreading_loss * params.w_spreading)
     )
     return aux.total_loss, aux
 
@@ -365,17 +400,17 @@ if __name__ == "__main__":
     logger = logging.getLogger(__name__)
 
     train_conf = TrainingConfig(
-        batch_size=512, window_len=1 + 6, epochs=int(1e3), perc_train_set=0.333, validate_every=5
+        batch_size=512, window_len=1 + 6, epochs=int(3e3), perc_train_set=0.333, validate_every=5
     )
-    lr_conf = LRConfig(init=0.0, peak=1e-2, peak_decay=0.5, end=1e-12, warmup_epochs=1, enc_wd=1e-4, grad_norm=100.0)
+    lr_conf = LRConfig(init=0.0, peak=1e-3, peak_decay=0.5, end=1e-3, warmup_epochs=1, enc_wd=1e-4, grad_norm=100.0)
     loss_conf = LossesConfig(
-        w_recon=1.0,
+        w_recon=5.0,
         w_sofa_direction=10.0,
         w_sofa_classification=80.0,
         w_sofa_d2=10.0,
         w_inf=1.0,
-        w_sep3=1e1,
-        w_spreading=0.0,
+        w_sep3=10,
+        w_spreading=1e-4,
     )
     load_conf = LoadingConfig(from_dir="", epoch=0)
     save_conf = SaveConfig(save_every=100, perform=True)
@@ -429,31 +464,34 @@ if __name__ == "__main__":
         init_value=lr_conf.init,
         peak_value=lr_conf.peak,
         warmup_steps=lr_conf.warmup_epochs * steps_per_epoch,
-        steps_per_cycle=[steps_per_epoch * n for n in [100, 50]],  # cycle durations
+        steps_per_cycle=[steps_per_epoch * n for n in [100]],  # cycle durations
         end_value=lr_conf.end,
         peak_decay=lr_conf.peak_decay,
     )
 
     # === Initialization ===
     key = jr.PRNGKey(jax_random_seed)
-    key_enc, key_dec, key_gru_weights = jr.split(key, 3)
     metrics = jnp.sort(lookup_table.relevant_metrics)
     # TODO dont do this for the windowed
     _sofas, counts = np.unique(train_y[train_m][..., 0], return_counts=True, sorted=True)
     counts = np.pad(counts, 24 - counts.size, constant_values=0)
     sofa_dist = counts / counts.sum()
+
+    print(jnp.log(1.0 + 1.0 / (sofa_dist + EPS)))
     print(train_y[train_m, 2].sum(), train_m.sum(), train_y[train_m, 2].sum() / train_m.sum())
     print(train_y[1, train_m[1], 2])
 
-    encoder = CoordinateEncoder(
+    key_enc, key_inf, key_dec, key_gru = jr.split(key, 4)
+    key_enc_weights, key_gru_weights = jr.split(key, 2)
+    latent_encoder = LatentEncoder(
         key_enc,
         input_dim=104,
-        enc_hidden=32,
-        pred_hidden=4,
+        latent_enc_hidden=32,
+        latent_pred_hidden=8,
         dropout_rate=0.3,
         dtype=dtype,
     )
-    encoder = init_encoder_weights(encoder, key_enc)
+    latent_encoder = init_latent_encoder_weights(latent_encoder, key_enc_weights)
     decoder = Decoder(
         key_dec,
         input_dim=52,
@@ -461,20 +499,19 @@ if __name__ == "__main__":
         dec_hidden=32,
         dtype=dtype,
     )
-    key_enc_weights, key_dec_weights, key_gru_weights = jr.split(key, 3)
     model = GRUDetector(
         key=key,
         input_dim=104,
-        z_hidden_dim=4,
-        z_dim=2,
+        latent_hidden_dim=latent_encoder.latent_pred_hidden,
+        latent_dim=2,
         inf_dim=1,
-        inf_hidden_dim=4,
-        encoder=encoder,
+        inf_hidden_dim=8,
+        latent_pre_encoder=latent_encoder,
         decoder=decoder,
         alpha=ALPHA,
-        sofa_dist=sofa_dist,
+        sofa_dist=jnp.asarray(sofa_dist),
     )
-    model = init_gru_weights(model, key_gru_weights)
+    model = init_gru_weights(model, key_gru_weights, scale=1e-4)
 
     hyper_enc, hyper_dec, hyper_gru = model.hypers_dict()
 
@@ -515,38 +552,41 @@ if __name__ == "__main__":
         val_x, val_y, val_m, train_conf.batch_size, key=shuffle_val_key
     )
     for epoch in range(load_conf.epoch if load_conf.from_dir else 0, train_conf.epochs):
-        shuffle_key = jr.fold_in(key, epoch)
-        train_key = jr.fold_in(key, epoch + 1)
-        x_shuffled, y_shuffled, m_shuffled, ntrain_batches = prepare_batches_mask(
-            train_x,
-            train_y,
-            train_m,
-            key=shuffle_key,
-            batch_size=train_conf.batch_size,
-            perc=train_conf.perc_train_set,
-            pos_fraction=0.1,
-        )
+        if epoch > 0:
+            shuffle_key = jr.fold_in(key, epoch)
+            train_key = jr.fold_in(key, epoch + 1)
+            x_shuffled, y_shuffled, m_shuffled, ntrain_batches = prepare_batches_mask(
+                train_x,
+                train_y,
+                train_m,
+                key=shuffle_key,
+                batch_size=train_conf.batch_size,
+                perc=train_conf.perc_train_set,
+                pos_fraction=0.1,
+            )
 
-        loss_conf.steps_per_epoch = ntrain_batches
-        params_model, opt_state, train_metrics, key = process_train_epoch(
-            model,
-            opt_state=opt_state,
-            x_data=x_shuffled,
-            y_data=y_shuffled,
-            mask_data=m_shuffled,
-            update=optimizer.update,
-            key=key,
-            lookup_func=lookup_table.soft_get_local,
-            loss_params=loss_conf,
-            param_filter=filter_spec,
-        )
-        model = eqx.combine(params_model, static_model)
+            loss_conf.steps_per_epoch = ntrain_batches
+            params_model, opt_state, train_metrics, key = process_train_epoch(
+                model,
+                opt_state=opt_state,
+                x_data=x_shuffled,
+                y_data=y_shuffled,
+                mask_data=m_shuffled,
+                update=optimizer.update,
+                key=key,
+                lookup_func=lookup_table.soft_get_local,
+                loss_params=loss_conf,
+                param_filter=filter_spec,
+            )
+            model = eqx.combine(params_model, static_model)
 
-        log_msg = log_train_metrics(train_metrics, model.params_to_dict(), epoch, writer)
-        writer.add_scalar(
-            "lr/learning_rate", np.asarray(schedule(np.float64(epoch) * np.float64(train_x.shape[0]))), epoch
-        )
-        logger.info(log_msg)
+            log_msg = log_train_metrics(train_metrics, model.params_to_dict(), epoch, writer)
+            writer.add_scalar(
+                "lr/learning_rate", np.asarray(schedule(np.float64(epoch) * np.float64(train_x.shape[0]))), epoch
+            )
+            logger.info(log_msg)
+            del x_shuffled, y_shuffled
+            del train_metrics
 
         if epoch % train_conf.validate_every == 0:
             val_model = eqx.nn.inference_mode(model, value=True)
@@ -574,8 +614,6 @@ if __name__ == "__main__":
             model = eqx.nn.inference_mode(val_model, value=False)
             del val_metrics, val_model
 
-        del x_shuffled, y_shuffled
-        del train_metrics
         gc.collect()
 
         # --- Save checkpoint ---

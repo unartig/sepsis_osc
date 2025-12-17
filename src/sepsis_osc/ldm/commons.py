@@ -1,11 +1,83 @@
 from collections.abc import Callable
 
+import equinox as eqx
 import jax
 import jax.numpy as jnp
 from jax import vmap
-from jaxtyping import Array, Bool, Float, Int, jaxtyped
+from jaxtyping import Array, Bool, Float, Int, PyTree, jaxtyped
 
 from sepsis_osc.utils.jax_config import EPS, typechecker
+
+
+def he_uniform_init(weight: Array, key: Array) -> Array:
+    # He Uniform Initialization for ReLU activation
+    out, in_ = weight.shape
+    stddev = jnp.sqrt(2 / in_)  # He init scale
+    return jax.random.uniform(key, shape=(out, in_), minval=-stddev, maxval=stddev, dtype=weight.dtype)
+
+def gru_bias_init(b: Array) -> Array:
+    hidden_size = b.shape[0] // 3
+    b = b.at[:].set(0.0)
+    return b.at[hidden_size:2*hidden_size].set(1.0)  # update gate
+
+def xavier_uniform(w: Array, key: Array) -> Array:
+    fan_in, fan_out = w.shape[1], w.shape[0]
+    limit = jnp.sqrt(6.0 / (fan_in + fan_out))
+    return jax.random.uniform(key, w.shape, minval=-limit, maxval=limit)
+
+
+def softplus_bias_init(bias: Array, _key: jnp.ndarray) -> Array:
+    return jnp.full(bias.shape, jnp.log(jnp.exp(1.0) - 1.0), dtype=bias.dtype)
+
+
+def zero_bias_init(bias: Array, _key: jnp.ndarray) -> Array:
+    return jnp.zeros_like(bias, dtype=bias.dtype)
+
+
+def qr_init(weight: Array, key: Array) -> Array:
+    rows, cols = weight.shape
+    A = jax.random.normal(key, (rows, cols), dtype=jnp.float32)
+
+    if rows < cols:
+        Q, _ = jnp.linalg.qr(A.T)
+        Q = Q.T
+    else:
+        Q, _ = jnp.linalg.qr(A)
+    Q = Q[:rows, :cols].astype(jnp.float32)
+    return Q
+
+
+def apply_initialization(model: PyTree, init_fn_weight: Callable, init_fn_bias: Callable, key: jnp.ndarray) -> PyTree:
+    def is_linear(x: PyTree) -> bool:
+        return isinstance(x, eqx.nn.Linear)
+
+    linear_weights = [x.weight for x in jax.tree_util.tree_leaves(model, is_leaf=is_linear) if is_linear(x)]
+    linear_biases = [
+        x.bias for x in jax.tree_util.tree_leaves(model, is_leaf=is_linear) if is_linear(x) and x.bias is not None
+    ]
+
+    num_weights = len(linear_weights)
+    num_biases = len(linear_biases)
+
+    key_weights, key_biases = jax.random.split(key, 2)
+
+    new_weights = [
+        init_fn_weight(w, subkey) for w, subkey in zip(linear_weights, jax.random.split(key_weights, num_weights))
+    ]
+    model = eqx.tree_at(
+        lambda m: [x.weight for x in jax.tree_util.tree_leaves(m, is_leaf=is_linear) if is_linear(x)],
+        model,
+        new_weights,
+    )
+
+    new_biases = [init_fn_bias(b, subkey) for b, subkey in zip(linear_biases, jax.random.split(key_biases, num_biases))]
+    return eqx.tree_at(
+        lambda m: [
+            x.bias for x in jax.tree_util.tree_leaves(m, is_leaf=is_linear) if is_linear(x) and x.bias is not None
+        ],
+        model,
+        new_biases,
+    )
 
 
 @jaxtyped(typechecker=typechecker)
@@ -55,82 +127,6 @@ def custom_warmup_cosine(
     return schedule
 
 
-def sq_dist(a: Float[Array, "batch input"]) -> Float[Array, "batch batch"]:
-    diff = a[:, None, :] - a[None, :, :]
-    return jnp.sum(diff * diff, axis=-1)
-
-
-def median_sigma_sq(distances: Float[Array, "batch batch"]) -> Float[Array, ""]:
-    B = distances.shape[0]
-    iu = jnp.triu_indices(B, k=1)
-    return jnp.median(distances[iu])
-
-
-def local_sigma_sq(distances: Float[Array, "batch batch"], k: int = 10) -> Float[Array, " batch batch"]:
-    sorted_dists = jnp.sort(distances, axis=1)
-    local_sigmas = sorted_dists[:, k]  # k-th nearest distance
-    lo = jnp.percentile(local_sigmas, 5)
-    hi = jnp.percentile(local_sigmas, 95)
-
-    local_sigmas = jnp.clip(local_sigmas, lo, hi)
-    return (local_sigmas[:, None] + local_sigmas[None, :]) / 2
-    # return (local_sigmas[:, None] + local_sigmas[None, :]) / 2.0
-
-
-def approx_similarity_loss(
-    inputs: Float[Array, "batch input_dim"],
-    latents: Float[Array, "batch latent_dim"],
-    weights: Float[Array, " input_dim"],
-) -> Float[Array, ""]:
-    z_dists = sq_dist(latents)
-    z_sim = jnp.exp(-z_dists / (local_sigma_sq(z_dists) + EPS))
-
-    x_dists = sq_dist(inputs * weights[None, :])
-    x_sim = jnp.exp(-x_dists / (local_sigma_sq(x_dists) + EPS))
-
-    sim_weight = x_sim * z_sim
-    sim_weight = sim_weight / sim_weight.sum()
-
-    z_centered = latents - latents.mean(axis=0, keepdims=True)
-    cov = z_centered.T @ (sim_weight @ z_centered)
-    cov = 0.5 * (cov + cov.T)
-    return jnp.mean((cov - jnp.eye(latents.shape[-1])) ** 2)
-
-
-@jaxtyped(typechecker=typechecker)
-def mahalanobis_similarity_loss(
-    inputs: Float[Array, "batch input_dim"],
-    latents: Float[Array, "batch latent_dim"],
-    weights: Float[Array, " input_dim"],  # for compatibility with approx version
-) -> Float[Array, ""]:
-    B = inputs.shape[0]
-    diag_mask = ~jnp.eye(B, dtype=bool)
-
-    z_dists = sq_dist(latents)
-    z_sim = jnp.exp(-z_dists / (local_sigma_sq(z_dists) + EPS))
-    z_sim = z_sim / z_sim.sum(axis=1, keepdims=True)
-
-    cov = jnp.cov(inputs, rowvar=False)
-
-    L = jnp.linalg.inv(jnp.linalg.cholesky(cov + 1e-6 * jnp.eye(cov.shape[0])))
-    x_dists = sq_dist(jnp.linalg.solve(L, inputs.T).T)
-    x_sim = jnp.exp(-x_dists / (local_sigma_sq(x_dists) + EPS))
-    x_sim = x_sim / x_sim.sum(axis=1, keepdims=True)
-
-    sim_weight = x_sim * z_sim * diag_mask
-    sim_weight = sim_weight / sim_weight.sum()
-
-    w_row = sim_weight.sum(axis=1, keepdims=True)  # (B, 1)
-    z_mean = (w_row.T @ latents) / (w_row.sum() + EPS)
-    # z_centered = latents - latents.mean(axis=0, keepdims=True)
-    z_centered = latents - z_mean
-
-    cov = z_centered.T @ (sim_weight @ z_centered)
-    cov = 0.5 * (cov + cov.T)
-    return jnp.mean((cov - jnp.eye(latents.shape[-1])) ** 2)
-    # return jnp.where(diag_mask, (z_sim - x_sim) ** 2, 0).mean()
-
-
 @jaxtyped(typechecker=typechecker)
 def prob_increase(
     preds: Float[Array, " time"], threshold: Float[Array, "1"], scale: Float[Array, "1"]
@@ -142,12 +138,14 @@ def prob_increase(
 def prob_increase_steps(
     preds: Float[Array, " time"], threshold: Float[Array, "1"], scale: Float[Array, "1"]
 ) -> Float[Array, " time"]:
-    return jnp.concat([jnp.array([0.0]),  jax.nn.sigmoid((jnp.diff(preds, axis=-1) - threshold) * scale)])
+    return jnp.concat([jnp.array([0.0]), jax.nn.sigmoid((jnp.diff(preds, axis=-1) - threshold) * scale)])
 
 
 @jaxtyped(typechecker=typechecker)
 def smooth_labels(
-    labels: Float[Array, "batch time"], radius: int = 3, decay: float | Float[Array, "1"] = 0.5
+    labels: Float[Array, "batch time"] | Bool[Array, "batch time"],
+    radius: int = 3,
+    decay: float | Float[Array, "1"] = 0.5,
 ) -> Float[Array, "batch time"]:
     offsets = jnp.arange(-radius, radius + 1)
     kernel = jnp.exp(-decay * jnp.abs(offsets))
@@ -160,19 +158,31 @@ def smooth_labels(
 
     return jnp.clip(smooth, 0.0, 1.0)
 
+
 @jaxtyped(typechecker=typechecker)
 def causal_smoothing(
     labels: Float[Array, "batch time"], radius: int = 3, decay: float | Float[Array, "1"] = 0.5
 ) -> Float[Array, "batch time"]:
-    offsets = jnp.arange(0, radius+1)
+    offsets = jnp.arange(0, radius + 1)
 
     kernel = jnp.exp(-decay * offsets)
     kernel = kernel / kernel.sum()  # normalize
 
-
     def convolve_1d(x: Float[Array, " time"]) -> Float[Array, " time"]:
         return jnp.convolve(x, kernel, mode="full")
 
-    smooth = vmap(convolve_1d)(labels)[:, :labels.shape[1]]
+    smooth = vmap(convolve_1d)(labels)
+
+    smooth = smooth[:, : labels.shape[1]]
 
     return jnp.clip(smooth, 0.0, 1.0)
+
+
+def causal_probs(probs, window=6, eps=1e-6):
+    padded = jnp.pad(probs, (window - 1, 0), constant_values=0.0)
+    # log-space cumulative sum trick for rolling product
+    log1m = jnp.log1p(-padded + eps)
+    cumsum = jnp.cumsum(log1m)
+    cumsum_shifted = jnp.pad(cumsum[:-window], (window, 0), constant_values=0.0)
+    rolling_log = cumsum - cumsum_shifted
+    return 1.0 - jnp.exp(rolling_log)[window - 1 :]
