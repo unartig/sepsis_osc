@@ -36,6 +36,7 @@
     "PRR": "Pattern Recognition Receptors",
     "qSOFA": "Quick Sequential Organ Failure Assessment",
     "RAG": "Retrieval Augmented Generation",
+    "ReLU": "Rectified Linear Unit",
     "RNN": "Recurrent Neural Networks",
     "SIRS": "Systemic Inflammatory Response Syndrome",
     "SI": "Suspected Infection",
