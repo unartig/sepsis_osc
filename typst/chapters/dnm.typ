@@ -179,9 +179,8 @@ All the systems variables and parameters are summarized in <tab:dnm> #todo[why n
     [Standard deviation of frequency \ (see @eq:std)],
     [Pathogenicity (Parenchymal Layer)],
   ),
-  caption: flex-caption(short: [TODO], long: [#todo[]]),
+  caption: flex-caption(short: [DNM Notation Table], long: [Summarization of notation used in the Dynamic Network Model. Superscripts indicating the layer are left out for readability.]),
 ) <tab:dnm>
-#todo[left out superscripts for better readability]
 
 === Pathology in the DNM
 A biological organism, such as the human body, can be regarded as a self-regulating system that, under healthy conditions, maintains a homeostatic state @Placeholder.

@@ -16,7 +16,7 @@ To begin with, a short overview of the state of the art of model- and data-drive
 )<fig:sets>
 === Task
 RICU and YAIB use delta_cummin function, i.e. the delta #acr("SOFA") increase is calculated with respect to the lowest observed #acr("SOFA") to this point.
-== Implementation Details
+== Implementation Details <sec:impl>
 === Latent Lookup Implementation <sec:impl_fsq> 
 #todo[explain STE (straight through estimation)]
 == Metrics (How to validate performance?)
