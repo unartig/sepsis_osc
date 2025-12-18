@@ -11,22 +11,6 @@
 #let zc = (2.8, 2.3)
 
 #let fsq_fig = canvas({
-  // content(
-  //   (x-range / 2, y-range + 1),
-  //   align(
-  //     text(
-  //       "Quantized Latent-Lookup",
-  //       size: 16pt,
-  //     )
-  //       + text(
-  //         "\nwith Gaussian Kernel Smoothing",
-  //         size: 12pt,
-  //       ),
-  //     center,
-  //   ),
-  //   anchor: "south",
-  //   padding: .3em,
-  // )
 
   // Draw kernel
   circle(
@@ -35,14 +19,14 @@
     stroke: none,
     fill: gradient.radial(
       // ..color.map.viridis.rev(),
+      // yellow,
+      // lime,
+      // aqua,
+      // white,
+      // TODO maybe after 0.13.1 update we can do this
       yellow,
       lime,
-      aqua,
-      white,
-      // TODO maybe after 0.13.1 update we can do this
-      // red,
-      // yellow,
-      // blue.transparentize(50%),
+      aqua.transparentize(100%),
     ),
     fill-opacity: 1%,
     name: "kernel",
@@ -73,8 +57,10 @@
           .sample(calc.sin(x) * 50% + calc.sin(y) * 50%),
         stroke: none,// .5pt + black,
       )
+      
     }
   }
+  
   for x in range(-kernel-size, kernel-size + 1) {
     for y in range(-kernel-size, kernel-size + 1) {
       circle(
@@ -120,10 +106,12 @@
     $hat(bold(z))=(hat(z)_cmbeta(beta), hat(z)_cmsigma(sigma))$,
     anchor: "north",
   )
+  line((5, y-range/2), (7, y-range / 2), name: "flow1", mark: emark)
+  content(
+    (rel: (0.2, -0.2), to: "flow1"),
+    $s^1_(bold(hat(z)))$,
+    anchor: "north",
+  )
 
-  // content(
-  //   (x-range / 2 + .5, -1),
-  //   $tilde(s)=sum_(bold(x) in cmred(cal(N)_(3 times 3))(tilde(bold(z)))) "softmax"(-(||hat(bold(z))-bold(x)||^2)/T)s^1_bold(x)$,
-  // )
 })
 #figure(fsq_fig)

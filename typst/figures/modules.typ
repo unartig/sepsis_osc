@@ -4,10 +4,12 @@
 // Infection Indicator Module
 #let inf_fig = canvas({
     import draw: *
+
+    let inf_c = olive
     rect((-6, 0), (-4, 0.8), name: "ehr-1", stroke: (paint: blue.lighten(1%), dash: "dotted"), fill: blue.lighten(95%))
     content("ehr-1.center", text(fill: gray.darken(20%))[EHR $bold(mu)_(t-1)$])
     
-    rect((-6, -1.5), (-4, -0.5), name: "rnn-1", stroke: (paint: green.lighten(1%), dash: "dotted"), fill: green.lighten(95%))
+    rect((-6, -1.5), (-4, -0.5), name: "rnn-1", stroke: (paint: inf_c.lighten(1%), dash: "dotted"), fill: inf_c.lighten(95%))
     content("rnn-1.center", text(fill: gray.darken(20%))[RNN $f_theta$])
     
     rect((-6, -2.7), (-4, -2), name: "inf-1", stroke: (paint: red.lighten(1%), dash: "dotted"))
@@ -22,7 +24,7 @@
     rect((-3.5, -1.3), (-1.5, -0.7), name: "hprev", stroke: 1pt + gray)
     content("hprev.center", [$bold(h)_(t-1) in RR^h$])
     
-    rect((-1, -1.5), (1, -0.5), name: "rnn", stroke: 2pt + green, fill: green.lighten(90%))
+    rect((-1, -1.5), (1, -0.5), name: "rnn", stroke: 2pt + inf_c, fill: inf_c.lighten(90%))
     content("rnn.center", [RNN $f_theta$])
     
     line("ehr.south", "rnn.north", mark: (end: ">"), stroke: 1.5pt)
@@ -42,7 +44,7 @@
     rect((4, 0), (6, 0.8), name: "ehr+1", stroke: (paint: blue.lighten(1%), dash: "dotted"), fill: blue.lighten(95%))
     content("ehr+1.center", text(fill: gray.darken(20%))[EHR $bold(mu)_(t+1)$])
     
-    rect((4, -1.5), (6, -0.5), name: "rnn+1", stroke: (paint: green.lighten(1%), dash: "dotted"), fill: green.lighten(95%))
+    rect((4, -1.5), (6, -0.5), name: "rnn+1", stroke: (paint: inf_c.lighten(1%), dash: "dotted"), fill: inf_c.lighten(95%))
     content("rnn+1.center", text(fill: gray.darken(20%))[RNN $f_theta$])
     
     rect((4, -2.7), (6, -2), name: "inf+1", stroke: (paint: red.lighten(1%), dash: "dotted"))
@@ -134,7 +136,7 @@
 // Decoder Module
 #let dec_fig = canvas({
     import draw: *
-    let dec_c = lime
+    let dec_c = olive
     // Latent input
     rect((-4, 0.25), (-3, 0.75), name: "z", stroke: 2pt + red)
     content("z.center", [$hat(bold(z))_t$])
@@ -142,7 +144,7 @@
     rect((-1.5, 0.0), (1.5, 1.0), name: "dec", stroke: 2pt + dec_c, fill: dec_c.lighten(90%))
     content("dec.center", [Decoder $d_theta$])
     
-    line("z.east", "dec.west", mark: (end: ">"), stroke: 1.5pt + red)
+    line("z.east", "dec.west", mark: (end: ">"), stroke: 1.5pt)
     
     // Output
     rect((3, 0.25), (4, 0.75), name: "ehr", stroke: 2pt + blue)
@@ -155,42 +157,61 @@
 // Complete System Overview
 #let ldm_fig = canvas({
     import draw: *
+
+    let out_c = maroon
     
     // Input
-    rect((0, 5), (2, 5.6), name: "ehr", stroke: 2pt + blue, fill: blue.lighten(95%))
-    content("ehr.center", text(9pt)[EHR $bold(mu)_t$])
+    rect((0, 5), (2, 5.75), name: "ehr", stroke: 2pt + blue, fill: blue.lighten(95%))
+    content("ehr.center", [EHR $bold(mu)_t$])
     
     // Infection module
-    rect((-2, 3.5), (0.5, 4.5), name: "inf", stroke: 2pt + red.lighten(20%), fill: red.lighten(95%))
-    content("inf.center", text(8pt)[Infection\nModule])
+    let inf_c = olive
+    rect((-3.5, 2.75), (0.5, 4), name: "inf", stroke: 2pt + inf_c.lighten(20%), fill: inf_c.lighten(95%))
+    content("inf.center", align(center, [Infection Module $f_theta$]))
     
-    line("ehr.south", (-1, 5), (-1, 4.5), mark: (end: ">"), stroke: 1.5pt)
+    line("ehr.south", (rel: (0, .5), to: "inf.north"), "inf.north", mark: (end: ">"), stroke: 1.5pt)
     
-    rect((-2, 2.8), (0.5, 3.2), name: "iout", stroke: 1.5pt + red)
-    content("iout.center", text(7pt)[$tilde(I)_t$])
+    rect((-3.5, 2.25), (0.5, 1.5), name: "iout", stroke: 1.5pt + out_c)
+    content("iout.center", [$tilde(I)_t$])
     line("inf.south", "iout.north", mark: (end: ">"), stroke: 1pt)
     
     // SOFA module
-    rect((2.5, 3.5), (5.5, 4.5), name: "sofa", stroke: 2pt + purple.lighten(20%), fill: purple.lighten(95%))
-    content("sofa.center", text(8pt)[SOFA\nPredictor])
+    let sofa_c = olive
+    rect((1.5, 2.75), (5.5, 4), name: "sofa", stroke: 2pt + sofa_c.lighten(20%), fill: sofa_c.lighten(95%))
+    content("sofa.center", align(center, [SOFA Module $g_theta$]))
+    line("ehr.south", (rel: (0, .5), to: "sofa.north"), "sofa.north", mark: (end: ">"), stroke: 1.5pt)
     
-    line("ehr.south", (1, 5), (4, 4.5), mark: (end: ">"), stroke: 1.5pt)
-    
-    rect((2.5, 2.8), (5.5, 3.2), name: "zout", stroke: 1.5pt + purple)
-    content("zout.center", text(7pt)[$hat(bold(z))_t, hat(O)_t$])
+    rect((1.5, 2.25), (5.5, 1.5), name: "zout", stroke: 1.5pt + out_c)
+    content("zout.center", [$hat(bold(z))_t$])
     line("sofa.south", "zout.north", mark: (end: ">"), stroke: 1pt)
+
+    rect((1.5, 1.0), (5.5, 0.25), name: "oout", stroke: 1.5pt + out_c)
+    content("oout.center", [$hat(O)_t (bold(hat(z)_t))$])
+    line("zout.south", "oout.north", mark: (end: ">"), stroke: 1pt)
+
+    rect((1.5, -0.25), (5.5, -1), name: "aout", stroke: 1.5pt + out_c)
+    content("aout.center", text(10pt)[$tilde(A)_t = o_(s,d)(hat(O)_(t-1), hat(O)_t)$])
+    line("oout.south", "aout.north", mark: (end: ">"), stroke: 1pt)
     
-    // Heuristic combination
-    rect((0.5, 1.2), (4.5, 2.2), name: "heur", stroke: 2pt + orange, fill: orange.lighten(95%))
-    content("heur.center", text(8pt)[Heuristic Risk\n$tilde(A)_t = f(tilde(I), hat(O)_(0:t))$])
+    rect((6.5, -0.25), (7.5, -1), name: "oin", stroke: 1.5pt + out_c)
+    content("oin.center", [$hat(O)_(t-1)$])
+    line("oin.west", "aout.east", mark: (end: ">"), stroke: 1pt)
+
+    // Dec
+    let dec_c = olive
+    rect((7, 2.5), (9.5, 1.25), name: "dec", stroke: 2pt + dec_c, fill: dec_c.lighten(90%))
+    content("dec.center", [Decoder $d_theta$])
     
-    line("iout.south", (0, 2.8), (0, 2.2), mark: (end: ">"), stroke: 1pt)
-    line("zout.south", (5, 2.8), (5, 2.2), mark: (end: ">"), stroke: 1pt)
+    line("zout.east", "dec.west", mark: (end: ">"), stroke: 1.5pt)
+    rect((10, 1.5), (12, 2.25), name: "ehr", stroke: 2pt + blue)
+    content("ehr.center", [$hat(bold(mu))_t$])
     
+    line("dec.east", "ehr.west", mark: (end: ">"), stroke: 1.5pt)
+
     // Output
-    rect((1, 0.2), (4, 0.8), name: "risk", stroke: 3pt + green, fill: green.lighten(90%))
-    content("risk.center", text(9pt, weight: "bold")[Sepsis Risk $tilde(A)_t$])
-    
-    line("heur.south", "risk.north", mark: (end: ">"), stroke: 2pt)
-    
+    rect((-0.5, -1.5), (2.5, -2.75), name: "risk", stroke: 3pt + red, fill: red.lighten(90%))
+    content("risk.center", align(center, text(weight: "bold")[Sepsis Risk \ $tilde(S)_t = tilde(A)_t tilde(I)_t$]))
+
+    line("iout.south", (rel: (-1, 0), to:"risk.west"), "risk.west", mark: (end: ">"), stroke: 1pt)
+    line("aout.south", (rel: (1, 0), to:"risk.east"), "risk.east", mark: (end: ">"), stroke: 1pt)
   })

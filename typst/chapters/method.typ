@@ -359,14 +359,14 @@ Using this regularization the latent encoder $g^e_theta$ and the recurrent predi
 Leading smooth patient trajectories through the latent space.
 
 #figure(dec_fig,
-  caption: flex-caption(long: [TODO], short: [TODO]))
+  caption: flex-caption(long: [Data flow of the decoder module.], short: [Decoder Architecture]))
 
 === Training Objective and Auxiliary Losses <sec:training_objective>
 The complete #acr("LDM") is trained end-to-end by combining the previously introduced Infection Indicator Module $f_theta$ and the #acr("SOFA") prediction module $g_theta$.
 The output of these modules yield the components $hat(O)_t$, from which $tilde(A)_t$ can be derived (@eq:otoa) and $tilde(I)_t$, taking these components one can calculate the heuristic sepsis onset risk $tilde(S)_t = tilde(A)_t tilde(I)_t$.
 
 #figure(ldm_fig,
-  caption: flex-caption(long: [TODO], short: [TODO])
+  caption: flex-caption(long: [Schematic of a single prediction step of the #acr("LDM"), with the direct $tilde(I)_t$ prediction and the multiple steps to derive $tilde(A)_t$. If no $hat(O)_(t-1)$ is available at the first time-step, the heuristic organ failure risk is assumed to be 0.], short: [Complete #acr("LDM") Architecture])
   )
 
 Besides the losses already presented, to guide the training process multiple auxiliary losses are used and introduced in the following.
@@ -455,13 +455,13 @@ Specific values for the loss weights $lambda_i$ and other hyper-parameters are r
   table(
     columns: 4,
     [*Loss*], [*Type*], [*Purpose*], [*Supervises*],
-    [$cal(L)_"sepsis"$], [BCE], [Primary sepsis prediction], [Full model],
+    [$cal(L)_"sepsis"$], [BCE], [Primary sepsis prediction], [$f_theta, g^e_theta, g^r_theta$],
     [$cal(L)_"inf"$], [BCE], [Infection indicator], [$f_theta$],
     [$cal(L)_"sofa"$], [Weighted MSE], [SOFA estimation], [$g^e_theta, g^r_theta$],
     [$cal(L)_"focal"$], [Focal], [Organ failure timing], [$g^e_theta, g^r_theta$],
     [$cal(L)_"diff"$], [Directional], [Difference timing], [$g^r_theta$],
     [$cal(L)_"dec"$], [MSE], [Latent semantics], [$d_theta$, ($g^e_theta, g^r_theta$)],
-    [$cal(L)_"spread"$], [Covariance], [Latent diversity], [$g^e_theta, r_theta$],
+    [$cal(L)_"spread"$], [Covariance], [Latent diversity], [$g^e_theta, g^r_theta$],
   ),
   caption: flex-caption(long: [Overview of loss components in the #acr("LDM") training objective.], short: [Training Objectives])
 ) <tab:losses>
