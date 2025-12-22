@@ -289,10 +289,13 @@ Instead of integrating the #acr("DNM") over and over, differentiable approximati
 
 For an estimated coordinate pair $hat(bold(z))=(hat(z)_cmbeta(beta), hat(z)_cmsigma(sigma))$ in the continuous $(cmbeta(beta), cmsigma(sigma))$-space the quantized metrics are interpolated by smoothing nearby quantization points with a Gaussian-like kernel, which is illustrated in @fig:fsq.
 
-The smoothing is performed by weighting the amount of desynchronicity $s^1_bold(z)'$ of quantized nearby latent points $bold(z)'$ by the euclidean distance to the estimation $hat(bold(z))$.
-The nearby points are selected by a quadratic slice around the closest quantized point $tilde(bold(z))$, with $k$ being the sub-grid size:
+// The smoothing is performed by weighting the amount of desynchronicity $s^1_bold(z)'$ of quantized nearby latent points  by the euclidean distance to the estimation $hat(bold(z))$.
+To enable gradient-based optimization, the lookup of nearby points $bold(z)'$ combines two mechanisms: (1) a straight-through estimator @bengio2013ste for the discrete voxel indexing operation, allowing gradients to flow as if the rounding were identity, and (2) differentiable softmax interpolation over neighboring grid points.
+This hybrid approach allows for efficient nearest-neighbor lookup in the forward pass while providing meaningful gradients for the continuous query coordinates $hat(bold(z))$.
 
+The nearby points are selected by a quadratic slice around the closest quantized point $tilde(bold(z))$, with $k$ being the sub-grid size:
 $
+tilde(bold(z)) = hat(bold(z)) + "stop_grad"(round(hat(bold(z))) - hat(bold(z))) \
 tilde(s)^1 (hat(bold(z)))=sum_(bold(z)' in cal(N)_(k times k)(tilde(bold(z)))) "softmax"(-(||hat(bold(z))-bold(z)'||^2)/T_d)s^1 (bold(z)')
 $
 with $"softmax"$ for $K=k dot k$ neighboring points being:
@@ -317,7 +320,7 @@ This allows continuous interpolation the parameter space.
 #todo[out arrow]
 
 This quantization strategy allows for continuous space approximation from the quantized space, while also making it possible to pre-compute the quantized space and therefore drastically reducing the computational expenses.
-This quantization strategy, called _latent lookup_ is closely related to #acr("FSQ") @mentzer2023fsq, used in Dreamer-V3 @hafner2024dream for example.
+This quantization strategy, called _latent lookup_ #footnote[Implementation is available at https://github.com/unartig/sepsis_osc/blob/main/src/sepsis_osc/ldm/lookup.py] is closely related to #acr("FSQ") @mentzer2023fsq, used in Dreamer-V3 @hafner2024dream for example.
 Unlike in this approach the values of the latent coordinates in Dreamer-V3 do not have prior semantic meaning associated with them.
 Both allow for differentiable quantization, with details on the latent lookup implementation, including grid-resolution and kernel size, can be found in @sec:impl_fsq.
 
@@ -430,7 +433,7 @@ The loss is minimized when the total variance of the latent dimensions $beta$ an
 
 
 === Combined Objective
-The complete #acr("LDM") is trained end-to-end by jointly optimizing all components with the weighted total loss:
+The complete #acr("LDM") #footnote[Implementation of the #acr("LDM") components is available at https://github.com/unartig/sepsis_osc/tree/main/src/sepsis_osc/ldm] is trained end-to-end by jointly optimizing all components with the weighted total loss:
 $
   cal(L)_"total" = lambda_"inf" cal(L)_"inf" &+
                    &lambda_"sofa" cal(L)_"sofa" +

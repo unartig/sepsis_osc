@@ -70,7 +70,7 @@
         // fill: gradient
         // .linear(..color.map.plasma)
         // .sample(calc.cos(x) * 30% + calc.sin(y) * 50%),
-        stroke: .7pt + red,
+        stroke: 1.2pt + red,
       )
     }
   }
@@ -109,7 +109,7 @@
   line((5, y-range/2), (7, y-range / 2), name: "flow1", mark: emark)
   content(
     (rel: (0.2, -0.2), to: "flow1"),
-    $s^1_(bold(hat(z)))$,
+    $s^1 (bold(hat(z)))$,
     anchor: "north",
   )
 
