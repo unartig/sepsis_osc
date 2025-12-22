@@ -281,7 +281,7 @@
   show raw.where(block: true): block.with(inset: (x: 5pt))
 
   // TABLE
-  show figure.where(kind: table): set block(breakable: false)
+  show figure.where(kind: table): set block(breakable: true)
   set table(
     // Increase the table cell's padding
     inset: 7pt, // default is 5pt

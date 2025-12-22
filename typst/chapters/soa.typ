@@ -76,4 +76,4 @@ For the sake of reproducibility the choices need to be reported as precisely as 
 Works such as #acr("YAIB") @yaib attempt to address these challenges by providing a common basis for evaluating models by standardizing the dataset, cohort definition, prediction task, and labeling strategy, thereby enabling fair and reproducible comparison of different approaches.
 
 After introducing the methodology in @sec:ldm, its performance validated on real clinical data in @sec:experiment.
-The experimental setup makes use of the #acr("YAIB") framework, and its dataset, cohort definition, prediction task, and labeling implementation are described in detail in @sec:yaib, as these settings are adopted for training and evaluating the #acr("LDM").
+The experimental setup makes use of the #acr("YAIB") framework, and its dataset, cohort definition, prediction task, and labeling implementation are described in detail in @sec:data, as these settings are adopted for training and evaluating the #acr("LDM").

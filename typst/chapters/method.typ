@@ -322,7 +322,7 @@ This allows continuous interpolation the parameter space.
 This quantization strategy allows for continuous space approximation from the quantized space, while also making it possible to pre-compute the quantized space and therefore drastically reducing the computational expenses.
 This quantization strategy, called _latent lookup_ #footnote[Implementation is available at https://github.com/unartig/sepsis_osc/blob/main/src/sepsis_osc/ldm/lookup.py] is closely related to #acr("FSQ") @mentzer2023fsq, used in Dreamer-V3 @hafner2024dream for example.
 Unlike in this approach the values of the latent coordinates in Dreamer-V3 do not have prior semantic meaning associated with them.
-Both allow for differentiable quantization, with details on the latent lookup implementation, including grid-resolution and kernel size, can be found in @sec:impl_fsq.
+Both allow for differentiable quantization, with details on the latent lookup implementation, including grid-resolution and kernel size, can be found in @sec:impl.
 
 In Neural Differential Equations @kidger2022neuraldifferentialequations and Physics Informed Neural Networks @sophiya2025pinn where the integration of the #acr("ODE") itself provides gradients directly by backpropagation through the #acr("ODE").
 In contrast, here the gradient information is provided by the nearby quantized points which contribute to estimated synchronicity measure through the smoothing.
@@ -435,17 +435,16 @@ The loss is minimized when the total variance of the latent dimensions $beta$ an
 === Combined Objective
 The complete #acr("LDM") #footnote[Implementation of the #acr("LDM") components is available at https://github.com/unartig/sepsis_osc/tree/main/src/sepsis_osc/ldm] is trained end-to-end by jointly optimizing all components with the weighted total loss:
 $
-  cal(L)_"total" = lambda_"inf" cal(L)_"inf" &+
+  cal(L)_"total" = &lambda_"inf" cal(L)_"inf" +
                    &lambda_"sofa" cal(L)_"sofa" +
-                   &lambda_"dec" cal(L)_"dec" &+
-                   &lambda_"sepsis" cal(L)_"sepsis" \
-                   &+ &lambda_"diff" cal(L)_"diff"  +
-                   &lambda_"focal" cal(L)_"focal" &+
+                   &lambda_"dec" cal(L)_"dec" +
+                   lambda_"sepsis" cal(L)_"sepsis" + \
+                   &lambda_"diff" cal(L)_"diff"  +
+                   &lambda_"focal" cal(L)_"focal" +
                    &lambda_"spread" cal(L)_"spread" 
 $
 
-
-The loss weights $lambda_i$ balance the contribution of each objective during training. 
+The loss weights $lambda_i$ balance the contribution of each objective during training.
 The primary sepsis prediction loss $cal(L)_"sepsis"$ provides the main learning signal aligned with the clinical task, while component losses $cal(L)_"inf"$ and $cal(L)_"sofa"$ ensure accurate estimation of the underlying infection and organ failure indicators.
 The auxiliary losses ($cal(L)_"focal"$, $cal(L)_"diff"$, $cal(L)_"dec"$, $cal(L)_"spread"$) regularize the latent space structure and temporal dynamics to improve generalization and interpretability.
 
