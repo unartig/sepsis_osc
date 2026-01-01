@@ -3,7 +3,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 from equinox import field, filter_jit
-from jaxtyping import Array, Float, Int, jaxtyped, DTypeLike
+from jaxtyping import Array, DTypeLike, Float, Int, jaxtyped
 
 from sepsis_osc.dnm.dynamic_network_model import MetricBase
 from sepsis_osc.utils.jax_config import EPS, typechecker
@@ -12,7 +12,7 @@ from sepsis_osc.utils.jax_config import EPS, typechecker
 @jaxtyped(typechecker=typechecker)
 class LatentLookup(eqx.Module):
     metrics: MetricBase = field(static=True)
-    indices_T: Float[Array, "db_size 3"] = field(static=True)
+    indices_t: Float[Array, "db_size 3"] = field(static=True)
     relevant_metrics: Float[Array, " db_size"] = field(static=True)
 
     # Precomputations
@@ -73,7 +73,7 @@ class LatentLookup(eqx.Module):
         query_vectors = jax.lax.stop_gradient(query_vectors)
         query_vectors = query_vectors.astype(self.dtype)
         q_norm = jnp.sum(query_vectors**2, axis=-1, keepdims=True)
-        dot_prod = query_vectors @ self.indices_T
+        dot_prod = query_vectors @ self.indices_t
         squared_distances = q_norm + self.i_norm - 2 * dot_prod
 
         min_indices = jnp.argmin(squared_distances, axis=-1)
@@ -195,7 +195,7 @@ class LatentLookup(eqx.Module):
 
         q_norm = jnp.sum(q**2, axis=-1, keepdims=True)
 
-        dot_prod = q @ self.indices_T  # (num_indices,)
+        dot_prod = q @ self.indices_t  # (num_indices,)
         dists = q_norm + self.i_norm - 2 * dot_prod
 
         weights = jax.nn.softmax(-dists / (temperature + EPS), axis=-1).squeeze()

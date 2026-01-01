@@ -157,7 +157,7 @@ class GRUDetector(eqx.Module):
             Float[Array, " latent_dim"],
         ]:
             h_prev, z_prev = carry
-            h_t = self.latent_encoder(jnp.concat([x_t, jax.lax.stop_gradient(z_prev)]), h_prev)
+            h_t = self.latent_encoder(jnp.concat([x_t, z_prev]), h_prev)
             dz_t = self.latent_proj_out(h_t)
             z_t = z_prev + dz_t
             return (h_t, z_t), z_t
