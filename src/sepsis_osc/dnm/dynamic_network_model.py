@@ -7,7 +7,7 @@ import jax.tree as jtree
 import numpy as np
 from jax import vmap
 from jax.debug import print as jprint
-from jaxtyping import Array, Bool, Float, Int, ScalarLike, jaxtyped
+from jaxtyping import Array, Bool, Float, Int, ScalarLike, jaxtyped, DTypeLike
 
 from sepsis_osc.dnm.abstract_ode import ConfigArgBase, ConfigBase, MetricBase, ODEBase, StateBase
 from sepsis_osc.dnm.commons import diff_angle, entropy, mean_angle, phase_entropy, std_angle
@@ -398,7 +398,7 @@ class DynamicNetworkModel(ODEBase):
         return metric_save
 
     def generate_full_save(
-        self, deriv: Callable, dtype: jnp.dtype = jnp.float16, *, save_y: bool = True, save_dy: bool = True
+        self, deriv: Callable, dtype: DTypeLike = jnp.float16, *, save_y: bool = True, save_dy: bool = True
     ) -> Callable:
         def full_compressed_save(
             _t: ScalarLike, y: DNMState, args: DNMConfigArgs | None
@@ -450,7 +450,7 @@ if __name__ == "__main__":
     sigma_step = 0.015
     sigmas = np.arange(0.0, 1.5, sigma_step)
     T_max_base = 2000
-    T_step_base = 100
+    T_step_base = 0.1
     total = len(betas) * len(sigmas)
     logger.info(
         f"Starting to map parameter space of {len(betas)} beta, {len(sigmas)} sigma, total {total}"
