@@ -222,7 +222,6 @@ def loss(
     class_weights = jnp.log(1.0 + 1.0 / (model.sofa_dist + EPS))
     weights_per_sample = class_weights[sofa_true.astype(jnp.int32)]
     aux.sofa_loss_t = (sofa_pred - (sofa_true / 23.0)) ** 2 * (weights_per_sample)
-    # aux.sofa_loss_sum = ((mask * sofa_pred).sum(axis=-1) - (mask * sofa_true / 23.0).sum(axis=-1)) ** 2
 
     aux.infection_p_loss_t = optax.sigmoid_binary_cross_entropy(inf_seq.squeeze(), infection_true)
 
@@ -251,12 +250,7 @@ def loss(
     det_loss  = -jnp.log(jnp.linalg.det(zcov + EPS))
     trace_loss = -jnp.log(jnp.trace(zcov) + EPS)
 
-    # theta = jnp.arctan2(dz_seq[...,0], dz_seq[...,1])
-    # dz_seq = z_seq[:, 1:] - z_seq[:, :-1]
-    # dzcov = masked_cov(dz_seq, mask[:, 1:])
-    # _sign, det_loss = -jnp.linalg.slogdet(dzcov + EPS)
-    # trace_loss = -jnp.log(jnp.trace(dzcov) + EPS)
-    aux.spreading_loss = det_loss  # + trace_loss
+    aux.spreading_loss =  det_loss# trace_loss #
 
     # --------- Total Loss
     thresholds = jnp.cumsum(jnp.ones(25) / 25)
@@ -358,7 +352,7 @@ def process_val_epoch(
     key: jnp.ndarray,
     lookup_func: Callable,
     loss_params: LossesConfig,
-) -> tuple[AuxLosses]:
+) -> AuxLosses:
     model_params, model_static = eqx.partition(model, eqx.is_inexact_array)
 
     def scan_step(
@@ -400,17 +394,17 @@ if __name__ == "__main__":
     logger = logging.getLogger(__name__)
 
     train_conf = TrainingConfig(
-        batch_size=512, window_len=1 + 6, epochs=int(3e3), perc_train_set=0.333, validate_every=5
+        batch_size=1024, window_len=1 + 6, epochs=int(3e3), perc_train_set=0.333, validate_every=5
     )
     lr_conf = LRConfig(init=0.0, peak=1e-3, peak_decay=0.5, end=1e-3, warmup_epochs=1, enc_wd=1e-4, grad_norm=100.0)
     loss_conf = LossesConfig(
         w_recon=5.0,
         w_sofa_direction=10.0,
         w_sofa_classification=80.0,
-        w_sofa_d2=10.0,
+        w_sofa_d2=30.0,
         w_inf=1.0,
         w_sep3=10,
-        w_spreading=1e-4,
+        w_spreading=3e-3,
     )
     load_conf = LoadingConfig(from_dir="", epoch=0)
     save_conf = SaveConfig(save_every=100, perform=True)
@@ -487,7 +481,7 @@ if __name__ == "__main__":
         key_enc,
         input_dim=104,
         latent_enc_hidden=32,
-        latent_pred_hidden=8,
+        latent_pred_hidden=16,
         dropout_rate=0.3,
         dtype=dtype,
     )
