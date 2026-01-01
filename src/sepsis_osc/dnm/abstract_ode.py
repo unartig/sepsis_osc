@@ -139,7 +139,7 @@ class ODEBase(ABC):
         step_atol: float = 1e-6,
         *,
         full_save: bool = False,
-        full_save_dtype: None | DTypeLike = None,
+        full_save_dtype: DTypeLike = jnp.float64,
         steady_state_check: bool = False,
         progress_bar: bool = True,
     ) -> None:
@@ -166,7 +166,9 @@ class ODEBase(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def generate_full_save(self, deriv: Callable, dtype: DTypeLike) -> Callable:
+    def generate_full_save(
+        self, deriv: Callable, dtype: DTypeLike, *, save_y: bool = True, save_dy: bool = True
+    ) -> Callable:
         raise NotImplementedError
 
     @abstractmethod
