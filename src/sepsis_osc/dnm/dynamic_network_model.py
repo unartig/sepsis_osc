@@ -6,8 +6,7 @@ import jax.random as jr
 import jax.tree as jtree
 import numpy as np
 from jax import vmap
-from jax.debug import print as jprint
-from jaxtyping import Array, Bool, Float, Int, ScalarLike, jaxtyped, DTypeLike
+from jaxtyping import Array, Bool, DTypeLike, Float, Int, ScalarLike, jaxtyped
 
 from sepsis_osc.dnm.abstract_ode import ConfigArgBase, ConfigBase, MetricBase, ODEBase, StateBase
 from sepsis_osc.dnm.commons import diff_angle, entropy, mean_angle, phase_entropy, std_angle
@@ -58,7 +57,7 @@ class DNMConfig(ConfigBase):
             N=self.N,
             omega_1=jnp.ones((self.N,)) * self.omega_1,
             omega_2=jnp.ones((self.N,)) * self.omega_2,
-            a_1=(jnp.ones((self.N, self.N)) * self.a_1) * ~jnp.eye(self.N).astype(jnp.bool), #.at[jnp.diag_indices(self.N)].set(0),
+            a_1=(jnp.ones((self.N, self.N)) * self.a_1) * ~jnp.eye(self.N).astype(jnp.bool),
             epsilon_1=self.epsilon_1 * diag,
             epsilon_2=self.epsilon_2 * diag,
             adj=jnp.array(1 / (self.N - 1)),
@@ -414,7 +413,7 @@ class DynamicNetworkModel(ODEBase):
         return full_compressed_save
 
     def generate_steady_state_check(
-        self, eps_m: float = 1e-10, eps_v: float = 1e-3, t_min: float = 1.0
+        self, eps_m: float = 1e-10, eps_v: float = 1e-8, t_min: float = 75.0
     ) -> Callable[..., Bool[Array, "1"]]:
         def check(t: float, y: DNMState, _args: tuple, **kwargs) -> Bool[Array, "1"]:
             is_late = t > t_min
@@ -450,14 +449,14 @@ if __name__ == "__main__":
     sigma_step = 0.015
     sigmas = np.arange(0.0, 1.5, sigma_step)
     T_max_base = 2000
-    T_step_base = 0.1
+    T_step_base = 100
     total = len(betas) * len(sigmas)
     logger.info(
         f"Starting to map parameter space of {len(betas)} beta, {len(sigmas)} sigma, total {total}"
     )
 
-    dnm = DynamicNetworkModel(full_save=False, steady_state_check=False, progress_bar=False)
-    solver = Tsit5(scan_kind="bounded")
+    dnm = DynamicNetworkModel(full_save=False, steady_state_check=True, progress_bar=False)
+    solver = Tsit5()
 
     db_str = "Final"
     storage = Storage(
@@ -488,9 +487,11 @@ if __name__ == "__main__":
                     M=num_parallel_runs,
                     solver=solver,
                     key=rand_key,
-                    T_init=0,
+                    T_init=0.0,
                     T_max=T_max_base,
                     T_step=T_step_base,
+                    ts=jnp.arange(0.0, T_max_base, T_step_base),
+
                 )
                 logger.info(f"Solved in {sol.stats['num_steps']} steps")
                 if sol.ys:
