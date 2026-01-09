@@ -15,10 +15,12 @@ def he_uniform_init(weight: Array, key: Array) -> Array:
     stddev = jnp.sqrt(2 / in_)  # He init scale
     return jax.random.uniform(key, shape=(out, in_), minval=-stddev, maxval=stddev, dtype=weight.dtype)
 
+
 def gru_bias_init(b: Array) -> Array:
     hidden_size = b.shape[0] // 3
     b = b.at[:].set(0.0)
-    return b.at[hidden_size:2*hidden_size].set(1.0)  # update gate
+    return b.at[hidden_size : 2 * hidden_size].set(1.0)  # update gate
+
 
 def xavier_uniform(w: Array, key: Array) -> Array:
     fan_in, fan_out = w.shape[1], w.shape[0]
@@ -62,7 +64,8 @@ def apply_initialization(model: PyTree, init_fn_weight: Callable, init_fn_bias: 
     key_weights, key_biases = jax.random.split(key, 2)
 
     new_weights = [
-        init_fn_weight(w, subkey) for w, subkey in zip(linear_weights, jax.random.split(key_weights, num_weights))
+        init_fn_weight(w, subkey)
+        for w, subkey in zip(linear_weights, jax.random.split(key_weights, num_weights), strict=False)
     ]
     model = eqx.tree_at(
         lambda m: [x.weight for x in jax.tree_util.tree_leaves(m, is_leaf=is_linear) if is_linear(x)],
@@ -70,7 +73,10 @@ def apply_initialization(model: PyTree, init_fn_weight: Callable, init_fn_bias: 
         new_weights,
     )
 
-    new_biases = [init_fn_bias(b, subkey) for b, subkey in zip(linear_biases, jax.random.split(key_biases, num_biases))]
+    new_biases = [
+        init_fn_bias(b, subkey)
+        for b, subkey in zip(linear_biases, jax.random.split(key_biases, num_biases), strict=False)
+    ]
     return eqx.tree_at(
         lambda m: [
             x.bias for x in jax.tree_util.tree_leaves(m, is_leaf=is_linear) if is_linear(x) and x.bias is not None
@@ -178,7 +184,9 @@ def causal_smoothing(
     return jnp.clip(smooth, 0.0, 1.0)
 
 
-def causal_probs(probs, window=6, eps=1e-6):
+def causal_probs(
+    probs: Float[Array, "batch time"], window: int = 6, eps: float | Float[Array, "1"] = 1e-6
+) -> Float[Array, "batch time"]:
     padded = jnp.pad(probs, (window - 1, 0), constant_values=0.0)
     # log-space cumulative sum trick for rolling product
     log1m = jnp.log1p(-padded + eps)

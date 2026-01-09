@@ -7,8 +7,8 @@ from jaxtyping import Array, Float
 from sklearn.metrics import average_precision_score, roc_auc_score
 from torch.utils.tensorboard.writer import SummaryWriter
 
-from sepsis_osc.ldm.helper_structs import AuxLosses
 from sepsis_osc.ldm.lookup import LatentLookup
+from sepsis_osc.ldm.model_structs import AuxLosses
 from sepsis_osc.visualisations.viz_model_results import (
     viz_curves,
     viz_heatmap_concepts,

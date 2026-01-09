@@ -41,15 +41,12 @@ def viz_starter(
     if ax is None:
         fig, ax = plt.subplots(1, 1)
 
-    alphas_space = jnp.array([alphas.mean()])
     betas_space = jnp.arange(*BETA_SPACE)
     sigmas_space = jnp.arange(*SIGMA_SPACE)
-    alpha_grid, beta_grid, sigma_grid = np.meshgrid(alphas_space, betas_space, sigmas_space, indexing="ij")
-    param_grid = np.stack([alpha_grid.ravel(), beta_grid.ravel(), sigma_grid.ravel()], axis=1)
+    beta_grid, sigma_grid = np.meshgrid(betas_space, sigmas_space, indexing="ij")
+    param_grid = np.stack([beta_grid.ravel(), sigma_grid.ravel()], axis=1)
 
-    metrics = lookup.hard_get_fsq(jnp.asarray(param_grid), temperature=jnp.ones_like(param_grid) * 1e-4).reshape(
-        len(betas_space), len(sigmas_space)
-    )
+    metrics = lookup.hard_get_fsq(jnp.asarray(param_grid)).reshape(len(betas_space), len(sigmas_space))
 
     # --- SOFA
     std_sym = r"$s^{1}$"
@@ -68,7 +65,7 @@ def viz_starter(
     sigmas = sigmas[mask].ravel()
 
     t_idx = np.tile(np.arange(T), N)
-    t_idx = t_idx[mask.ravel()]          # filter with mask
+    t_idx = t_idx[mask.ravel()]  # filter with mask
 
     beta_scale = len(betas_space) * (betas - BETA_SPACE[0]) / (BETA_SPACE[1] - BETA_SPACE[0])
     sigma_scale = len(sigmas_space) * (1 - (sigmas - SIGMA_SPACE[0]) / (SIGMA_SPACE[1] - SIGMA_SPACE[0]))
@@ -131,15 +128,12 @@ def viz_plane(
     if ax is None:
         fig, ax = plt.subplots(1, 1)
 
-    alphas_space = jnp.array([alphas.mean()])
     betas_space = jnp.arange(*BETA_SPACE)
     sigmas_space = jnp.arange(*SIGMA_SPACE)
-    alpha_grid, beta_grid, sigma_grid = np.meshgrid(alphas_space, betas_space, sigmas_space, indexing="ij")
-    param_grid = np.stack([alpha_grid.ravel(), beta_grid.ravel(), sigma_grid.ravel()], axis=1)
+    beta_grid, sigma_grid = np.meshgrid(betas_space, sigmas_space, indexing="ij")
+    param_grid = np.stack([beta_grid.ravel(), sigma_grid.ravel()], axis=1)
 
-    metrics = lookup.hard_get_fsq(jnp.asarray(param_grid), temperature=jnp.ones_like(param_grid) * 1e-4).reshape(
-        len(betas_space), len(sigmas_space)
-    )
+    metrics = lookup.hard_get_fsq(jnp.asarray(param_grid)).reshape((len(betas_space), len(sigmas_space)))
 
     # --- SOFA
     std_sym = r"$s^{1}$"

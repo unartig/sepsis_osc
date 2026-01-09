@@ -15,14 +15,8 @@ from jaxtyping import Array, Bool, Float, Int, PyTree, jaxtyped
 from torch.utils.tensorboard.writer import SummaryWriter
 
 from sepsis_osc.dnm.dynamic_network_model import DNMConfig, DNMMetrics
-from sepsis_osc.ldm.ae import (
-    Decoder,
-    LatentEncoder,
-    init_latent_encoder_weights,
-)
 from sepsis_osc.ldm.calibration_model import CalibrationModel
-
-# from sepsis_osc.ldm.checkpoint_utils import load_checkpoint, save_checkpoint
+from sepsis_osc.ldm.checkpoint_utils import load_checkpoint, save_checkpoint
 from sepsis_osc.ldm.commons import (
     binary_logits,
     causal_smoothing,
@@ -30,7 +24,7 @@ from sepsis_osc.ldm.commons import (
     prob_increase_steps,
 )
 from sepsis_osc.ldm.data_loading import get_data_sets_detection, prepare_batches_mask
-from sepsis_osc.ldm.latent_dynamics_model import GRUDetector, init_gru_weights
+from sepsis_osc.ldm.latent_dynamics_model import LatentDynamicsModel, init_ldm_weights
 from sepsis_osc.ldm.logging_utils import flatten_dict, log_train_metrics, log_val_metrics
 from sepsis_osc.ldm.lookup import LatentLookup, as_2d_indices
 from sepsis_osc.ldm.model_structs import LoadingConfig, LRConfig, SaveConfig, TrainingConfig
@@ -209,7 +203,7 @@ def mask_padding(loss: Float[Array, "*"], mask: Float[Array, "*"] | None = None)
 # === Loss Function ===
 @jaxtyped(typechecker=typechecker)
 def loss(
-    model: GRUDetector,
+    model: LatentDynamicsModel,
     x: Float[Array, "batch time input_dim"],
     true_concepts: Float[Array, "batch time 3"],
     mask: Bool[Array, "batch time"] = _1,
@@ -222,16 +216,15 @@ def loss(
     B, T, D = x.shape
     aux = AuxLosses.empty()
     sofa_true, infection_true, sepsis_true = true_concepts[..., 0], true_concepts[..., 1], true_concepts[..., 2]
-    batch_keys = jax.vmap(lambda i: jr.fold_in(key, i))(jnp.arange(B, dtype=jnp.int32))
-    z_seq_raw, inf_seq = jax.vmap(model.online_sequence)(x, batch_keys)
-    z_seq = constrain_z_margin(z_seq_raw, model.kernel_size // 2)
+    z_seq_raw, inf_seq = jax.vmap(model.online_sequence)(x)
+    z_seq = constrain_z_margin(z_seq_raw, model.lookup_kernel_size // 2)
 
     aux.boundary_loss = boundary_loss(z_seq_raw, margin_fraction=0.1)
 
-    alpha, aux.beta, aux.sigma = jnp.ones_like(z_seq[..., 0]) * model.alpha, z_seq[..., 0], z_seq[..., 1]
+    aux.beta, aux.sigma = z_seq[..., 0], z_seq[..., 1]
 
     sofa_pred = jax.vmap(lookup_func, in_axes=(0, None, None))(
-        jnp.concat([alpha[..., None], z_seq], axis=-1), model.lookup_temperature, model.kernel_size
+        z_seq, model.lookup_temperature, model.lookup_kernel_size
     )
     # --------- Recon Loss
     x_recon = jax.vmap(jax.vmap(model.decoder))(z_seq)
@@ -252,9 +245,7 @@ def loss(
     sofa_d2_true = jnp.concat(
         [jnp.expand_dims(jnp.zeros(B, dtype=jnp.bool), axis=1), (jnp.diff(sofa_true, axis=-1) > 0)], axis=-1
     )
-    aux.sofa_d2_p_loss = (
-        optax.sigmoid_focal_loss(binary_logits(aux.sofa_d2_p), sofa_d2_true, alpha=0.7, gamma=1.5)
-    )
+    aux.sofa_d2_p_loss = optax.sigmoid_focal_loss(binary_logits(aux.sofa_d2_p), sofa_d2_true, alpha=0.7, gamma=1.5)
 
     aux.sep3_p = causal_smoothing(aux.sofa_d2_p, decay=model.sofa_d2_label_smooth, radius=12) * aux.susp_inf_p
     aux.sep3_p_loss = optax.sigmoid_binary_cross_entropy(binary_logits(aux.sep3_p), sepsis_true)
@@ -288,7 +279,7 @@ def loss(
 @timing
 @eqx.filter_jit
 def process_train_epoch(
-    model: GRUDetector,
+    model: LatentDynamicsModel,
     opt_state: optax.OptState,
     x_data: Float[Array, "ntbatches batch time input_dim"],
     y_data: Float[Array, "ntbatches batch time 3"],
@@ -359,7 +350,7 @@ def process_train_epoch(
 @timing
 @eqx.filter_jit
 def process_val_epoch(
-    model: GRUDetector,
+    model: LatentDynamicsModel,
     x_data: Float[Array, "nvbatches batch t input_dim"],
     y_data: Float[Array, "nvbatches batch t 3"],
     mask_data: Bool[Array, "nvbatches batch t 1"],
@@ -456,18 +447,20 @@ if __name__ == "__main__":
 
     b, s = as_2d_indices(BETA_SPACE, SIGMA_SPACE)
     a = np.ones_like(b) * ALPHA
-    indices_3d = jnp.concatenate([a[..., np.newaxis], b[..., np.newaxis], s[..., np.newaxis]], axis=-1)[np.newaxis, ...]
-
-    spacing_3d = jnp.array([0.0, BETA_SPACE[2], SIGMA_SPACE[2]])
+    indices_2d = jnp.concatenate([b[..., np.newaxis], s[..., np.newaxis]], axis=-1)
+    spacing_2d = jnp.array([BETA_SPACE[2], SIGMA_SPACE[2]])
     params = DNMConfig.batch_as_index(a, b, s, 0.2)
-    metrics_3d, _ = sim_storage.read_multiple_results(params, proto_metric=DNMMetrics, threshold=0.0)
-    metrics_3d = metrics_3d.to_jax().reshape([1, *metrics_3d.shape["r_1"]])
+    print(params.shape)
+    metrics_2d, _ = sim_storage.read_multiple_results(params, proto_metric=DNMMetrics, threshold=0.0)
+    metrics_2d = metrics_2d.to_jax()
+    print(metrics_2d.shape)
+    print("AAAA", indices_2d.shape)
     lookup_table = LatentLookup(
-        metrics=metrics_3d.reshape((-1, 1)),
-        indices=indices_3d.reshape((-1, 3)),  # since param space only alpha beta sigma
-        metrics_3d=metrics_3d,
-        indices_3d=indices_3d,
-        grid_spacing=spacing_3d,
+        metrics=metrics_2d.reshape((-1, 1)),
+        indices=indices_2d.reshape((-1, 2)),  # since param space only alpha beta sigma
+        metrics_2d=metrics_2d,
+        indices_2d=indices_2d,
+        grid_spacing=spacing_2d,
         dtype=jnp.float32,
     )
     steps_per_epoch = (train_x.shape[0] // train_conf.batch_size) * train_conf.batch_size
@@ -483,7 +476,6 @@ if __name__ == "__main__":
     # === Initialization ===
     key = jr.PRNGKey(jax_random_seed)
     metrics = jnp.sort(lookup_table.relevant_metrics)
-    # TODO dont do this for the windowed
     _sofas, counts = np.unique(train_y[train_m][..., 0], return_counts=True, sorted=True)
     counts = np.pad(counts, 24 - counts.size, constant_values=0)
     sofa_dist = counts / counts.sum()
@@ -492,39 +484,23 @@ if __name__ == "__main__":
     print(train_y[train_m, 2].sum(), train_m.sum(), train_y[train_m, 2].sum() / train_m.sum())
     print(train_y[1, train_m[1], 2])
 
-    key_enc, key_inf, key_dec, key_gru = jr.split(key, 4)
-    key_enc_weights, key_gru_weights = jr.split(key, 2)
-    latent_encoder = LatentEncoder(
-        key_enc,
-        input_dim=104,
-        latent_enc_hidden=128,
-        latent_pred_hidden=16,
-        dropout_rate=0.3,
-        dtype=dtype,
-    )
-    latent_encoder = init_latent_encoder_weights(latent_encoder, key_enc_weights)
-    decoder = Decoder(
-        key_dec,
+    key_model, key_weights = jr.split(key, 2)
+    model = LatentDynamicsModel(
+        key=key_model,
         input_dim=52,
-        z_latent_dim=2,
-        dec_hidden=32,
-        dtype=dtype,
-    )
-    model = GRUDetector(
-        key=key,
-        input_dim=104,
-        latent_hidden_dim=latent_encoder.latent_pred_hidden,
+        latent_enc_hidden_dim=128,
+        latent_hidden_dim=16,
         latent_dim=2,
         inf_dim=1,
         inf_hidden_dim=8,
-        latent_pre_encoder=latent_encoder,
-        decoder=decoder,
-        alpha=ALPHA,
+        dec_hidden_dim=32,
         sofa_dist=jnp.asarray(sofa_dist),
     )
-    model = init_gru_weights(model, key_gru_weights, scale=1e-4)
+    # TODO necessary?
+    # model.latent_pre_encoder = init_latent_encoder_weights(model.latent_pre_encoder, key_weights)
+    model = init_ldm_weights(model, key_weights, scale=1e-4)
 
-    hyper_enc, hyper_dec, hyper_gru = model.hypers_dict()
+    hyper_ldm = model.hypers_dict()
 
     optimizer = optax.chain(
         optax.clip_by_global_norm(lr_conf.grad_norm),
@@ -548,9 +524,11 @@ if __name__ == "__main__":
     logger.info(f"Instatiated model with {model.n_params} parameters. Decoder {model.decoder.n_params}")
     # === Training Loop ===
     writer = SummaryWriter()
+    clean_hyper = hyper_ldm.copy()
+    del clean_hyper["sofa_dist"]
     hyper_params = flatten_dict(
         {
-            # "model": asdict(model_conf),
+            "model": clean_hyper,
             "losses": asdict(loss_conf),
             "train": asdict(train_conf),
             "lr": asdict(lr_conf),
@@ -628,14 +606,13 @@ if __name__ == "__main__":
         gc.collect()
 
         # --- Save checkpoint ---
-    #     if (epoch + 1) % save_conf.save_every == 0 and save_conf.perform:
-    #         save_dir = writer.get_logdir() if not load_conf.from_dir else load_conf.from_dir
-    #         save_checkpoint(
-    #             save_dir + "/checkpoints",
-    #             epoch,
-    #             model,
-    #             opt_state,
-    #             hyper_dec,
-    #             hyper_enc,
-    #         )
+        if (epoch + 1) % save_conf.save_every == 0 and save_conf.perform:
+            save_dir = writer.get_logdir() if not load_conf.from_dir else load_conf.from_dir
+            save_checkpoint(
+                save_dir + "/checkpoints",
+                epoch,
+                model,
+                opt_state,
+                hyper_ldm,
+            )
     writer.close()
