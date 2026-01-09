@@ -15,11 +15,11 @@ from torch.utils.tensorboard.writer import SummaryWriter
 
 from sepsis_osc.dnm.dynamic_network_model import DNMConfig, DNMMetrics
 from sepsis_osc.ldm.ae import (
-    CoordinateEncoder,
+    LatentEncoder,
     Decoder,
-    InfectionPredictor,
+    InfectionEncoder,
     init_decoder_weights,
-    init_encoder_weights,
+    init_latent_encoder_weights,
 )
 from sepsis_osc.ldm.calibration_model import CalibrationModel
 from sepsis_osc.ldm.checkpoint_utils import load_checkpoint, save_checkpoint
@@ -508,7 +508,7 @@ if __name__ == "__main__":
     deltas = jnp.asarray(deltas)
 
     full = 2 if model_conf.w_indicator else 1
-    encoder = CoordinateEncoder(
+    encoder = LatentEncoder(
         key_enc,
         full * (model_conf.var_features + model_conf.stat_features),
         model_conf.enc_hidden,
@@ -516,7 +516,7 @@ if __name__ == "__main__":
         dropout_rate=model_conf.dropout_rate,
         dtype=dtype,
     )
-    inf_predictor = InfectionPredictor(
+    inf_predictor = InfectionEncoder(
         key_inf_predictor,
         full * (model_conf.var_features + model_conf.stat_features),
         model_conf.inf_pred_hidden,
@@ -538,7 +538,7 @@ if __name__ == "__main__":
         dtype=dtype,
     )
     key_enc_weights, key_dec_weights, key_gru_weights = jr.split(key, 3)
-    encoder = init_encoder_weights(encoder, key_enc_weights)
+    encoder = init_latent_encoder_weights(encoder, key_enc_weights)
     decoder = init_decoder_weights(decoder, key_dec_weights)
     gru = init_gru_weights(gru, key_gru_weights)
     model = LatentDynamicsModel(

@@ -2,22 +2,22 @@ import equinox as eqx
 import jax
 import jax.numpy as jnp
 import jax.random as jr
-from jaxtyping import Array, Float, jaxtyped
+from jaxtyping import Array, Float, PRNGKeyArray, jaxtyped
 from numpy.typing import DTypeLike
 
 from sepsis_osc.ldm.ae import Decoder, LatentEncoder
-from sepsis_osc.ldm.commons import gru_bias_init, qr_init, xavier_uniform
-from sepsis_osc.utils.config import ALPHA
+from sepsis_osc.ldm.commons import qr_init
 from sepsis_osc.utils.jax_config import typechecker
 
 ones_24 = jnp.ones(24)
 
 
-class GRUDetector(eqx.Module):
+class LatentDynamicsModel(eqx.Module):
     latent_pre_encoder: LatentEncoder
     latent_encoder: eqx.nn.GRUCell
     latent_rollout: eqx.nn.GRUCell
     latent_proj_out: eqx.nn.Linear
+    latent_enc_hidden_dim: int = eqx.field(static=True)
     latent_hidden_dim: int = eqx.field(static=True)
 
     inf_encoder: eqx.nn.GRUCell
@@ -27,6 +27,8 @@ class GRUDetector(eqx.Module):
 
     latent_h0: Array
     inf_h0: Array
+
+    dec_hidden_dim: int = eqx.field(static=True)
     decoder: Decoder
 
     input_dim: int = eqx.field(static=True)
@@ -34,8 +36,7 @@ class GRUDetector(eqx.Module):
     inf_dim: int = eqx.field(static=True)
 
     sofa_dist: Float[Array, "24"] = eqx.field(static=True)
-    alpha: float = eqx.field(static=True)
-    kernel_size: int
+    lookup_kernel_size: int
 
     _lookup_temperature: Float[Array, "1"]
     _d_diff: Array
@@ -46,42 +47,54 @@ class GRUDetector(eqx.Module):
 
     def __init__(
         self,
-        key: jnp.ndarray,
+        key: PRNGKeyArray,
         input_dim: int,
         latent_dim: int,
+        latent_enc_hidden_dim: int,
         latent_hidden_dim: int,
         inf_dim: int,
         inf_hidden_dim: int,
-        decoder: Decoder,
-        latent_pre_encoder: LatentEncoder,
-        alpha: float = ALPHA,
-        kernel_size: int = 3,
+        dec_hidden_dim: int,
+        lookup_kernel_size: int = 3,
         sofa_dist: Float[Array, "24"] = ones_24,
         dtype: DTypeLike = jnp.float32,
     ) -> None:
-        keyz, keyinf = jr.split(key, 2)
+        key_dec, key_enc, keyz, keyinf = jr.split(key, 4)
 
-        self.decoder = decoder
-
-        self.alpha = alpha
-        self.kernel_size = kernel_size
+        self.lookup_kernel_size = lookup_kernel_size
         self.sofa_dist = sofa_dist
         self.input_dim = input_dim
         self.latent_dim = latent_dim
         self.inf_dim = inf_dim
+        self.latent_enc_hidden_dim = latent_enc_hidden_dim
         self.latent_hidden_dim = latent_hidden_dim
         self.inf_hidden_dim = inf_hidden_dim
+        self.dec_hidden_dim = dec_hidden_dim
 
-        self.latent_pre_encoder = latent_pre_encoder
-        self.latent_encoder = eqx.nn.GRUCell(input_dim + latent_dim, latent_hidden_dim, key=keyz, use_bias=False)
+        self.latent_pre_encoder = LatentEncoder(
+            key_enc,
+            input_dim=input_dim * 2,
+            latent_enc_hidden=latent_enc_hidden_dim,
+            latent_pred_hidden=latent_hidden_dim,
+            dtype=dtype,
+        )
+        self.latent_encoder = eqx.nn.GRUCell((input_dim * 2) + latent_dim, latent_hidden_dim, key=keyz, use_bias=False)
         self.latent_h0 = jnp.zeros(latent_hidden_dim)
         self.latent_rollout = eqx.nn.GRUCell(latent_dim, latent_hidden_dim, key=keyz, dtype=dtype)
         self.latent_proj_out = eqx.nn.Linear(latent_hidden_dim, latent_dim, key=keyz, dtype=dtype, use_bias=False)
 
-        self.inf_encoder = eqx.nn.GRUCell(input_dim, inf_hidden_dim, key=keyinf, use_bias=False)
+        self.inf_encoder = eqx.nn.GRUCell(input_dim * 2, inf_hidden_dim, key=keyinf, use_bias=False)
         self.inf_h0 = jnp.zeros(inf_hidden_dim)
         self.inf_rollout = eqx.nn.GRUCell(inf_dim, inf_hidden_dim, key=keyinf, dtype=dtype)
         self.inf_proj_out = eqx.nn.Linear(inf_hidden_dim, inf_dim, key=keyinf, dtype=dtype)
+
+        self.decoder = Decoder(
+            key_dec,
+            input_dim=input_dim,
+            z_latent_dim=latent_dim,
+            dec_hidden=dec_hidden_dim,
+            dtype=dtype,
+        )
 
         self._d_diff = jnp.log(jnp.ones((1,), dtype=jnp.float32) * 1 / 25)
         self._d_scale = jnp.log(jnp.ones((1,), dtype=jnp.float32) * 50)
@@ -114,26 +127,18 @@ class GRUDetector(eqx.Module):
     def sofa_d2_pred_smooth(self) -> Float[Array, "1"]:
         return jnp.exp(self._sofa_d2_pred_smooth)
 
-    def hypers_dict(self) -> tuple[dict[str, int | float], dict[str, int], dict[str, int | float | Array]]:
-        hyper_enc = {
+    def hypers_dict(self) -> dict[str, int | float | Array]:
+        return {
             "input_dim": self.input_dim,
-            "enc_hidden": self.latent_hidden_dim,
-            "pred_hidden": self.latent_dim,
-        }
-        hyper_dec = {
-            "input_dim": self.decoder.input_dim,
-            "z_latent_dim": self.decoder.z_latent_dim,
-            "dec_hidden": self.decoder.dec_hidden,
-        }
-        hyper_gru = {
-            "alpha": self.alpha,
-            "kernel_size": self.kernel_size,
-            "sofa_dist": self.sofa_dist,
-            "input_dim": self.input_dim,
-            "z_hidden_dim": self.latent_hidden_dim,
+            "latent_dim": self.latent_dim,
+            "latent_enc_hidden_dim": self.latent_enc_hidden_dim,
+            "latent_hidden_dim": self.latent_hidden_dim,
+            "inf_dim": self.inf_dim,
             "inf_hidden_dim": self.inf_hidden_dim,
+            "dec_hidden_dim": self.dec_hidden_dim,
+            "lookup_kernel_size": self.lookup_kernel_size,
+            "sofa_dist": self.sofa_dist,
         }
-        return hyper_enc, hyper_dec, hyper_gru
 
     def params_to_dict(self) -> dict[str, jnp.ndarray]:
         return {
@@ -146,7 +151,7 @@ class GRUDetector(eqx.Module):
 
     @jaxtyped(typechecker=typechecker)
     def online_sequence(
-        self, xs: Float[Array, "time input_dim"], key: jnp.ndarray
+        self, xs: Float[Array, "time input_dim"]
     ) -> tuple[Float[Array, "time latent_dim"], Float[Array, "time 1"]]:
         @jaxtyped(typechecker=typechecker)
         def z_step(
@@ -223,6 +228,36 @@ class GRUDetector(eqx.Module):
         return jax.nn.sigmoid(z_seq), inf_seq
 
 
-def init_gru_weights(gru: GRUDetector, key: jnp.ndarray, scale: float = 1e-1) -> GRUDetector:
-    gru = eqx.tree_at(lambda e: e.latent_proj_out.weight, gru, qr_init(gru.latent_proj_out.weight, key) * scale)
-    return gru
+def make_ldm(
+    key: PRNGKeyArray,
+    input_dim: int,
+    latent_dim: int,
+    latent_enc_hidden_dim: int,
+    latent_hidden_dim: int,
+    inf_dim: int,
+    inf_hidden_dim: int,
+    dec_hidden_dim: int,
+    lookup_kernel_size: int,
+    sofa_dist: Float[Array, "24"],
+):
+    return LatentDynamicsModel(
+        key=key,
+        input_dim=input_dim,
+        latent_dim=latent_dim,
+        latent_enc_hidden_dim=latent_enc_hidden_dim,
+        latent_hidden_dim=latent_hidden_dim,
+        inf_dim=inf_dim,
+        inf_hidden_dim=inf_hidden_dim,
+        dec_hidden_dim=dec_hidden_dim,
+        lookup_kernel_size=lookup_kernel_size,
+        sofa_dist=sofa_dist,
+    )
+
+
+def init_ldm_weights(ldm: LatentDynamicsModel, key: jnp.ndarray, scale: float = 1e-1) -> LatentDynamicsModel:
+    enc_key, gru_key = jr.split(key)
+    # ldm = eqx.tree_at(
+    #     lambda e: e.latent_pre_encoder, ldm, apply_initialization(ldm.latent_pre_encoder, qr_init, zero_bias_init, enc_key)
+    # )
+    ldm = eqx.tree_at(lambda e: e.latent_proj_out.weight, ldm, qr_init(ldm.latent_proj_out.weight, gru_key) * scale)
+    return ldm

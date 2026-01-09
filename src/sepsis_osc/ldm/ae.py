@@ -5,7 +5,6 @@ from typing import TypeVar
 import equinox as eqx
 import jax
 import jax.numpy as jnp
-import jax.random as jr
 from jaxtyping import Array, Float, jaxtyped
 from numpy.typing import DTypeLike
 
@@ -32,7 +31,6 @@ class LatentEncoder(eqx.Module):
     input_dim: int
     latent_enc_hidden: int
     latent_pred_hidden: int
-    dropout_rate: float
 
     def __init__(
         self,
@@ -40,7 +38,6 @@ class LatentEncoder(eqx.Module):
         input_dim: int,
         latent_enc_hidden: int,
         latent_pred_hidden: int,
-        dropout_rate: float,
         dtype: DTypeLike = jnp.float32,
     ) -> None:
         (key_linz, key_attnz, key_z, key_linh, key_h) = jax.random.split(key, 5)
@@ -48,7 +45,6 @@ class LatentEncoder(eqx.Module):
         self.input_dim = input_dim
         self.latent_enc_hidden = latent_enc_hidden
         self.latent_pred_hidden = latent_pred_hidden
-        self.dropout_rate = dropout_rate
 
         # Gating
         self.attn_z = eqx.nn.Linear(input_dim // 2, input_dim // 2, key=key_attnz, dtype=dtype, use_bias=False)
@@ -107,7 +103,7 @@ class Decoder(eqx.Module):
         input_dim: int,
         z_latent_dim: int,
         dec_hidden: int,
-        dtype: jnp.dtype = jnp.float32,
+        dtype: DTypeLike = jnp.float32,
     ) -> None:
         key1, key2, key3, key4 = jax.random.split(key, 4)
 
@@ -143,14 +139,10 @@ def init_latent_encoder_weights(encoder: LatentEncoder, key: jnp.ndarray, scale:
     return apply_initialization(encoder, qr_init, zero_bias_init, key)
 
 
-def init_decoder_weights(decoder: Decoder, key: jnp.ndarray) -> Decoder:
-    return apply_initialization(decoder, he_uniform_init, zero_bias_init, key)
-
-
 def make_encoder(
-    key: jnp.ndarray, input_dim: int, enc_hidden: int, pred_hidden: int, dropout_rate: float
+    key: jnp.ndarray, input_dim: int, enc_hidden: int, pred_hidden: int
 ) -> LatentEncoder:
-    return LatentEncoder(key, input_dim, enc_hidden, pred_hidden, dropout_rate=dropout_rate)
+    return LatentEncoder(key, input_dim, enc_hidden, pred_hidden)
 
 
 def make_decoder(key: jnp.ndarray, input_dim: int, z_latent_dim: int, dec_hidden: int) -> Decoder:
