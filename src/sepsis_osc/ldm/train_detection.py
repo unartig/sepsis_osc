@@ -25,17 +25,15 @@ from sepsis_osc.ldm.calibration_model import CalibrationModel
 # from sepsis_osc.ldm.checkpoint_utils import load_checkpoint, save_checkpoint
 from sepsis_osc.ldm.commons import (
     binary_logits,
-    causal_probs,
     causal_smoothing,
     custom_warmup_cosine,
     prob_increase_steps,
-    smooth_labels,
 )
 from sepsis_osc.ldm.data_loading import get_data_sets_detection, prepare_batches_mask
-from sepsis_osc.ldm.gru_detector import GRUDetector, init_gru_weights
-from sepsis_osc.ldm.helper_structs import LoadingConfig, LRConfig, SaveConfig, TrainingConfig
+from sepsis_osc.ldm.latent_dynamics_model import GRUDetector, init_gru_weights
 from sepsis_osc.ldm.logging_utils import flatten_dict, log_train_metrics, log_val_metrics
 from sepsis_osc.ldm.lookup import LatentLookup, as_2d_indices
+from sepsis_osc.ldm.model_structs import LoadingConfig, LRConfig, SaveConfig, TrainingConfig
 from sepsis_osc.storage.storage_interface import Storage
 from sepsis_osc.utils.config import ALPHA, BETA_SPACE, SIGMA_SPACE, jax_random_seed
 from sepsis_osc.utils.jax_config import EPS, setup_jax, typechecker
@@ -62,8 +60,8 @@ class AuxLosses:
     total_loss: Array
     recon_loss: Array
     spreading_loss: Array
+    boundary_loss: Array
     sofa_loss_t: Array
-    sofa_loss_sum: Array
     sofa_d2_p_loss: Array
     infection_p_loss_t: Array
     sep3_p_loss: Array
@@ -88,10 +86,10 @@ class AuxLosses:
             "losses": {
                 "total_loss": self.total_loss,
                 "spreading_loss": self.spreading_loss,
+                "boundary_loss": self.boundary_loss,
                 "recon_loss": self.recon_loss,
                 "sofa_directional_loss": self.sofa_directional_loss,
                 "sofa": self.sofa_loss_t,
-                "sofa_sum": self.sofa_loss_sum,
                 "sofa_d2": self.sofa_d2_p_loss,
                 "infection": self.infection_p_loss_t,
                 "sepsis-3": self.sep3_p_loss,
@@ -114,6 +112,7 @@ class AuxLosses:
 @dataclass
 class LossesConfig:
     w_spreading: float
+    w_boundary: float
     w_recon: float
     w_sofa_direction: float
     w_sofa_classification: float
@@ -155,10 +154,35 @@ def masked_cov(
 
 
 def constrain_z(z: Float[Array, "batch time zlatent_dim"]) -> Float[Array, "batch time zlatent_dim"]:
-    # z = jnp.clip(z, 0, 1)
     beta, sigma = jnp.split(z, 2, axis=-1)
     beta = beta * (BETA_SPACE[1] - BETA_SPACE[0]) + BETA_SPACE[0]
     sigma = sigma * (SIGMA_SPACE[1] - SIGMA_SPACE[0]) + SIGMA_SPACE[0]
+    return jnp.concatenate([beta, sigma], axis=-1)
+
+
+def boundary_loss(
+    z_sigmoid: Float[Array, "batch time zlatent_dim"],
+    margin_fraction: float = 0.1,  # penalize outer 10% of range
+) -> Float[Array, ""]:
+    # Penalize being too close to 0 or 1
+    lower_violation = jax.nn.relu(margin_fraction - z_sigmoid)
+    upper_violation = jax.nn.relu(z_sigmoid - (1.0 - margin_fraction))
+
+    return (lower_violation + upper_violation).mean(axis=-1)
+
+
+def constrain_z_margin(
+    z: Float[Array, "batch time zlatent_dim"], margin: int = 1
+) -> Float[Array, "batch time zlatent_dim"]:
+    beta, sigma = jnp.split(z, 2, axis=-1)
+
+    safe_beta_min = BETA_SPACE[0] + margin * BETA_SPACE[2]
+    safe_beta_max = BETA_SPACE[1] - margin * BETA_SPACE[2]
+    safe_sigma_min = SIGMA_SPACE[0] + margin * SIGMA_SPACE[2]
+    safe_sigma_max = SIGMA_SPACE[1] - margin * SIGMA_SPACE[2]
+
+    beta = beta * (safe_beta_max - safe_beta_min) + safe_beta_min
+    sigma = sigma * (safe_sigma_max - safe_sigma_min) + safe_sigma_min
     return jnp.concatenate([beta, sigma], axis=-1)
 
 
@@ -199,15 +223,11 @@ def loss(
     aux = AuxLosses.empty()
     sofa_true, infection_true, sepsis_true = true_concepts[..., 0], true_concepts[..., 1], true_concepts[..., 2]
     batch_keys = jax.vmap(lambda i: jr.fold_in(key, i))(jnp.arange(B, dtype=jnp.int32))
-    z_seq, inf_seq = jax.vmap(model.online_sequence)(x, batch_keys)
-    z_seq = constrain_z(z_seq)
+    z_seq_raw, inf_seq = jax.vmap(model.online_sequence)(x, batch_keys)
+    z_seq = constrain_z_margin(z_seq_raw, model.kernel_size // 2)
 
-    ann_s3 = cosine_annealing(
-        0.0, num_steps=400 * params.steps_per_epoch, num_dead_steps=800 * params.steps_per_epoch, current_step=step
-    )
-    ann_recon = cosine_annealing(
-        0.0, num_steps=200 * params.steps_per_epoch, num_dead_steps=200 * params.steps_per_epoch, current_step=step
-    )
+    aux.boundary_loss = boundary_loss(z_seq_raw, margin_fraction=0.1)
+
     alpha, aux.beta, aux.sigma = jnp.ones_like(z_seq[..., 0]) * model.alpha, z_seq[..., 0], z_seq[..., 1]
 
     sofa_pred = jax.vmap(lookup_func, in_axes=(0, None, None))(
@@ -226,8 +246,6 @@ def loss(
     aux.infection_p_loss_t = optax.sigmoid_binary_cross_entropy(inf_seq.squeeze(), infection_true)
 
     aux.susp_inf_p = jax.nn.sigmoid(inf_seq).squeeze()
-    # sofa_pred = sofa_true.astype(jnp.float32) / 23.0
-    # aux.susp_inf_p = infection_true
 
     aux.sofa_d2_p = jax.vmap(prob_increase_steps, in_axes=(0, None, None))(sofa_pred, model.d_thresh, model.d_scale)
 
@@ -235,22 +253,20 @@ def loss(
         [jnp.expand_dims(jnp.zeros(B, dtype=jnp.bool), axis=1), (jnp.diff(sofa_true, axis=-1) > 0)], axis=-1
     )
     aux.sofa_d2_p_loss = (
-        optax.sigmoid_focal_loss(binary_logits(aux.sofa_d2_p), sofa_d2_true, alpha=0.7, gamma=1.5)  # * ann_d2
+        optax.sigmoid_focal_loss(binary_logits(aux.sofa_d2_p), sofa_d2_true, alpha=0.7, gamma=1.5)
     )
 
-    # aux.sofa_d2_p = jax.vmap(causal_probs)(p_increase)
     aux.sep3_p = causal_smoothing(aux.sofa_d2_p, decay=model.sofa_d2_label_smooth, radius=12) * aux.susp_inf_p
-    aux.sep3_p_loss = optax.sigmoid_binary_cross_entropy(binary_logits(aux.sep3_p), sepsis_true)  #  * ann_s3
+    aux.sep3_p_loss = optax.sigmoid_binary_cross_entropy(binary_logits(aux.sep3_p), sepsis_true)
 
     # --------- Directional Loss
     aux.sofa_directional_loss = jax.vmap(calc_full_directional_loss)(sofa_pred, sofa_true / 23.0, mask)
 
     # --------- Spreading Loss
     zcov = masked_cov(z_seq, mask)
-    det_loss  = -jnp.log(jnp.linalg.det(zcov + EPS))
-    trace_loss = -jnp.log(jnp.trace(zcov) + EPS)
+    det_loss = -jnp.log(jnp.linalg.det(zcov + EPS))
 
-    aux.spreading_loss =  det_loss# trace_loss #
+    aux.spreading_loss = det_loss
 
     # --------- Total Loss
     thresholds = jnp.cumsum(jnp.ones(25) / 25)
@@ -263,8 +279,8 @@ def loss(
         + mask_padding(aux.sofa_loss_t * params.w_sofa_classification, mask)
         + mask_padding(aux.sep3_p_loss * params.w_sep3, mask)
         + mask_padding(aux.sofa_directional_loss * params.w_sofa_direction, mask)
-        + mask_padding(aux.sofa_loss_sum * params.w_sofa_classification)
         + mask_padding(aux.spreading_loss * params.w_spreading)
+        + mask_padding(aux.boundary_loss * params.w_boundary, mask)
     )
     return aux.total_loss, aux
 
@@ -394,17 +410,18 @@ if __name__ == "__main__":
     logger = logging.getLogger(__name__)
 
     train_conf = TrainingConfig(
-        batch_size=1024, window_len=1 + 6, epochs=int(3e3), perc_train_set=0.333, validate_every=5
+        batch_size=512, window_len=1 + 6, epochs=int(3e3), perc_train_set=0.333, validate_every=5
     )
     lr_conf = LRConfig(init=0.0, peak=1e-3, peak_decay=0.5, end=1e-3, warmup_epochs=1, enc_wd=1e-4, grad_norm=100.0)
     loss_conf = LossesConfig(
         w_recon=5.0,
         w_sofa_direction=10.0,
-        w_sofa_classification=80.0,
-        w_sofa_d2=30.0,
+        w_sofa_classification=800,
+        w_sofa_d2=15.0,
         w_inf=1.0,
-        w_sep3=10,
+        w_sep3=10.0,
         w_spreading=3e-3,
+        w_boundary=30,
     )
     load_conf = LoadingConfig(from_dir="", epoch=0)
     save_conf = SaveConfig(save_every=100, perform=True)
@@ -428,7 +445,7 @@ if __name__ == "__main__":
     logger.info(f"Train shape      - Y {train_y.shape}, X {train_x.shape}, m {train_m.shape}")
     logger.info(f"Validation shape - Y {val_y.shape},  X {val_x.shape},  m {val_m.shape}")
 
-    db_str = "Daisy2"
+    db_str = "DaisyFinal"
     sim_storage = Storage(
         key_dim=9,
         metrics_kv_name=f"data/{db_str}SepsisMetrics.db/",
@@ -480,7 +497,7 @@ if __name__ == "__main__":
     latent_encoder = LatentEncoder(
         key_enc,
         input_dim=104,
-        latent_enc_hidden=32,
+        latent_enc_hidden=128,
         latent_pred_hidden=16,
         dropout_rate=0.3,
         dtype=dtype,
