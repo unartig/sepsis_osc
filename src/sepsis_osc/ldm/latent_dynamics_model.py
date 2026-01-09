@@ -24,8 +24,6 @@ class LatentDynamicsModel(eqx.Module):
     inf_rollout: eqx.nn.GRUCell
     inf_proj_out: eqx.nn.Linear
     inf_hidden_dim: int = eqx.field(static=True)
-
-    latent_h0: Array
     inf_h0: Array
 
     dec_hidden_dim: int = eqx.field(static=True)
@@ -79,7 +77,6 @@ class LatentDynamicsModel(eqx.Module):
             dtype=dtype,
         )
         self.latent_encoder = eqx.nn.GRUCell((input_dim * 2) + latent_dim, latent_hidden_dim, key=keyz, use_bias=False)
-        self.latent_h0 = jnp.zeros(latent_hidden_dim)
         self.latent_rollout = eqx.nn.GRUCell(latent_dim, latent_hidden_dim, key=keyz, dtype=dtype)
         self.latent_proj_out = eqx.nn.Linear(latent_hidden_dim, latent_dim, key=keyz, dtype=dtype, use_bias=False)
 
@@ -137,7 +134,6 @@ class LatentDynamicsModel(eqx.Module):
             "inf_hidden_dim": self.inf_hidden_dim,
             "dec_hidden_dim": self.dec_hidden_dim,
             "lookup_kernel_size": self.lookup_kernel_size,
-            "sofa_dist": self.sofa_dist,
         }
 
     def params_to_dict(self) -> dict[str, jnp.ndarray]:
@@ -202,7 +198,7 @@ class LatentDynamicsModel(eqx.Module):
             return (h_next, z_next), z_next
 
         pre_x = self.latent_pre_encoder(x)
-        zh0 = self.latent_encoder(pre_x, self.latent_h0)
+        z0, zh0 = self.latent_pre_encoder(pre_x)
         _, zhs = jax.lax.scan(z_step, zh0, x[1:])
         z_pred = jnp.concat([zh0, zhs], axis=-1)
         z_seq = jax.vmap(self.latent_proj_out)(z_pred)
@@ -239,7 +235,7 @@ def make_ldm(
     dec_hidden_dim: int,
     lookup_kernel_size: int,
     sofa_dist: Float[Array, "24"],
-):
+) -> LatentDynamicsModel:
     return LatentDynamicsModel(
         key=key,
         input_dim=input_dim,
@@ -250,7 +246,6 @@ def make_ldm(
         inf_hidden_dim=inf_hidden_dim,
         dec_hidden_dim=dec_hidden_dim,
         lookup_kernel_size=lookup_kernel_size,
-        sofa_dist=sofa_dist,
     )
 
 

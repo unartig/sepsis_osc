@@ -450,11 +450,8 @@ if __name__ == "__main__":
     indices_2d = jnp.concatenate([b[..., np.newaxis], s[..., np.newaxis]], axis=-1)
     spacing_2d = jnp.array([BETA_SPACE[2], SIGMA_SPACE[2]])
     params = DNMConfig.batch_as_index(a, b, s, 0.2)
-    print(params.shape)
     metrics_2d, _ = sim_storage.read_multiple_results(params, proto_metric=DNMMetrics, threshold=0.0)
     metrics_2d = metrics_2d.to_jax()
-    print(metrics_2d.shape)
-    print("AAAA", indices_2d.shape)
     lookup_table = LatentLookup(
         metrics=metrics_2d.reshape((-1, 1)),
         indices=indices_2d.reshape((-1, 2)),  # since param space only alpha beta sigma
@@ -463,6 +460,7 @@ if __name__ == "__main__":
         grid_spacing=spacing_2d,
         dtype=jnp.float32,
     )
+
     steps_per_epoch = (train_x.shape[0] // train_conf.batch_size) * train_conf.batch_size
     schedule = custom_warmup_cosine(
         init_value=lr_conf.init,
@@ -521,14 +519,18 @@ if __name__ == "__main__":
 
     filter_spec = jtu.tree_map(lambda _: eqx.is_inexact_array, model)
 
-    logger.info(f"Instatiated model with {model.n_params} parameters. Decoder {model.decoder.n_params}")
+    logger.info(
+        f"Instatiated model with total {model.n_params} parameters. "
+        f"Encoder {model.latent_pre_encoder.n_params}, "
+        f"Latent {sum(x.size for x in jtu.tree_leaves(model.latent_encoder))} + {sum(x.size for x in jtu.tree_leaves(model.latent_proj_out))}, "
+        f"Inf {sum(x.size for x in jtu.tree_leaves(model.inf_encoder))} + {sum(x.size for x in jtu.tree_leaves(model.inf_proj_out))}, "
+        f"Decoder {model.decoder.n_params}"
+    )
     # === Training Loop ===
     writer = SummaryWriter()
-    clean_hyper = hyper_ldm.copy()
-    del clean_hyper["sofa_dist"]
     hyper_params = flatten_dict(
         {
-            "model": clean_hyper,
+            "model": hyper_ldm,
             "losses": asdict(loss_conf),
             "train": asdict(train_conf),
             "lr": asdict(lr_conf),
