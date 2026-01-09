@@ -24,6 +24,7 @@
     "ICU": "Intensive Care Unit",
     "JIT": "Just In Time Compilation",
     "LDM": "Latent Dynamics Model",
+    "LOS": "Length Of Stay",
     "LSTM": "Long Short-Term Memory",
     "MIMIC": "Medical Information Mart for Intensive Care",
     "ML": "Machine Learning",
