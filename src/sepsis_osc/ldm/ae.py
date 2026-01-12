@@ -1,6 +1,4 @@
 import logging
-from collections.abc import Callable
-from typing import TypeVar
 
 import equinox as eqx
 import jax
@@ -8,7 +6,6 @@ import jax.numpy as jnp
 from jaxtyping import Array, Float, jaxtyped
 from numpy.typing import DTypeLike
 
-from sepsis_osc.ldm.commons import apply_initialization, he_uniform_init, qr_init, zero_bias_init
 from sepsis_osc.utils.jax_config import typechecker
 
 logger = logging.getLogger(__name__)
@@ -130,20 +127,3 @@ class Decoder(eqx.Module):
             z = layer(z)
         return z
 
-
-EncDec = TypeVar("EncDec", LatentEncoder, Decoder)
-InitFn = Callable[[Array, Array], Array]
-
-
-def init_latent_encoder_weights(encoder: LatentEncoder, key: jnp.ndarray, scale: float = 1.0) -> LatentEncoder:
-    return apply_initialization(encoder, qr_init, zero_bias_init, key)
-
-
-def make_encoder(
-    key: jnp.ndarray, input_dim: int, enc_hidden: int, pred_hidden: int
-) -> LatentEncoder:
-    return LatentEncoder(key, input_dim, enc_hidden, pred_hidden)
-
-
-def make_decoder(key: jnp.ndarray, input_dim: int, z_latent_dim: int, dec_hidden: int) -> Decoder:
-    return Decoder(key, input_dim, z_latent_dim, dec_hidden)

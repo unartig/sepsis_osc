@@ -25,7 +25,6 @@ plt.rc("figure", titlesize=BIGGER_SIZE)  # fontsize of the figure title
 
 
 def viz_starter(
-    alphas: jnp.ndarray,
     betas: jnp.ndarray,
     sigmas: jnp.ndarray,
     lookup: LatentLookup,
@@ -54,7 +53,7 @@ def viz_starter(
         metrics,
         xs=np.asarray(betas_space),
         ys=np.asarray(sigmas_space),
-        title=rf"SOFA Progression over {std_sym} space @$\alpha=${alphas.mean():.3f}{'\n'}Parenchymal Layer",
+        title=rf"SOFA Progression over {std_sym} space{'\n'}Parenchymal Layer",
         cmap=cmaps,
         filename=filename,
         figure_dir=figure_dir,
@@ -112,7 +111,6 @@ def viz_progression(
 
 def viz_plane(
     true_sofa: jnp.ndarray | np.ndarray,
-    alphas: jnp.ndarray,
     betas: jnp.ndarray,
     sigmas: jnp.ndarray,
     lookup: LatentLookup,
@@ -141,7 +139,7 @@ def viz_plane(
         metrics,
         xs=np.asarray(betas_space),
         ys=np.asarray(sigmas_space),
-        title=rf"SOFA Progression over {std_sym} space @$\alpha=${alphas.mean():.3f}{'\n'}Parenchymal Layer",
+        title=rf"SOFA Progression over {std_sym} space{'\n'}Parenchymal Layer",
         cmap=cmaps,
         filename=filename,
         figure_dir=figure_dir,

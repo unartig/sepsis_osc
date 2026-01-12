@@ -10,8 +10,13 @@ from sepsis_osc.utils.jax_config import EPS, typechecker
 
 _1 = jnp.ones((1,))
 
+
 @jaxtyped(typechecker=typechecker)
 class LatentLookup(eqx.Module):
+    """
+    An Equinox module that performs differentiable and non-differentiable lookups into a precomputed metric database.
+    """
+
     metrics: MetricBase = field(static=True)
     indices_t: Float[Array, "db_size 2"] = field(static=True)
     relevant_metrics: Float[Array, " db_size"] = field(static=True)
@@ -40,24 +45,24 @@ class LatentLookup(eqx.Module):
     ) -> None:
         object.__setattr__(self, "metrics", metrics.astype(dtype))
         object.__setattr__(self, "indices_t", indices.T.astype(dtype))
-        relevant_metrics = self.extract_relevant(metrics)
+        relevant_metrics = self._extract_relevant(metrics)
         object.__setattr__(self, "relevant_metrics", relevant_metrics)
 
         i_norm = jnp.sum(indices**2, axis=-1, keepdims=True).T
         object.__setattr__(self, "i_norm", i_norm)
 
-        nx, ny, _  = indices_2d.shape
+        nx, ny, _ = indices_2d.shape
         object.__setattr__(self, "grid_shape", jnp.array([nx, ny]))
         object.__setattr__(self, "grid_origin", indices_2d[0, 0].astype(dtype))
         object.__setattr__(self, "grid_spacing", grid_spacing.astype(dtype))
         object.__setattr__(self, "indices_2d", indices_2d.astype(dtype))
         object.__setattr__(self, "metrics_2d", metrics_2d.astype(dtype))
-        relevant_metrics_3d = self.extract_relevant(metrics_2d)
+        relevant_metrics_3d = self._extract_relevant(metrics_2d)
         object.__setattr__(self, "relevant_metrics_2d", relevant_metrics_3d)
 
     @jaxtyped(typechecker=typechecker)
     @staticmethod
-    def extract_relevant(_metrics: MetricBase) -> Float[Array, "nb ns"] | Float[Array, " nbxns"]:
+    def _extract_relevant(_metrics: MetricBase) -> Float[Array, "nb ns"] | Float[Array, " nbxns"]:
         sofa_metric = _metrics.s_1
 
         return ((sofa_metric - sofa_metric.min()) / (sofa_metric.max() - sofa_metric.min())).squeeze(axis=-1)
@@ -70,6 +75,10 @@ class LatentLookup(eqx.Module):
         temperature: Float[Array, "1"] = _1,  # placeholder to make compatible with soft get
         kernel_size: int | Int[Array, ""] = 3,
     ) -> Float[Array, " batch"]:
+        """
+        A non-differentiable lookup that retrieves the metric value of the absolute nearest neighbor in the database.
+        Uses a global `jnp.argmin` distance calculation.
+        """
         orig_dtype = query_vectors.dtype
         query_vectors = jax.lax.stop_gradient(query_vectors)
         query_vectors = query_vectors.astype(self.dtype)
@@ -91,6 +100,10 @@ class LatentLookup(eqx.Module):
         temperature: Float[Array, "1"] = _1,  # placeholder to make compatible with soft get
         kernel_size: int | Int[Array, ""] = 3,
     ) -> Float[Array, " batch"]:
+        """
+        An efficient grid-based lookup that retrieves metric values by rounding latent coordinates to the nearest discrete grid index.
+        It uses a Straight-Through Estimator (STE) pattern for gradients.
+        """
         rel_pos = (query_vectors - self.grid_origin) / self.grid_spacing
         center_idx = self.round_ste(rel_pos).astype(jnp.int32)
 
@@ -111,6 +124,10 @@ class LatentLookup(eqx.Module):
         temperature: Float[Array, "1"],
         kernel_size: int = 15,
     ) -> Float[Array, " batch"]:
+        """
+        A differentiable lookup that computes a weighted average of metrics within a local (NxN) kernel around the query point.
+        Weights are determined by a Softmax over negative squared Euclidean distances.
+        """
         orig_dtype = query_vectors.dtype
         q = query_vectors.astype(self.dtype)
         temp = temperature.astype(self.dtype)
@@ -145,8 +162,12 @@ class LatentLookup(eqx.Module):
         self,
         query_vectors: Float[Array, "batch latent"],
         temperature: Float[Array, "1"],
-        kernel_size: int | Int[Array, ""] = 3,
+        kernel_size: int | Int[Array, ""] = 3,  # placeholder to make compatible with local get
     ) -> Float[Array, " batch"]:
+        """
+        A differentiable lookup that computes a Softmax-weighted average across the entire metric database.
+        It includes a thresholding operation to zero out negligible weights for numerical stability.
+        """
         orig_dtype = query_vectors.dtype
         q = query_vectors.astype(self.dtype)
 
@@ -161,27 +182,21 @@ class LatentLookup(eqx.Module):
         return jnp.sum(weights * self.relevant_metrics, axis=-1).astype(orig_dtype)
 
     def round_ste(self, x: Float[Array, "batch 2"]) -> Float[Array, "batch 2"]:
+        """
+        Implements a Straight-Through Estimator for the rounding operation,
+        allowing gradients to bypass the non-differentiable round function during backpropagation.
+        """
         return x + jax.lax.stop_gradient(jnp.round(x) - x)
-
-
-def as_3d_indices(
-    alpha_space: tuple[float, float, float],
-    beta_space: tuple[float, float, float],
-    sigma_space: tuple[float, float, float],
-) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    alphas = np.arange(*alpha_space)
-    betas = np.arange(*beta_space)
-    sigmas = np.arange(*sigma_space)
-    alpha_grid, beta_grid, sigma_grid = np.meshgrid(alphas, betas, sigmas, indexing="ij")
-    permutations = np.stack([alpha_grid, beta_grid, sigma_grid], axis=-1)
-    a, b, s = permutations[:, :, :, 0:1], permutations[:, :, :, 1:2], permutations[:, :, :, 2:3]
-    return a, b, s
 
 
 def as_2d_indices(
     x_space: tuple[float, float, float],
     y_space: tuple[float, float, float],
 ) -> tuple[np.ndarray, np.ndarray]:
+    """
+    Generates a 2D coordinate meshgrid from two space specifications,
+    typically used to define the latent manifold for Beta and Sigma parameters.
+    """
     xs = np.arange(*x_space)
     ys = np.arange(*y_space)
     x_grid, y_grid = np.meshgrid(xs, ys, indexing="ij")
