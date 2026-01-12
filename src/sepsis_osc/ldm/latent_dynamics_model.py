@@ -6,7 +6,7 @@ from jaxtyping import Array, Float, PRNGKeyArray, jaxtyped
 from numpy.typing import DTypeLike
 
 from sepsis_osc.ldm.ae import Decoder, LatentEncoder
-from sepsis_osc.ldm.commons import qr_init
+from sepsis_osc.ldm.commons import apply_initialization, qr_init, zero_bias_init
 from sepsis_osc.utils.jax_config import typechecker
 
 ones_24 = jnp.ones(24)
@@ -182,7 +182,7 @@ class LatentDynamicsModel(eqx.Module):
 
     @jaxtyped(typechecker=typechecker)
     def offline_sequence(
-        self, x: Float[Array, "1 input_dim"], key: jnp.ndarray
+        self, x: Float[Array, "1 input_dim"]
     ) -> tuple[Float[Array, "time latent_dim"], Float[Array, "time 1"]]:
         @jaxtyped(typechecker=typechecker)
         def z_step(
@@ -234,7 +234,6 @@ def make_ldm(
     inf_hidden_dim: int,
     dec_hidden_dim: int,
     lookup_kernel_size: int,
-    sofa_dist: Float[Array, "24"],
 ) -> LatentDynamicsModel:
     return LatentDynamicsModel(
         key=key,

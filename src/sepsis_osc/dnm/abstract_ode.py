@@ -21,7 +21,7 @@ from diffrax import (
     diffeqsolve,
 )
 from jax import tree as jtree
-from jaxtyping import Array, Bool, DTypeLike, Float, PRNGKeyArray, ScalarLike
+from jaxtyping import Array, Bool, DTypeLike, Float, PRNGKeyArray
 from typing_extensions import Self
 
 from sepsis_osc.utils.utils import timing
@@ -34,37 +34,75 @@ StateT = TypeVar("StateT")
 
 
 class ConfigArgBase(ABC, eqx.Module):
+    """
+    Base class for configuration arguments used in ODE systems.
+    Subclasses should define the static parameters required by the
+    differential equation's derivative function.
+    """
+
     pass
 
 
 class ConfigBase(ABC, eqx.Module):
+    """
+    Base class for experimental configurations.
+
+    This class handles the mapping between human-readable experiment
+    parameters and the JAX-compatible arguments used during integration.
+    """
+
     @property
     @abstractmethod
     def as_args(self) -> ConfigArgBase:
+        """
+        Converts the high-level config into an argument PyTree for Diffrax.
+        """
         raise NotImplementedError
 
     @property
     @abstractmethod
     def as_index(self) -> tuple[float, ...]:
+        """
+        Returns a unique numerical identifier for the config state.
+        """
         raise NotImplementedError
 
     @staticmethod
     @abstractmethod
     def batch_as_index() -> jnp.ndarray:
+        """
+        Returns indices for a batch of configurations.
+        """
         raise NotImplementedError
         return jnp.empty(())
 
 
 class TreeBase(eqx.Module):
+    """
+    A utility base class for Equinox PyTrees with common array operations.
+
+    Provides convenient mapping methods to manipulate all leaves in a
+    structured object (State, Metrics, etc.) simultaneously.
+    """
+
     @property
     def shape(self) -> dict[str, tuple[int, ...]]:
+        """
+        Returns the shape of every leaf in the PyTree.
+        """
         return jtree.map(lambda x: x.shape if x is not None else None, self.__dict__)
 
     @property
     def last(self) -> StateT:
+        """
+        Slices the last element along the first dimension for all leaves.
+        """
         return jtree.map(lambda x: x[-1], self)
 
     def to_jax(self) -> StateT:
+        """
+        Recursively converts all leaves to JAX arrays.
+        """
         return jtree.map(lambda x: jnp.asarray(x) if x is not None else None, self)
 
     def reshape(self, shape: tuple[int, ...]) -> StateT:
@@ -81,6 +119,11 @@ class TreeBase(eqx.Module):
         return cls(**{f.name: getattr(cls, f.name) for f in fields(cls)})
 
     def remove_infs(self) -> "TreeBase":
+        """
+        Filters out samples containing 'inf' values across the entire tree.
+        (Happens in incomplete diffrax solves)
+        """
+
         def inf_mask(x: Float[Array, "*"]) -> Bool[Array, "*"] | None:
             if not hasattr(x, "shape"):
                 return jnp.zeros((x.shape[0],), dtype=bool) if hasattr(x, "shape") else None
@@ -95,10 +138,21 @@ class TreeBase(eqx.Module):
 
 
 class StateBase(ABC, TreeBase):
+    """
+    Base class for representing the physical state of a system.
+    """
+
     pass
 
 
 class MetricBase(ABC, TreeBase):
+    """
+    Base class for recording and serializing simulation metrics.
+
+    Includes built-in support for Msgpack serialization and partial updates
+    via JAX-style 'at' syntax.
+    """
+
     @abstractmethod
     def as_single(self) -> MetricT:
         raise NotImplementedError
@@ -117,6 +171,9 @@ class MetricBase(ABC, TreeBase):
         return cls(**unpacked)
 
     def insert_at(self, index: tuple[int, ...], other: MetricT) -> MetricT:
+        """
+        Updates the metrics at a specific index with another Metric object.
+        """
         if not isinstance(other, type(self)):
             raise TypeError(f"Expected type {type(self)}, but got {type(other)}")
 
@@ -133,6 +190,13 @@ class MetricBase(ABC, TreeBase):
 
 
 class ODEBase(ABC):
+    """
+    A generic framework for defining and solving differential equations.
+
+    This class abstracts the Diffrax boilerplate, providing integrated support
+    for PID step-size control, steady-state detection, and progress tracking.
+    """
+
     def __init__(
         self,
         step_rtol: float = 1e-3,
@@ -155,24 +219,39 @@ class ODEBase(ABC):
 
     @abstractmethod
     def generate_init_sampler(self) -> Callable:
+        """
+        Defines the initial condition sampling.
+        """
         raise NotImplementedError
 
     @abstractmethod
     def system_deriv(self) -> Callable:
+        """
+        Defines the derivative function (dy/dt) of the ODE system.
+        """
         raise NotImplementedError
 
     @abstractmethod
     def generate_metric_save(self, deriv: Callable) -> Callable:
+        """
+        Defines the saving method using reduced metrics.
+        """
         raise NotImplementedError
 
     @abstractmethod
     def generate_full_save(
         self, deriv: Callable, dtype: DTypeLike, *, save_y: bool = True, save_dy: bool = True
     ) -> Callable:
+        """
+        Defines the full saving method where the whole system state is saved.
+        """
         raise NotImplementedError
 
     @abstractmethod
     def generate_steady_state_check(self) -> Callable:
+        """
+        Defines the steady state check.
+        """
         raise NotImplementedError
 
     @timing
@@ -188,6 +267,9 @@ class ODEBase(ABC):
         solver: AbstractSolver,
         ts: list | None = None,
     ) -> Solution:
+        """
+        Performs numerical integration using Diffrax.
+        """
         saveat = (
             SaveAt(t0=True, ts=ts, fn=self.save_method)
             if ts is not None

@@ -26,6 +26,13 @@ vars_copy = new_vars.copy()
 def get_raw_data(
     _data_dir: Path = data_dir, yaib_vars: dict[str, str | list[str]] = vars_copy
 ) -> dict[str, pl.DataFrame]:
+    """
+    Fetches and preprocesses raw tabular data into a structured format.
+
+    This function sets up a Polars-based preprocessing pipeline to handle data
+    loading, cross-validation splitting, and caching. It specifically ensures
+    that sequences are sorted by clinical stay IDs and timestamps.
+    """
     yaib_vars = copy.deepcopy(yaib_vars)
     yaib_vars["LABEL"][0] = target_name
     logger.info(f"Searching for sequence_files in {_data_dir}")
@@ -61,41 +68,15 @@ def get_raw_data(
     return data
 
 
-def prepare_batches(
-    x_data: np.ndarray,
-    y_data: np.ndarray,
-    batch_size: int,
-    key: jnp.ndarray,
-    perc: float = 1.0,
-    *,
-    shuffle: bool = True,
-    pos_fraction: float = -1.0,
-) -> tuple[np.ndarray, np.ndarray, int]:
-    num_samples = int(perc * x_data.shape[0])
-    pos_mask = y_data.sum(axis=-1) > 0
-    pos_idx, neg_idx = np.where(pos_mask)[0], np.where(~pos_mask)[0]
-
-    if pos_fraction == -1.0:
-        idx = jr.permutation(key, num_samples) if shuffle else np.arange(num_samples)
-    else:
-        n_pos = int(num_samples * pos_fraction)
-        n_neg = num_samples - n_pos
-        pos_idx = np_rng.choice(pos_idx, n_pos, replace=True)
-        neg_idx = np_rng.choice(neg_idx, n_neg, replace=n_neg > len(neg_idx))
-        idx = np.concatenate([pos_idx, neg_idx])
-        if shuffle:
-            np_rng.shuffle(idx)
-
-    x, y = x_data[idx], y_data[idx]
-    n_batches = x.shape[0] // batch_size
-    x = x[: n_batches * batch_size].reshape(n_batches, batch_size, *x.shape[1:])
-    y = y[: n_batches * batch_size].reshape(n_batches, batch_size, *y.shape[1:])
-    return x, y, n_batches
-
-
 def prepare_sequences(
     x_df: pl.DataFrame, y_df: pl.DataFrame, window_len: int, time_step: int = 1
 ) -> tuple[np.ndarray, np.ndarray]:
+    """
+    Extracts fixed-length sliding window sequences from longitudinal data.
+
+    This function iterates through individual clinical stays, ensuring that
+    sequences are only extracted from continuous time points (no temporal gaps).
+    """
     m_index = ["stay_id", "time"]
 
     cols = x_df.columns
@@ -135,13 +116,19 @@ def prepare_sequences(
     return x_out, y_out
 
 
-def get_data_sets_prediction(
+def get_data_sets_offline(
     window_len: int = 6,
     dtype: jnp.dtype = jnp.float32,
     swapaxes_y: tuple[int, int, int] = (0, 1, 2),
     *,
     full: bool = False,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    """
+    High-level loader for sequence-to-sequence prediction tasks.
+
+    Checks for preprocessed `.npz` files on disk; if missing, it triggers the
+    full raw data pipeline and saves the result for future use.
+    """
     file_name = f"len_{window_len}_{cohort_name}{'_full' if full else ''}"
     if Path(sequence_files + f"{file_name}.npz").exists():
         logger.info("Processed sequence files found. Loading data from disk...")
@@ -191,7 +178,7 @@ def get_data_sets_prediction(
     )
 
 
-def get_all(data: PredictionPolarsDataset) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+def _get_all(data: PredictionPolarsDataset) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     xl, yl, ml = [], [], []
     for i in trange(data.num_stays):
         xs, ys, ms = data[i]
@@ -201,9 +188,14 @@ def get_all(data: PredictionPolarsDataset) -> tuple[np.ndarray, np.ndarray, np.n
     return np.asarray(xl), np.asarray(yl), np.asarray(ml)
 
 
-def get_data_sets_detection(
+def get_data_sets_online(
     dtype: jnp.dtype = jnp.float32, swapaxes_y: tuple[int, int, int] = (0, 1, 2), *, use_yaib_label: bool = True
 ) -> tuple[np.ndarray, ...]:
+    """
+    Loads datasets specifically formatted for online prediction tasks.
+
+    Similar to `get_data_sets_offline`, but includes mask arrays to handle padding.
+    """
     file_name = f"{'yaib_' if use_yaib_label else ''}{cohort_name}_detection"
     if Path(sequence_files + f"{file_name}.npz").exists():
         logger.info("Processed sequence files found. Loading data from disk...")
@@ -222,21 +214,21 @@ def get_data_sets_detection(
             train_x,
             train_y,
             train_m,
-        ) = get_all(
+        ) = _get_all(
             PredictionPolarsDataset(data, split="train", vars=detect_vars, ram_cache=False, name=f"{cohort_name}_train")
         )
         (
             val_x,
             val_y,
             val_m,
-        ) = get_all(
+        ) = _get_all(
             PredictionPolarsDataset(data, split="val", vars=detect_vars, ram_cache=False, name=f"{cohort_name}_val")
         )
         (
             test_x,
             test_y,
             test_m,
-        ) = get_all(
+        ) = _get_all(
             PredictionPolarsDataset(data, split="test", vars=detect_vars, ram_cache=False, name=f"{cohort_name}_test")
         )
         np.savez_compressed(
@@ -267,6 +259,41 @@ def get_data_sets_detection(
     )
 
 
+def prepare_batches(
+    x_data: np.ndarray,
+    y_data: np.ndarray,
+    batch_size: int,
+    key: jnp.ndarray,
+    perc: float = 1.0,
+    *,
+    shuffle: bool = True,
+    pos_fraction: float = -1.0,
+) -> tuple[np.ndarray, np.ndarray, int]:
+    """
+    Prepares and reshapes data into mini-batches, optionally balancing classes.
+    """
+    num_samples = int(perc * x_data.shape[0])
+    pos_mask = y_data.sum(axis=-1) > 0
+    pos_idx, neg_idx = np.where(pos_mask)[0], np.where(~pos_mask)[0]
+
+    if pos_fraction == -1.0:
+        idx = jr.permutation(key, num_samples) if shuffle else np.arange(num_samples)
+    else:
+        n_pos = int(num_samples * pos_fraction)
+        n_neg = num_samples - n_pos
+        pos_idx = np_rng.choice(pos_idx, n_pos, replace=True)
+        neg_idx = np_rng.choice(neg_idx, n_neg, replace=n_neg > len(neg_idx))
+        idx = np.concatenate([pos_idx, neg_idx])
+        if shuffle:
+            np_rng.shuffle(idx)
+
+    x, y = x_data[idx], y_data[idx]
+    n_batches = x.shape[0] // batch_size
+    x = x[: n_batches * batch_size].reshape(n_batches, batch_size, *x.shape[1:])
+    y = y[: n_batches * batch_size].reshape(n_batches, batch_size, *y.shape[1:])
+    return x, y, n_batches
+
+
 def prepare_batches_mask(
     x_data: np.ndarray,
     y_data: np.ndarray,
@@ -278,6 +305,9 @@ def prepare_batches_mask(
     shuffle: bool = True,
     pos_fraction: float = -1.0,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, int]:
+    """
+    Extension of `prepare_batches` that also handles sequence masks.
+    """
     num_samples = int(perc * x_data.shape[0])
     pos_mask = y_data.sum(axis=-1) > 0
     pos_idx, neg_idx = np.where(pos_mask)[0], np.where(~pos_mask)[0]
@@ -316,5 +346,5 @@ if __name__ == "__main__":
         _x,
         _y,
         _m,
-    ) = get_data_sets_detection(swapaxes_y=(1, 2, 0), dtype=jnp.float32)
+    ) = get_data_sets_online(swapaxes_y=(1, 2, 0), dtype=jnp.float32)
     print(t_y[1, :, 2])

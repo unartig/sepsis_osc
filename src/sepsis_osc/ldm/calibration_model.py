@@ -13,6 +13,14 @@ arr_0 = jnp.array(0)
 
 
 class CalibrationModel(eqx.Module):
+    """
+    An Equinox module for calibrating sepsis risk probabilities.
+
+    This model applies a Platt scaling to the interaction between
+    organ failure (SOFA) and infection probabilities to produce a calibrated
+    sepsis prediction. It follows the form:
+        P(sepsis) = sigmoid(a * (p_sofa * p_inf) + b)."
+    """
 
     # Calibration
     a: Float[Array, ""]
@@ -23,11 +31,17 @@ class CalibrationModel(eqx.Module):
         a: Float[Array, ""] = arr_1,
         b: Float[Array, ""] = arr_0,
     ) -> None:
+        """
+        Initializes the CalibrationModel with default or provided parameters.
+        """
         self.a = a
         self.b = b
 
     @property
     def coeffs(self) -> Float[Array, ""]:
+        """
+        Returns the calibration parameters [a, b] as a single JAX array.
+        """
         return jnp.array([self.a, self.b])
 
     @jaxtyped(typechecker=typechecker)
@@ -36,6 +50,9 @@ class CalibrationModel(eqx.Module):
         sofa: Float[Array, " samples"] | Float[Array, " batch time"] | Float[Array, "*"],
         inf: Float[Array, " samples"] | Float[Array, " batch time"] | Float[Array, "*"],
     ) -> Float[Array, " samples"] | Float[Array, " batch time"] | Float[Array, "*"]:
+        """
+        Calculates the raw interaction term between SOFA and infection.
+        """
         return sofa * inf  # interaction
 
     @jaxtyped(typechecker=typechecker)
@@ -46,6 +63,9 @@ class CalibrationModel(eqx.Module):
         a: Float[Array, ""] | None = None,
         b: Float[Array, ""] | None = None,
     ) -> Float[Array, " samples"] | Float[Array, " batch time"] | Float[Array, "*"]:
+        """
+        Computes calibrated sepsis probabilities using the logistic parameters.
+        """
         a = a if a is not None else self.a
         b = b if b is not None else self.b
         return jax.nn.sigmoid(a * self.get_sepsis_logits(p_sofa, p_inf) + b)
@@ -58,6 +78,12 @@ class CalibrationModel(eqx.Module):
         p_inf: Float[Array, " samples"],
         p_sepsis: Float[Array, " samples"],
     ) -> "CalibrationModel":
+        """
+        Optimizes the calibration parameters (a, b) using BFGS minimization.
+
+        This method performs Platt scaling by minimizing the binary cross-entropy 
+        between the calibrated predictions and the actual sepsis labels/probabilities.
+        """
         solver = BFGS(rtol=1e-8, atol=1e-8)
 
         def loss_fn_calibration(parameters: CalibrationModel, args: tuple[Float[Array, " samples"], ...]) -> ScalarLike:
@@ -68,7 +94,7 @@ class CalibrationModel(eqx.Module):
         res = minimise(
             fn=loss_fn_calibration,
             solver=solver,
-            y0=self,
+            y0=CalibrationModel(),
             args=(p_sofa, p_inf, p_sepsis),
             throw=False,
             max_steps=int(1e3),

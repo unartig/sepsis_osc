@@ -136,15 +136,15 @@ def pretty_plot(
 
 if __name__ == "__main__":
     # ALPHA_SPACE = (-0.52, -0.52, 1.0)
-    BETA_SPACE = (0.0, 1.0, 0.01 * 2)
-    SIGMA_SPACE = (0.0, 1.5, 0.015 * 2)
+    BETA_SPACE = (0.4, 0.7, 0.003)
+    SIGMA_SPACE = (0.0, 1.5, 0.015)
     xs = np.arange(*BETA_SPACE)
     ys = np.arange(*SIGMA_SPACE)
 
     orig_xs = np.asarray([np.argmin(np.abs(xs - x)) for x in [0.4, 0.7]])
     orig_ys = np.asarray([len(ys) - np.argmin(np.abs(ys - y)) - 1 for y in [0.0, 1.5]])
 
-    db_str = "Lie0"  # other/Tiny"
+    db_str = "Daisy2"  # other/Tiny"
     storage = Storage(
         key_dim=9,
         metrics_kv_name=f"data/{db_str}SepsisMetrics.db/",
@@ -167,7 +167,7 @@ if __name__ == "__main__":
     log = False
     show = False
     figure_dir = f"figures/{db_str}"
-    fs = (8, 8)
+    fs = (16, 8)
     pretty_plot(
         metrix.r_1,
         metrix.r_2,

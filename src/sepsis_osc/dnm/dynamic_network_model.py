@@ -480,7 +480,7 @@ if __name__ == "__main__":
             )
             logger.info(f"New config {run_conf.as_index}")
             logger.info(f" ~~~~~~~~~~~ {i}/{total} - {i / total * 100:.4f}% ~~~~~~~~~~~ ")
-            if storage.read_result(run_conf.as_index, DNMMetrics, 1e-15) is None or overwrite:
+            if storage.read_result(run_conf.as_index, DNMMetrics, jnp.float32(1e-15)) is None or overwrite:
                 logger.info("Starting solve")
                 sol = dnm.integrate(
                     config=run_conf,

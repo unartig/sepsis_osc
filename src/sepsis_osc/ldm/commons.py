@@ -4,7 +4,7 @@ import equinox as eqx
 import jax
 import jax.numpy as jnp
 from jax import vmap
-from jaxtyping import Array, Bool, Float, Int, PyTree, jaxtyped
+from jaxtyping import Array, Float, Int, PyTree, jaxtyped
 
 from sepsis_osc.utils.jax_config import EPS, typechecker
 
@@ -50,6 +50,14 @@ def qr_init(weight: Array, key: Array) -> Array:
 
 
 def apply_initialization(model: PyTree, init_fn_weight: Callable, init_fn_bias: Callable, key: jnp.ndarray) -> PyTree:
+    """
+    Applies custom initialization functions to all linear layers in an Equinox model.
+
+    This function traverses a PyTree to find all `equinox.nn.Linear` layers and
+    re-initializes their weights and biases using the provided initialization functions.
+    It ensures that each parameter receives a unique JAX random subkey.
+    """
+
     def is_linear(x: PyTree) -> bool:
         return isinstance(x, eqx.nn.Linear)
 
@@ -86,12 +94,6 @@ def apply_initialization(model: PyTree, init_fn_weight: Callable, init_fn_bias: 
     )
 
 
-@jaxtyped(typechecker=typechecker)
-def binary_logits(probs: Float[Array, "*"]) -> Float[Array, "*"]:
-    probs = jnp.clip(probs, EPS, 1 - EPS)
-    return jnp.log(probs) - jnp.log1p(-probs)
-
-
 def custom_warmup_cosine(
     init_value: float,
     peak_value: float,
@@ -100,6 +102,13 @@ def custom_warmup_cosine(
     end_value: float,
     peak_decay: float = 0.5,
 ) -> Callable:
+    """
+    Creates a learning rate schedule with linear warmup and multi-cycle cosine decay.
+
+    The schedule starts at `init_value`, increases linearly to `peak_value` over
+    `warmup_steps`, and then enters a series of cosine decay cycles. In each
+    subsequent cycle, the peak value is scaled by `peak_decay`.
+    """
     cycle_boundaries = jnp.array([warmup_steps + sum(steps_per_cycle[:i]) for i in range(len(steps_per_cycle))])
     cycle_lengths = jnp.array(steps_per_cycle)
     num_cycles = len(steps_per_cycle)
@@ -134,63 +143,6 @@ def custom_warmup_cosine(
 
 
 @jaxtyped(typechecker=typechecker)
-def prob_increase(
-    preds: Float[Array, " time"], threshold: Float[Array, "1"], scale: Float[Array, "1"]
-) -> Float[Array, ""]:
-    return 1.0 - jnp.prod(1.0 - jax.nn.sigmoid((jnp.diff(preds, axis=-1) - threshold) * scale), axis=-1)
-
-
-@jaxtyped(typechecker=typechecker)
-def prob_increase_steps(
-    preds: Float[Array, " time"], threshold: Float[Array, "1"], scale: Float[Array, "1"]
-) -> Float[Array, " time"]:
-    return jnp.concat([jnp.array([0.0]), jax.nn.sigmoid((jnp.diff(preds, axis=-1) - threshold) * scale)])
-
-
-@jaxtyped(typechecker=typechecker)
-def smooth_labels(
-    labels: Float[Array, "batch time"] | Bool[Array, "batch time"],
-    radius: int = 3,
-    decay: float | Float[Array, "1"] = 0.5,
-) -> Float[Array, "batch time"]:
-    offsets = jnp.arange(-radius, radius + 1)
-    kernel = jnp.exp(-decay * jnp.abs(offsets))
-    kernel = kernel / kernel.sum()
-
-    def convolve_1d(x: Float[Array, " time"]) -> Float[Array, " time"]:
-        return jnp.convolve(x, kernel, mode="same")
-
-    smooth = vmap(convolve_1d)(labels)
-
-    return jnp.clip(smooth, 0.0, 1.0)
-
-
-@jaxtyped(typechecker=typechecker)
-def causal_smoothing(
-    labels: Float[Array, "batch time"], radius: int = 3, decay: float | Float[Array, "1"] = 0.5
-) -> Float[Array, "batch time"]:
-    offsets = jnp.arange(0, radius + 1)
-
-    kernel = jnp.exp(-decay * offsets)
-    kernel = kernel / kernel.sum()  # normalize
-
-    def convolve_1d(x: Float[Array, " time"]) -> Float[Array, " time"]:
-        return jnp.convolve(x, kernel, mode="full")
-
-    smooth = vmap(convolve_1d)(labels)
-
-    smooth = smooth[:, : labels.shape[1]]
-
-    return jnp.clip(smooth, 0.0, 1.0)
-
-
-def causal_probs(
-    probs: Float[Array, "batch time"], window: int = 6, eps: float | Float[Array, "1"] = 1e-6
-) -> Float[Array, "batch time"]:
-    padded = jnp.pad(probs, (window - 1, 0), constant_values=0.0)
-    # log-space cumulative sum trick for rolling product
-    log1m = jnp.log1p(-padded + eps)
-    cumsum = jnp.cumsum(log1m)
-    cumsum_shifted = jnp.pad(cumsum[:-window], (window, 0), constant_values=0.0)
-    rolling_log = cumsum - cumsum_shifted
-    return 1.0 - jnp.exp(rolling_log)[window - 1 :]
+def binary_logits(probs: Float[Array, "*"]) -> Float[Array, "*"]:
+    probs = jnp.clip(probs, EPS, 1 - EPS)
+    return jnp.log(probs) - jnp.log1p(-probs)

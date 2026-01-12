@@ -92,7 +92,6 @@ def log_val_metrics(
 
     fig, ax = plt.subplots(1, 1)
     ax = viz_starter(
-        metrics["latents"]["alpha"][0],
         metrics["latents"]["beta"][0],
         metrics["latents"]["sigma"][0],
         lookup=lookup,
@@ -119,7 +118,6 @@ def log_val_metrics(
 
     ax = viz_plane(
         true_sofa=y[0, seq_idx, :, 0],
-        alphas=metrics["latents"]["alpha"][0, seq_idx],
         betas=metrics["latents"]["beta"][0, seq_idx],
         sigmas=metrics["latents"]["sigma"][0, seq_idx],
         mask=mask[0, seq_idx],

@@ -1,7 +1,7 @@
 import gc
 import logging
 from collections.abc import Callable
-from dataclasses import asdict, dataclass, fields
+from dataclasses import asdict
 
 import equinox as eqx
 import jax
@@ -10,7 +10,6 @@ import jax.random as jr
 import jax.tree_util as jtu
 import numpy as np
 import optax
-from jax.tree_util import register_dataclass
 from jaxtyping import Array, Bool, Float, Int, PyTree, jaxtyped
 from torch.utils.tensorboard.writer import SummaryWriter
 
@@ -19,15 +18,14 @@ from sepsis_osc.ldm.calibration_model import CalibrationModel
 from sepsis_osc.ldm.checkpoint_utils import load_checkpoint, save_checkpoint
 from sepsis_osc.ldm.commons import (
     binary_logits,
-    causal_smoothing,
     custom_warmup_cosine,
-    prob_increase_steps,
 )
-from sepsis_osc.ldm.data_loading import get_data_sets_detection, prepare_batches_mask
+from sepsis_osc.ldm.data_loading import get_data_sets_online, prepare_batches_mask
+from sepsis_osc.ldm.early_stopping import EarlyStopping
 from sepsis_osc.ldm.latent_dynamics_model import LatentDynamicsModel, init_ldm_weights
 from sepsis_osc.ldm.logging_utils import flatten_dict, log_train_metrics, log_val_metrics
 from sepsis_osc.ldm.lookup import LatentLookup, as_2d_indices
-from sepsis_osc.ldm.model_structs import LoadingConfig, LRConfig, SaveConfig, TrainingConfig
+from sepsis_osc.ldm.model_structs import AuxLosses, LoadingConfig, LossesConfig, LRConfig, SaveConfig, TrainingConfig
 from sepsis_osc.storage.storage_interface import Storage
 from sepsis_osc.utils.config import ALPHA, BETA_SPACE, SIGMA_SPACE, jax_random_seed
 from sepsis_osc.utils.jax_config import EPS, setup_jax, typechecker
@@ -38,82 +36,46 @@ INT_INF = jnp.astype(jnp.inf, jnp.int32)
 _1 = jnp.array(1)
 
 
-@register_dataclass
-@dataclass
-class AuxLosses:
-    beta: Array
-    sigma: Array
 
-    total_loss: Array
-    recon_loss: Array
+@jaxtyped(typechecker=typechecker)
+def prob_increase_steps(
+    preds: Float[Array, " time"], threshold: Float[Array, "1"], scale: Float[Array, "1"]
+) -> Float[Array, " time"]:
+    """
+    Computes the probability of a value increase between consecutive time steps.
 
-    hists_sofa_score: Array
-    hists_sofa_metric: Array
-    hists_inf_prob: Array
-
-    total_loss: Array
-    recon_loss: Array
-    spreading_loss: Array
-    boundary_loss: Array
-    sofa_loss_t: Array
-    sofa_d2_p_loss: Array
-    infection_p_loss_t: Array
-    sep3_p_loss: Array
-    sofa_directional_loss: Array
-
-    sofa_d2_p: Array
-    susp_inf_p: Array
-    sep3_p: Array
-
-    @staticmethod
-    def empty() -> "AuxLosses":
-        initialized_fields = {f.name: jnp.zeros(()) for f in fields(AuxLosses)}
-        return AuxLosses(**initialized_fields)
-
-    def to_dict(self) -> dict[str, dict[str, jnp.ndarray]]:
-        return {
-            "latents": {
-                "alpha": jnp.ones_like(self.beta) * ALPHA,
-                "beta": self.beta,
-                "sigma": self.sigma,
-            },
-            "losses": {
-                "total_loss": self.total_loss,
-                "spreading_loss": self.spreading_loss,
-                "boundary_loss": self.boundary_loss,
-                "recon_loss": self.recon_loss,
-                "sofa_directional_loss": self.sofa_directional_loss,
-                "sofa": self.sofa_loss_t,
-                "sofa_d2": self.sofa_d2_p_loss,
-                "infection": self.infection_p_loss_t,
-                "sepsis-3": self.sep3_p_loss,
-            },
-            "hists": {
-                "sofa_score": self.hists_sofa_score,
-            },
-            "mult": {
-                "sofa_t": self.sofa_loss_t,
-            },
-            "sepsis_metrics": {
-                "sofa_d2_p": self.sofa_d2_p,
-                "susp_inf_p": self.susp_inf_p,
-                "sep3_p": self.sep3_p,
-            },
-        }
+    This function calculates the difference between adjacent elements and passes
+    the result through a sigmoid function. It essentially acts as a soft
+    thresholding mechanism to detect 'jumps'.
+    """
+    return jnp.concat([jnp.array([0.0]), jax.nn.sigmoid((jnp.diff(preds, axis=-1) - threshold) * scale)])
 
 
-@register_dataclass
-@dataclass
-class LossesConfig:
-    w_spreading: float
-    w_boundary: float
-    w_recon: float
-    w_sofa_direction: float
-    w_sofa_classification: float
-    w_sofa_d2: float
-    w_inf: float
-    w_sep3: float
-    steps_per_epoch: int = 0
+@jaxtyped(typechecker=typechecker)
+def causal_smoothing(
+    labels: Float[Array, "batch time"], radius: int = 3, decay: float | Float[Array, "1"] = 0.5
+) -> Float[Array, "batch time"]:
+    """
+    Applies a causal exponential smoothing filter across the time dimension.
+
+    The filter is 'causal' because it only considers current and past values
+    to calculate the smoothed average at any given time step, preventing
+    information leakage from the future. It uses a normalized exponential
+    decay kernel.
+    """
+    offsets = jnp.arange(0, radius + 1)
+
+    kernel = jnp.exp(-decay * offsets)
+    kernel = kernel / kernel.sum()  # normalize
+
+    def convolve_1d(x: Float[Array, " time"]) -> Float[Array, " time"]:
+        return jnp.convolve(x, kernel, mode="full")
+
+    smooth = jax.vmap(convolve_1d)(labels)
+
+    smooth = smooth[:, : labels.shape[1]]
+
+    return jnp.clip(smooth, 0.0, 1.0)
 
 
 @jaxtyped(typechecker=typechecker)
@@ -122,6 +84,10 @@ def calc_full_directional_loss(
     true_sofa: Float[Array, " time"],
     mask: Bool[Array, " time"],
 ) -> Float[Array, " time"]:
+    """
+    Computes a pairwise temporal alignment loss that penalizes predictions,
+    where relative change in predicted SOFA scores contradicts the relative change in ground truth scores.
+    """
     T = pred_sofa.shape[0]
     dp = pred_sofa[None, :] - pred_sofa[:, None]
     dt = true_sofa[None, :] - true_sofa[:, None]
@@ -139,6 +105,9 @@ def calc_full_directional_loss(
 def masked_cov(
     x: Float[Array, "batch time latent_dim"], mask: Bool[Array, "batch time"]
 ) -> Float[Array, "latent_dim latent_dim"]:
+    """
+    Calculates the empirical covariance matrix across a batch and time, considering only valid timesteps.
+    """
     mask_f = mask.astype(x.dtype)
     w = jnp.sum(mask_f)
     mean = jnp.sum(x * mask_f[..., None], axis=(0, 1)) / w
@@ -147,27 +116,36 @@ def masked_cov(
     return cov
 
 
-def constrain_z(z: Float[Array, "batch time zlatent_dim"]) -> Float[Array, "batch time zlatent_dim"]:
-    beta, sigma = jnp.split(z, 2, axis=-1)
-    beta = beta * (BETA_SPACE[1] - BETA_SPACE[0]) + BETA_SPACE[0]
-    sigma = sigma * (SIGMA_SPACE[1] - SIGMA_SPACE[0]) + SIGMA_SPACE[0]
-    return jnp.concatenate([beta, sigma], axis=-1)
-
-
 def boundary_loss(
     z_sigmoid: Float[Array, "batch time zlatent_dim"],
-    margin_fraction: float = 0.1,  # penalize outer 10% of range
+    margin_fraction: float = 0.1,
 ) -> Float[Array, ""]:
-    # Penalize being too close to 0 or 1
+    """
+    Computes a hinge loss to penalize latent values that approach the edges of the sigmoid activation range.
+    Ensuring they stay within a specified margin.
+    """
     lower_violation = jax.nn.relu(margin_fraction - z_sigmoid)
     upper_violation = jax.nn.relu(z_sigmoid - (1.0 - margin_fraction))
 
     return (lower_violation + upper_violation).mean(axis=-1)
 
 
+def constrain_z(z: Float[Array, "batch time zlatent_dim"]) -> Float[Array, "batch time zlatent_dim"]:
+    """
+    Linearly scales raw latent outputs from the unit interval to the predefined physical ranges for the parameters.
+    """
+    beta, sigma = jnp.split(z, 2, axis=-1)
+    beta = beta * (BETA_SPACE[1] - BETA_SPACE[0]) + BETA_SPACE[0]
+    sigma = sigma * (SIGMA_SPACE[1] - SIGMA_SPACE[0]) + SIGMA_SPACE[0]
+    return jnp.concatenate([beta, sigma], axis=-1)
+
+
 def constrain_z_margin(
     z: Float[Array, "batch time zlatent_dim"], margin: int = 1
 ) -> Float[Array, "batch time zlatent_dim"]:
+    """
+    Maps latent outputs to a narrowed parameter space to ensure the lookup kernel remains within valid bounds latent space.
+    """
     beta, sigma = jnp.split(z, 2, axis=-1)
 
     safe_beta_min = BETA_SPACE[0] + margin * BETA_SPACE[2]
@@ -181,6 +159,9 @@ def constrain_z_margin(
 
 
 def bound_z(z: Float[Array, "batch time zlatent_dim"]) -> Float[Array, "batch time zlatent_dim"]:
+    """
+    Applies a hard clip to latent values to ensure they do not exceed the defined boundaries of the parameter space.
+    """
     beta, sigma = jnp.split(z, 2, axis=-1)
     beta = beta.clip(BETA_SPACE[0], BETA_SPACE[1])
     sigma = sigma.clip(SIGMA_SPACE[0], SIGMA_SPACE[1])
@@ -188,12 +169,18 @@ def bound_z(z: Float[Array, "batch time zlatent_dim"]) -> Float[Array, "batch ti
 
 
 def cosine_annealing(base_val: float, num_steps: int, num_dead_steps: int, current_step: jnp.int32) -> Float[Array, ""]:
+    """
+    Computes a cosine-based decay factor for a value over a set number of steps (for temperature or loss scheduling).
+    """
     step = jnp.clip(current_step - num_dead_steps, 0, num_steps)
     cosine = 0.5 * (1 + jnp.cos(jnp.pi * step / num_steps))
     return base_val + (1.0 - base_val) * (1.0 - cosine)
 
 
 def mask_padding(loss: Float[Array, "*"], mask: Float[Array, "*"] | None = None) -> Float[Array, "*"]:
+    """
+    Computes the mean of a loss tensor while ignoring padded indices as defined by a boolean mask.
+    """
     if mask is None:
         mask = jnp.ones_like(loss)
     print(mask.shape, loss.shape)
@@ -213,6 +200,13 @@ def loss(
     lookup_func: Callable,
     params: LossesConfig,
 ) -> tuple[Array, AuxLosses]:
+    """
+    The primary objective function.
+    It performs 1. the forward pass,
+                2. computes reconstruction loss,
+                3. conceptual losses for clinical markers,
+                4. and regularization terms (spreading and boundary losses).
+    """
     B, T, D = x.shape
     aux = AuxLosses.empty()
     sofa_true, infection_true, sepsis_true = true_concepts[..., 0], true_concepts[..., 1], true_concepts[..., 2]
@@ -291,6 +285,10 @@ def process_train_epoch(
     lookup_func: Callable,
     loss_params: LossesConfig,
 ) -> tuple[PyTree, PyTree, AuxLosses, jnp.ndarray]:
+    """
+    Executes a single training epoch.
+    It uses `jax.lax.scan` to iterate through batches, computing gradients and updating model parameters.
+    """
     model_params, model_static = eqx.partition(model, eqx.is_inexact_array)
 
     key, _ = jr.split(key)
@@ -360,6 +358,9 @@ def process_val_epoch(
     lookup_func: Callable,
     loss_params: LossesConfig,
 ) -> AuxLosses:
+    """
+    Performs an inference-only pass over the validation dataset to compute metrics and losses without updating model.
+    """
     model_params, model_static = eqx.partition(model, eqx.is_inexact_array)
 
     def scan_step(
@@ -401,18 +402,24 @@ if __name__ == "__main__":
     logger = logging.getLogger(__name__)
 
     train_conf = TrainingConfig(
-        batch_size=512, window_len=1 + 6, epochs=int(3e3), perc_train_set=0.333, validate_every=5
+        batch_size=512,
+        window_len=1 + 6,
+        epochs=int(3e3),
+        perc_train_set=0.333,
+        validate_every=5,
+        calibrate=False,
+        early_stop=True,
     )
     lr_conf = LRConfig(init=0.0, peak=1e-3, peak_decay=0.5, end=1e-3, warmup_epochs=1, enc_wd=1e-4, grad_norm=100.0)
     loss_conf = LossesConfig(
         w_recon=5.0,
         w_sofa_direction=10.0,
-        w_sofa_classification=800,
-        w_sofa_d2=15.0,
+        w_sofa_classification=6e2,
+        w_sofa_d2=2.0,
         w_inf=1.0,
-        w_sep3=10.0,
-        w_spreading=3e-3,
-        w_boundary=30,
+        w_sep3=30.0,
+        w_spreading=4e-3,
+        w_boundary=30.0,
     )
     load_conf = LoadingConfig(from_dir="", epoch=0)
     save_conf = SaveConfig(save_every=100, perform=True)
@@ -428,13 +435,19 @@ if __name__ == "__main__":
         _x,
         _y,
         _m,
-    ) = get_data_sets_detection(swapaxes_y=(1, 2, 0), dtype=jnp.float32)
+    ) = get_data_sets_online(swapaxes_y=(1, 2, 0), dtype=jnp.float32)
     train_m, val_m = train_m.astype(np.bool), val_m.astype(np.bool)
     logger.error(f"{jnp.unique(train_y[..., 0])}")
     logger.error(f"{jnp.unique(train_y[..., 1])}")
     logger.error(f"{jnp.unique(train_y[..., 2])}")
     logger.info(f"Train shape      - Y {train_y.shape}, X {train_x.shape}, m {train_m.shape}")
     logger.info(f"Validation shape - Y {val_y.shape},  X {val_x.shape},  m {val_m.shape}")
+    logger.info(f"Frac Pos labels in Test {train_y[train_m, 2].sum() / train_m.sum() * 100:.2f}%")
+    logger.info(f"Prevalence Train Set {train_y[..., 2].max(axis=-1).sum() / train_m.max(axis=-1).sum() * 100:.2f}%")
+    logger.info(f"Prevalence Val Set   {val_y[..., 2].max(axis=-1).sum() / val_m.max(axis=-1).sum() * 100:.2f}%")
+    logger.info(f"Prevalence Test Set  {_y[..., 2].max(axis=-1).sum() / _m.max(axis=-1).sum() * 100:.2f}%")
+    logger.info(f"First septic patient labels {train_y[1, train_m[1], 2]}")
+    del _x, _y, _m
 
     db_str = "DaisyFinal"
     sim_storage = Storage(
@@ -478,24 +491,21 @@ if __name__ == "__main__":
     counts = np.pad(counts, 24 - counts.size, constant_values=0)
     sofa_dist = counts / counts.sum()
 
-    print(jnp.log(1.0 + 1.0 / (sofa_dist + EPS)))
-    print(train_y[train_m, 2].sum(), train_m.sum(), train_y[train_m, 2].sum() / train_m.sum())
-    print(train_y[1, train_m[1], 2])
+    logger.info(f"SOFA class weights {jnp.log(1.0 + 1.0 / (sofa_dist + EPS))}")
 
     key_model, key_weights = jr.split(key, 2)
     model = LatentDynamicsModel(
         key=key_model,
         input_dim=52,
-        latent_enc_hidden_dim=128,
-        latent_hidden_dim=16,
+        latent_enc_hidden_dim=32,
+        latent_hidden_dim=4,
         latent_dim=2,
         inf_dim=1,
-        inf_hidden_dim=8,
+        inf_hidden_dim=16,
         dec_hidden_dim=32,
         sofa_dist=jnp.asarray(sofa_dist),
+        lookup_kernel_size=3,
     )
-    # TODO necessary?
-    # model.latent_pre_encoder = init_latent_encoder_weights(model.latent_pre_encoder, key_weights)
     model = init_ldm_weights(model, key_weights, scale=1e-4)
 
     hyper_ldm = model.hypers_dict()
@@ -542,6 +552,7 @@ if __name__ == "__main__":
     val_x, val_y, val_m, nval_batches = prepare_batches_mask(
         val_x, val_y, val_m, train_conf.batch_size, key=shuffle_val_key
     )
+    early_stop = EarlyStopping()
     for epoch in range(load_conf.epoch if load_conf.from_dir else 0, train_conf.epochs):
         if epoch > 0:
             shuffle_key = jr.fold_in(key, epoch)
@@ -576,8 +587,6 @@ if __name__ == "__main__":
                 "lr/learning_rate", np.asarray(schedule(np.float64(epoch) * np.float64(train_x.shape[0]))), epoch
             )
             logger.info(log_msg)
-            del x_shuffled, y_shuffled
-            del train_metrics
 
         if epoch % train_conf.validate_every == 0:
             val_model = eqx.nn.inference_mode(model, value=True)
@@ -592,18 +601,23 @@ if __name__ == "__main__":
                 lookup_func=lookup_table.hard_get_fsq,
                 loss_params=loss_conf,
             )
-            # cal = CalibrationModel().calibrate(
-            #     val_metrics.sofa_d2_p[val_m], val_metrics.susp_inf_p[val_m], val_metrics.sep3_p[val_m]
-            # )
-            # val_metrics.sep3_p = cal.get_sepsis_probs(val_metrics.sofa_d2_p, val_metrics.susp_inf_p)
-            # logger.error(cal.coeffs)
+            if train_conf.calibrate and epoch > 0:
+                cal = CalibrationModel().calibrate(
+                    train_metrics.sofa_d2_p[m_shuffled],
+                    train_metrics.susp_inf_p[m_shuffled],
+                    train_metrics.sep3_p[m_shuffled],
+                )
+                val_metrics.sep3_p = cal.get_sepsis_probs(val_metrics.sofa_d2_p, val_metrics.susp_inf_p)
+                logger.error(cal.coeffs)
             log_msg = log_val_metrics(val_metrics, val_y, lookup_table, epoch, writer, mask=val_m)
             pred_sep = np.asarray(val_metrics.sep3_p)[val_m]
             true_sep = val_y[..., 2][val_m]
             logger.warning(log_msg)
 
             model = eqx.nn.inference_mode(val_model, value=False)
-            del val_metrics, val_model
+            # del val_metrics, val_model
+            # del x_shuffled, y_shuffled
+            # del train_metrics
 
         gc.collect()
 
