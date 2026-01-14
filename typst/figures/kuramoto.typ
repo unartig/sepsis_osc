@@ -4,6 +4,7 @@
 
 #set page(width: auto, height: auto, margin: 8pt)
 
+#let text-size = 9pt
 #let rng1 = gen-rng-f(123)
 // Define styles and constants
 #let radius = 1.
@@ -27,7 +28,7 @@
     (0, 1.1),
     text(
       "Desynchronized",
-      size: 10pt,
+      size: text-size
     ),
     anchor: "south",
     padding: .3em,
@@ -52,7 +53,7 @@
     (x-sep, 1.1),
     text(
       "Partially Synchronized",
-      size: 10pt,
+      size: text-size
     ),
     anchor: "south",
     padding: .3em,
@@ -95,7 +96,7 @@
     (2 * x-sep, 1.1),
     text(
       "Fully Synchronized",
-      size: 10pt,
+      size: text-size
     ),
     anchor: "south",
     padding: .3em,
@@ -172,7 +173,7 @@
     mark: (end: "stealth", fill: black),
     name: "x-axis",
   )
-  content((x-sep, -1.6), "Incresasing " + $Kappa$, anchor: "north")
+  content((x-sep, -1.6), text("Incresasing " + $Kappa$, size: text-size), anchor: "north")
 })
 
 #figure(kuramoto_fig)

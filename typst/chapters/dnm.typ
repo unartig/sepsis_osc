@@ -22,55 +22,64 @@ These adaptive connections allow for information to propagate through the whole 
 
 Complex networks are well studied in physics and biology and have been applied to various physiological domains.
 Early works, such as @Guyton1972Circulation that have studied the cardiovascular system, while more recent studies have focused on the cardio-respiratory coupling @Bartsch2012Phase and large-scale brain network dynamics @Lehnertz2021Time.
-Network approaches have also provided mechanistic insights into disease dynamics, for example Parkinson @Asl2022Parkinson and Epilepsy @Simha2022Epilepsy, just to name a few.
+Network approaches have also provided mechanistic insights into disease dynamics, for example Parkinson @Asl2022Parkinson and Epilepsy @Simha2022Epilepsy.
 
 Building on these interaction centric principles has opened up new opportunities to study how the inflammatory processes, such as those underlying sepsis, emerge from the complex inter- and intra-organ communication.
-In particular @osc1 and @osc2 have introduced a dynamical system that models the cytokine behavior in patients with sepsis and cancer.
+In particular Sawicki et. al @osc1 and Berner et. al @osc2 have introduced a dynamical system that models the cytokine behavior in patients with sepsis and cancer.
 This functional model will be referred to as #acl("DNM") and forms the conceptual foundation for this whole project.
 
 The remainder of this chapter is structured as follows: In @sec:kuramoto introduces the theoretical backbone of the #acr("DNM"), the Kuramoto oscillator model, which provides a minimal description of synchronization phenomena in complex systems.
 @sec:dnmdesc presents the formal mathematical definition of the #acr("DNM") and its medical interpretation, followed by implementation details in @sec:dnmimp and a presentation of selected simulation results in @sec:dnmres.
 
 == Theoretical Background: The Kuramoto Oscillator Model <sec:kuramoto>
-To mathematically describe natural or technological phenomena, _coupled oscillators_ have proven to be a useful framework @Placeholder, for example, to model the relative timing of neural spiking, reaction rates of chemical systems or dynamics of epidemics @Placeholder.
+To mathematically describe natural or technological phenomena, _coupled oscillators_ have proven to be a useful framework, for example, to model the relative timing of neural spiking, reaction rates of chemical systems or dynamics of epidemics @pikovsky2001synchronization.
 In these cases complex networks of coupled oscillators are often capable of bridging microscopic dynamics and macroscopic synchronization phenomena observed in biological systems.
 
-One of the most influential system of coupled oscillators is the _Kuramoto Phase Oscillator Model_ which is often used to study how synchronization emerges from simple coupling rules.
-In the simplest form it consists of $N$ identical, fully connected and coupled oscillators with phase $phi_i in [0, 2pi), " for" i in 1...N$ and an intrinsic frequency $omega_i$ @Placeholder.
-The dynamics are given by:
+One of the most influential system of coupled oscillators is the _Kuramoto Phase Oscillator Model_.
+This system of coupled #acr("ODE"), where each term describes an oscillator rotating around the unit circle, is often used to study how synchronization emerges from simple coupling rules.
+In the simplest form, it consists of $N in NN_(>0)$ identical, fully connected and coupled oscillators with phase $phi_i in [0, 2pi)$, for $i in 1...N$ and an intrinsic frequency $omega_i in RR$ @kuramoto1984chemical.
+The phase $phi_i$ represents the angular position on the unit circle, hence it is defined $"modulo "2pi$.
+The dynamics are given by the #acr("ODE") system:
 $
   dot(phi)_i = omega_i - Kappa/N sum^N_(j=1) sin(phi_i - phi_j)
 $ <eq:kuramoto>
 
-Here the $dot(phi)$ is used as shorthand notation for the time derivative of the phase $(d phi)/(d t)$, the instantaneous phase velocity.
-An additional parameter is the global coupling strength $Kappa$ between oscillators $i$ and $j$.
+Here, the $dot(phi)$ is used as shorthand notation for the time derivative of the phase $(d phi)/(d t)$, the instantaneous phase velocity.
+An additional parameter is the global coupling strength #box($Kappa in RR_(>0)$) between oscillators $i$ and $j in 1...N$.
+The system evolution depends on the choice of initial phases $phi_i (t=0)$, which are typically drawn from a uniform random distribution over $[0, 2pi)$.
 
-The model captures the essential mechanism of self-synchronization, and a fundamental collective transition from disorder to order, that underlie many real world processes, which is the reason the model has attracted so much research.
-When evolving this system with time, oscillator $i$'s phase velocity depends on each other oscillator $j$.
-If $phi_j > phi_i$ the phase oscillator $i$ accelerates $dot(phi)_i > 0$, if $phi_j < phi_i$ decelerates.
-For sufficiently large $N$ the oscillator population can converge towards system-scale states of coherence or incoherence based on the choice of $Kappa$.
+When evolving this system with time, commonly by numerical integration, oscillator $i$'s phase velocity depends on each other oscillator $j$.
+The sine coupling $sin(phi_i - phi_j)$ implements a phase-cohesion mechanism: oscillator $i$ decelerates when it leads oscillator $j$ ($0 < phi_i - phi_j < pi$) and accelerates when it lags behind ($-pi < phi_i - phi_j < 0$), pulling the population towards synchronization. 
+
+For sufficiently large $N$ the oscillator population can converge towards system-scale states of coherence or incoherence based on the choice of $Kappa$ @acebron2005kuramoto.
 Coherent in this case means oscillators synchronize with each other, so they share the same phase and phase velocity, incoherence on the other hand is the absence of synchronization (desynchronized), see @fig:sync.
-Synchronous states can be reached if the coupling is stronger than a certain threshold $Kappa>Kappa_c$, the critical coupling strength.
+Synchronous states can be reached if the coupling is stronger than a certain threshold $Kappa>Kappa_c$, the critical coupling strength @acebron2005kuramoto.
 In between these two regimes there is a transition-phase of partial synchronization, where some oscillators phase- and frequency-lock and others do not.
+The model captures the mechanism of self-synchronization, and a collective transition from disorder to order, that underlies many real world processes, which is the reason the model has attracted so much research @pikovsky2001synchronization.
 
 #figure(
   scale(kuramoto_fig, 110%),
   caption: flex-caption(
-  short: [Kuramoto Model Synchronization],
-  long: [Schematic transition between the two stable regimes for the basic Kuramoto model. From an incoherent system state with desynchronized oscillators (heterogeneous phases and frequencies), to a synchronized system state with phase- and frequency-locked oscillators with increasing coupling strength $Kappa$).]),
+  short: [Synchronization transition in the Kuramoto model],
+  long: [Illustration of the collective dynamics of a population of phase oscillators on the unit circle as the global coupling strength $Kappa$ is increased.
+         Each point represents an oscillator at phase $phi_i$, color encodes the instantaneous phase velocity $dot(phi)_i$ relative to the mean (blue: faster, green/yellow: slower).
+         For weak coupling (left), oscillators are desynchronized, with phases distributed around the circle and heterogeneous frequencies.
+         At intermediate coupling (center), partial synchronization emerges: a subset of oscillators forms a coherent cluster that phase- and frequency-locks, while the remaining oscillators drift incoherently.
+         For sufficiently strong coupling (right), the population becomes fully synchronized, with all oscillators sharing a common phase and frequency.
+  ]),
 ) <fig:sync>
 
 
 === Extensions to the Kuramoto Model <sec:extent>
-To more accurately describe real world systems, various extensions of the basic Kuramoto model have been proposed and studied numerically and analytically.
-Several extensions are directly relevant to the #acr("DNM") and their definitions and effects on synchronization will be shortly introduced, with additional terms being indicated by the red color:
+To increase the generalization ability of the system, various extensions of the basic Kuramoto model have been proposed and studied numerically and analytically.
+Several extensions are directly relevant to the #acr("DNM") and their definitions and effects on synchronization will be introduced, with additional terms being indicated by the red color:
 
-*Phase Lag $alpha$* introduced in @Placeholder (Kuramoto Sakaguchi 86) #todo[cite], brings a frustration into the synchronization process:
+*Phase Lag $alpha$* introduced in @sakaguchi1986rotator, where $abs(alpha) < pi/2$, brings a frustration into the synchronization process:
 $
   dot(phi)_i = omega_i - Kappa/N sum^N_(j=1) sin(phi_i - phi_j cmred(+ alpha))
 $
 Positive values of $alpha$ act as an inhibitor of synchronization by shifting the coupling function, so the coupling does not vanish even when the phases align.
-As a result the critical coupling strength $K_c$ increases with $alpha$.
+As a result the critical coupling strength $K_c$ increases with $alpha$ @sakaguchi1986rotator.
 
 *Adaptive coupling $bold(Kappa) in RR^(N times N)$* moves from a global coupling strength $Kappa$ for all oscillator pairs to an adaptive coupling strength for each individual pair $kappa_(i j)$:
 $

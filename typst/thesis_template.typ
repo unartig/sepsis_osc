@@ -23,6 +23,8 @@
 // Colors used across the template.
 #let stroke-color = luma(200)
 #let fill-color = luma(250)
+
+#show math.equation.where(block: false): box
 // This function gets your whole document as its `body`.
 #let thesis(
   // The title for your work.

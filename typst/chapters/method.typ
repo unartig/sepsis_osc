@@ -213,7 +213,7 @@ Increasing values of $s^1$ indicate a higher #acr("SOFA")-score and a worse cond
 
 Numerical integration of the DNM equations for a given parameter pair $bold(z) = (cmbeta(beta), cmsigma(sigma))$ yields the corresponding continuous #acr("SOFA") approximation $hat(O) (bold(z))$:
 $
-  hat(O) (bold(z)) ="round"((24 dot  s^1 (bold(z)))/s^1_"max") = "round" ( (24 dot s^1 (cmbeta(beta), cmsigma(sigma))) / s^1_"max") in {0, 1, ..., 24} 
+  hat(O) (bold(z)) =round((24 dot  s^1 (bold(z)))/s^1_"max") = round( (24 dot s^1 (cmbeta(beta), cmsigma(sigma))) / s^1_"max") in {0, 1, ..., 24} 
 $
 these two parameters were identified as highly influential and interpretable quantities in the original #acr("DNM") publications @osc2.
 Every other system parameter is assumed constant and chosen as listed in @tab:init.
@@ -265,11 +265,11 @@ For the latent sequence this is more desirable compared to the infection indicat
 
 To fit the functions, here the placement of latent points $bold(z)$ is guided by a supervision signal:
 $
-cal(L)_"sofa" = 1/B sum^B_(i=1) 1/(T_i) sum^(T_i-1)_(t=0) w_(O_(i,t)) dot (O_(i,t)/24 - s^1_(i,t) (bold(hat(z)))/s^1_"max")^2
+cal(L)_"sofa" = 1/B sum^B_(i=1) 1/(T_i) sum^(T_i-1)_(t=0) w_(O_(i,t)) dot (O_(i,t)/24 - (s^1_(i,t)(bold(hat(z))))/s^1_"max")^2
 $
 where the class-balancing weight:
 $
-  w_O = log(1 + (f_O)^(-1))
+  w_O = log(1 + f_O^(-1))
 $
 with $f_O$ being the relative frequency of #acr("SOFA")-score $O$ in the training data.
 This inverse-frequency weighting up-weights rare high #acr("SOFA")-scores that are clinically critical but statistically underrepresented.
@@ -400,7 +400,7 @@ To improve the sharpness of organ failure detection, a focal loss @lin2018focal 
 $
 cal(L)_"focal" = -1/B sum^B_(i=1) sum^(T_i-1)_(t=0) alpha(1-p_(i,t))^gamma log(p_(i,t))
 $
-with $p_(i,t) = A_(i,t)dot tilde(A)_(i,t) + (1 - A_(i,t)dot (1 - tilde(A)_(i,t)))$, $gamma$ controlling focus on hard examples and $alpha$ another weighting to emphasize positive vs. negative samples.
+with $p_(i,t) = A_(i,t)dot tilde(A)_(i,t) + (1 - A_(i,t)dot (1 - tilde(A)_(i,t)))$, the hyper-parameter $gamma$ controlling focus on hard examples and $alpha$ emphasizing positive vs. negative samples.
 The well established focal loss has been proven to improve performance for high imbalance datasets, which is the case for rare events such as the #acr("SOFA") increase.
 With this loss the model is encouraged to align the timing of predicted #acr("SOFA") increase with the ground truth.
 
@@ -431,6 +431,7 @@ where $bold(hat(Z))$ collects all predicted latent coordinates in a batch and $"
 
 The loss is minimized when the total variance of the latent dimensions $beta$ and $sigma$ increases and it therefore encourages a larger spread inside the latent space.
 
+#TODO[Boundary Loss]
 
 === Combined Objective
 The complete #acr("LDM") #footnote[Implementation of the #acr("LDM") components is available at https://github.com/unartig/sepsis_osc/tree/main/src/sepsis_osc/ldm] is trained end-to-end by jointly optimizing all components with the weighted total loss:

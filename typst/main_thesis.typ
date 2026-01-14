@@ -17,11 +17,15 @@
     "DL": "Deep Learning",
     "DNM": "Dynamic Network Model",
     "EHR": "Electronic Health Record",
+    "FN": "False Negatives",
+    "FP": "False Positives",
+    "FPR": "False Positive Rate",
     "FSQ": "Finite Scalar Quantization",
     // "GLM": "Generalized Linear Model",
     "GPU": "Graphics Processing Unit",
     "GRU": "Gated Recurrent Unit",
     "ICU": "Intensive Care Unit",
+    "IQR": "Inter Quantile Range",
     "JIT": "Just In Time Compilation",
     "LDM": "Latent Dynamics Model",
     "LOS": "Length Of Stay",
@@ -43,6 +47,9 @@
     "SI": "Suspected Infection",
     "SOFA": "Sequential Organ Failure Assessment",
     "SVM": "Support Vector Machine",
+    "TN": "True Negatives",
+    "TPR": "True Positive Rate",
+    "TP": "True Positives",
     "TUHH": "Hamburg University of Technology",
     "YAIB": "Yet Another ICU Benchmark",
   ),
@@ -81,11 +88,11 @@
 
 #include "chapters/sepsis.typ"
 
+#include "chapters/soa.typ"
+
 #include "chapters/problem_def.typ"
 
 #include "chapters/dnm.typ"
-
-#include "chapters/soa.typ"
 
 #include "chapters/method.typ"
 
