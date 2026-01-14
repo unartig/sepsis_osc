@@ -5,7 +5,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 from jaxtyping import Array, Float
 from sklearn.metrics import average_precision_score, roc_auc_score
-from torch.utils.tensorboard.writer import SummaryWriter
+from tensorboardX import SummaryWriter
 
 from sepsis_osc.ldm.lookup import LatentLookup
 from sepsis_osc.ldm.model_structs import AuxLosses
@@ -99,7 +99,7 @@ def log_val_metrics(
         filename="",
         figax=(fig, ax),
     )  # only first batch
-    writer.add_figure("Latents@0", fig, epoch, close=True)
+    writer.add_figure("LatentsOverTime", fig, epoch, close=True)
 
     fig, ax = plt.subplots(1, 1)
     ax = viz_progression(
@@ -126,7 +126,7 @@ def log_val_metrics(
         filename="",
         figax=(fig, ax),
     )
-    writer.add_figure("In Param Space", fig, epoch, close=True)
+    writer.add_figure("SingleLatent", fig, epoch, close=True)
 
     fig, ax = plt.subplots(1, 2)
     ax = viz_heatmap_concepts(
@@ -156,7 +156,7 @@ def log_val_metrics(
     log_msg = f"Epoch {epoch} Valdation "
     for k in metrics:
         if k == "hists":
-            writer.add_histogram("SOFA Score", np.asarray(pred_sofa_score), epoch, bins=25)
+            writer.add_histogram("SOFA_Score", np.asarray(pred_sofa_score), epoch, bins=25)
         elif k == "mult":
             for t, v in enumerate(np.asarray(metrics["mult"]["sofa_t"]).mean(axis=(0, 1))):
                 writer.add_scalar(f"sofa_per_timestep/t{t}", np.asarray(v), epoch)

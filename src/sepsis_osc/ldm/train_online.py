@@ -11,15 +11,13 @@ import jax.tree_util as jtu
 import numpy as np
 import optax
 from jaxtyping import Array, Bool, Float, Int, PyTree, jaxtyped
-from torch.utils.tensorboard.writer import SummaryWriter
+from sklearn.metrics import average_precision_score
+from tensorboardX import SummaryWriter
 
 from sepsis_osc.dnm.dynamic_network_model import DNMConfig, DNMMetrics
 from sepsis_osc.ldm.calibration_model import CalibrationModel
 from sepsis_osc.ldm.checkpoint_utils import load_checkpoint, save_checkpoint
-from sepsis_osc.ldm.commons import (
-    binary_logits,
-    custom_warmup_cosine,
-)
+from sepsis_osc.ldm.commons import binary_logits, custom_warmup_cosine
 from sepsis_osc.ldm.data_loading import get_data_sets_online, prepare_batches_mask
 from sepsis_osc.ldm.early_stopping import EarlyStopping
 from sepsis_osc.ldm.latent_dynamics_model import LatentDynamicsModel, init_ldm_weights
@@ -34,7 +32,6 @@ from sepsis_osc.utils.utils import timing
 
 INT_INF = jnp.astype(jnp.inf, jnp.int32)
 _1 = jnp.array(1)
-
 
 
 @jaxtyped(typechecker=typechecker)
@@ -144,7 +141,8 @@ def constrain_z_margin(
     z: Float[Array, "batch time zlatent_dim"], margin: int = 1
 ) -> Float[Array, "batch time zlatent_dim"]:
     """
-    Maps latent outputs to a narrowed parameter space to ensure the lookup kernel remains within valid bounds latent space.
+    Maps latent outputs to a narrowed parameter space to ensure the lookup kernel
+    remains within valid bounds latent space.
     """
     beta, sigma = jnp.split(z, 2, axis=-1)
 
@@ -277,7 +275,7 @@ def process_train_epoch(
     opt_state: optax.OptState,
     x_data: Float[Array, "ntbatches batch time input_dim"],
     y_data: Float[Array, "ntbatches batch time 3"],
-    mask_data: Bool[Array, "nvbatches batch time 1"],
+    mask_data: Bool[Array, "ntbatches batch time 1"],
     update: Callable,
     param_filter: PyTree,
     *,
@@ -306,8 +304,8 @@ def process_train_epoch(
             _model,
             x=batch_x,
             true_concepts=batch_true_c,
-            mask=batch_mask.astype(jnp.bool),
-            step=opt_state[1][0].count,
+            mask=batch_mask,
+            step=opt_state[0].count,
             key=key,
             lookup_func=lookup_func,
             params=loss_params,
@@ -360,6 +358,7 @@ def process_val_epoch(
 ) -> AuxLosses:
     """
     Performs an inference-only pass over the validation dataset to compute metrics and losses without updating model.
+    Expects the full data to fit into device memory.
     """
     model_params, model_static = eqx.partition(model, eqx.is_inexact_array)
 
@@ -377,7 +376,7 @@ def process_val_epoch(
             model=model_full,
             x=batch_x,
             true_concepts=batch_true_c,
-            mask=batch_mask.astype(jnp.bool),
+            mask=batch_mask,
             key=batch_key,
             lookup_func=lookup_func,
             params=loss_params,
@@ -405,24 +404,24 @@ if __name__ == "__main__":
         batch_size=512,
         window_len=1 + 6,
         epochs=int(3e3),
-        perc_train_set=0.333,
-        validate_every=5,
+        mini_epochs=4,
+        validate_every=1,
         calibrate=False,
         early_stop=True,
     )
-    lr_conf = LRConfig(init=0.0, peak=1e-3, peak_decay=0.5, end=1e-3, warmup_epochs=1, enc_wd=1e-4, grad_norm=100.0)
+    lr_conf = LRConfig(init=0.0, peak=1.75e-4, peak_decay=0.5, end=1.75e-4, warmup_epochs=1, enc_wd=1e-4, grad_norm=100.0)
     loss_conf = LossesConfig(
         w_recon=5.0,
         w_sofa_direction=10.0,
-        w_sofa_classification=6e2,
+        w_sofa_classification=1e3,
         w_sofa_d2=2.0,
         w_inf=1.0,
-        w_sep3=30.0,
-        w_spreading=4e-3,
+        w_sep3=1e2,
+        w_spreading=5e-2,
         w_boundary=30.0,
     )
     load_conf = LoadingConfig(from_dir="", epoch=0)
-    save_conf = SaveConfig(save_every=100, perform=True)
+    save_conf = SaveConfig(save_every=1, perform=True)
 
     # === Data ===
     (
@@ -500,8 +499,8 @@ if __name__ == "__main__":
         latent_enc_hidden_dim=32,
         latent_hidden_dim=4,
         latent_dim=2,
-        inf_dim=1,
         inf_hidden_dim=16,
+        inf_dim=1,
         dec_hidden_dim=32,
         sofa_dist=jnp.asarray(sofa_dist),
         lookup_kernel_size=3,
@@ -510,10 +509,11 @@ if __name__ == "__main__":
 
     hyper_ldm = model.hypers_dict()
 
-    optimizer = optax.chain(
-        optax.clip_by_global_norm(lr_conf.grad_norm),
-        optax.adamw(learning_rate=schedule, weight_decay=lr_conf.enc_wd),
-    )
+    # optimizer = optax.chain(
+    #     # optax.clip_by_global_norm(lr_conf.grad_norm),
+    #     optax.adamw(learning_rate=schedule, weight_decay=lr_conf.enc_wd),
+    # )
+    optimizer = optax.adamw(learning_rate=schedule, weight_decay=lr_conf.enc_wd)
     params_model, static_model = eqx.partition(model, eqx.is_inexact_array)
     opt_state = optimizer.init(params_model)
     if load_conf.from_dir:
@@ -546,13 +546,13 @@ if __name__ == "__main__":
             "lr": asdict(lr_conf),
         }
     )
-    writer.add_hparams(hyper_params, metric_dict={}, run_name=".")
+    writer.add_hparams(hyper_params, metric_dict={})
 
     shuffle_val_key = jr.fold_in(key, jax_random_seed)
-    val_x, val_y, val_m, nval_batches = prepare_batches_mask(
-        val_x, val_y, val_m, train_conf.batch_size, key=shuffle_val_key
-    )
-    early_stop = EarlyStopping()
+    val_x, val_y, val_m, _ = prepare_batches_mask(val_x, val_y, val_m, train_conf.batch_size, key=shuffle_val_key)
+    val_x, val_y, val_m = val_x[0], val_y[0], val_m[0]  # strip mini-epoch dimension
+    stop = False
+    early_stop = EarlyStopping(direction=1, patience=30, min_steps=20)
     for epoch in range(load_conf.epoch if load_conf.from_dir else 0, train_conf.epochs):
         if epoch > 0:
             shuffle_key = jr.fold_in(key, epoch)
@@ -563,28 +563,33 @@ if __name__ == "__main__":
                 train_m,
                 key=shuffle_key,
                 batch_size=train_conf.batch_size,
-                perc=train_conf.perc_train_set,
+                mini_epochs=train_conf.mini_epochs,
                 pos_fraction=0.1,
             )
-
             loss_conf.steps_per_epoch = ntrain_batches
-            params_model, opt_state, train_metrics, key = process_train_epoch(
-                model,
-                opt_state=opt_state,
-                x_data=x_shuffled,
-                y_data=y_shuffled,
-                mask_data=m_shuffled,
-                update=optimizer.update,
-                key=key,
-                lookup_func=lookup_table.soft_get_local,
-                loss_params=loss_conf,
-                param_filter=filter_spec,
-            )
-            model = eqx.combine(params_model, static_model)
+            train_metrics = []
+            for mini_epoch in range(train_conf.mini_epochs):
+                params_model, opt_state, mini_train_metrics, key = process_train_epoch(
+                    model,
+                    opt_state=opt_state,
+                    x_data=x_shuffled[mini_epoch],
+                    y_data=y_shuffled[mini_epoch],
+                    mask_data=m_shuffled[mini_epoch],
+                    update=optimizer.update,
+                    key=key,
+                    lookup_func=lookup_table.soft_get_local,
+                    loss_params=loss_conf,
+                    param_filter=filter_spec,
+                )
+                train_metrics.append(mini_train_metrics)
+                model = eqx.combine(params_model, static_model)
 
+            train_metrics = jtu.tree_map(lambda *xs: jnp.stack(xs), *train_metrics)
             log_msg = log_train_metrics(train_metrics, model.params_to_dict(), epoch, writer)
             writer.add_scalar(
-                "lr/learning_rate", np.asarray(schedule(np.float64(epoch) * np.float64(train_x.shape[0]))), epoch
+                "lr/learning_rate",
+                np.asarray(schedule(np.float64(epoch) * np.float64(train_x.shape[0]))),
+                epoch,
             )
             logger.info(log_msg)
 
@@ -596,34 +601,36 @@ if __name__ == "__main__":
                 x_data=val_x,
                 y_data=val_y,
                 mask_data=val_m,
-                step=opt_state[1][0].count,
+                step=opt_state[0].count,
                 key=val_key,
                 lookup_func=lookup_table.hard_get_fsq,
                 loss_params=loss_conf,
             )
+
             if train_conf.calibrate and epoch > 0:
                 cal = CalibrationModel().calibrate(
                     train_metrics.sofa_d2_p[m_shuffled],
                     train_metrics.susp_inf_p[m_shuffled],
-                    train_metrics.sep3_p[m_shuffled],
+                    train_y[m_shuffled, 2],
                 )
-                val_metrics.sep3_p = cal.get_sepsis_probs(val_metrics.sofa_d2_p, val_metrics.susp_inf_p)
+                val_metrics.sep3_p = cal.get_sepsis_probs(val_metrics.sofa_d2_p[val_m], val_metrics.susp_inf_p[val_m])
                 logger.error(cal.coeffs)
+
+            if train_conf.early_stop:
+                stop = early_stop.step(average_precision_score((val_y[val_m, 2] == 1.0), val_metrics.sep3_p[val_m]))
+
             log_msg = log_val_metrics(val_metrics, val_y, lookup_table, epoch, writer, mask=val_m)
             pred_sep = np.asarray(val_metrics.sep3_p)[val_m]
             true_sep = val_y[..., 2][val_m]
             logger.warning(log_msg)
 
             model = eqx.nn.inference_mode(val_model, value=False)
-            # del val_metrics, val_model
-            # del x_shuffled, y_shuffled
-            # del train_metrics
 
         gc.collect()
 
         # --- Save checkpoint ---
-        if (epoch + 1) % save_conf.save_every == 0 and save_conf.perform:
-            save_dir = writer.get_logdir() if not load_conf.from_dir else load_conf.from_dir
+        if ((epoch + 1) % save_conf.save_every == 0 or stop) and save_conf.perform:
+            save_dir = writer.logdir if not load_conf.from_dir else load_conf.from_dir
             save_checkpoint(
                 save_dir + "/checkpoints",
                 epoch,
@@ -631,4 +638,7 @@ if __name__ == "__main__":
                 opt_state,
                 hyper_ldm,
             )
+
+        if stop:
+            break
     writer.close()
