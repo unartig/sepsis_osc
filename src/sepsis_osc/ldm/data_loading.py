@@ -249,13 +249,13 @@ def get_data_sets_online(
     return (
         train_x.astype(dtype),
         train_y.astype(dtype)[..., swapaxes_y],
-        train_m.astype(dtype),
+        train_m.astype(dtype).astype(np.bool),
         val_x.astype(dtype),
         val_y.astype(dtype)[..., swapaxes_y],
-        val_m.astype(dtype),
+        val_m.astype(dtype).astype(np.bool),
         test_x.astype(dtype),
         test_y.astype(dtype)[..., swapaxes_y],
-        test_m.astype(dtype),
+        test_m.astype(dtype).astype(np.bool),
     )
 
 
@@ -273,7 +273,7 @@ def prepare_batches(
     Prepares and reshapes data into mini-batches, optionally balancing classes.
     """
     num_samples = int(perc * x_data.shape[0])
-    pos_mask = y_data.sum(axis=-1) > 0
+    pos_mask = y_data[..., 2].sum(axis=-1) > 0
     pos_idx, neg_idx = np.where(pos_mask)[0], np.where(~pos_mask)[0]
 
     if pos_fraction == -1.0:
@@ -300,35 +300,49 @@ def prepare_batches_mask(
     mask_data: np.ndarray,
     batch_size: int,
     key: jnp.ndarray,
-    perc: float = 1.0,
+    mini_epochs: int = 1,
     *,
     shuffle: bool = True,
     pos_fraction: float = -1.0,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, int]:
     """
     Extension of `prepare_batches` that also handles sequence masks.
+    Splits data into mini-epochs with a leading axis.
     """
-    num_samples = int(perc * x_data.shape[0])
-    pos_mask = y_data.sum(axis=-1) > 0
+    num_samples = x_data.shape[0]
+    pos_mask = y_data[..., 2].sum(axis=-1) > 0
     pos_idx, neg_idx = np.where(pos_mask)[0], np.where(~pos_mask)[0]
+
+    # Calculate samples per mini-epoch
+    samples_per_mini_epoch = num_samples // mini_epochs
+    n_batches_per_mini_epoch = samples_per_mini_epoch // batch_size
+    total_samples = n_batches_per_mini_epoch * batch_size * mini_epochs
 
     if pos_fraction == -1.0:
         idx = jr.permutation(key, num_samples) if shuffle else np.arange(num_samples)
+        idx = idx[:total_samples]
     else:
-        n_pos = int(num_samples * pos_fraction)
-        n_neg = num_samples - n_pos
-        pos_idx = np_rng.choice(pos_idx, n_pos, replace=True)
-        neg_idx = np_rng.choice(neg_idx, n_neg, replace=n_neg > len(neg_idx))
-        idx = np.concatenate([pos_idx, neg_idx])
-        if shuffle:
-            np_rng.shuffle(idx)
+        n_pos_per_mini = int(samples_per_mini_epoch * pos_fraction)
+        n_neg_per_mini = samples_per_mini_epoch - n_pos_per_mini
+
+        all_idx = []
+        for _ in range(mini_epochs):
+            pos_sample = np_rng.choice(pos_idx, n_pos_per_mini, replace=True)
+            neg_sample = np_rng.choice(neg_idx, n_neg_per_mini, replace=n_neg_per_mini > len(neg_idx))
+            mini_idx = np.concatenate([pos_sample, neg_sample])
+            if shuffle:
+                np_rng.shuffle(mini_idx)
+            all_idx.append(mini_idx[: n_batches_per_mini_epoch * batch_size])
+        idx = np.concatenate(all_idx)
 
     x, y, m = x_data[idx], y_data[idx], mask_data[idx]
-    n_batches = x.shape[0] // batch_size
-    x = x[: n_batches * batch_size].reshape(n_batches, batch_size, *x.shape[1:])
-    y = y[: n_batches * batch_size].reshape(n_batches, batch_size, *y.shape[1:])
-    m = m[: n_batches * batch_size].reshape(n_batches, batch_size, *m.shape[1:])
-    return x, y, m, n_batches
+
+    # Reshape with mini_epochs as leading dimension
+    x = x.reshape(mini_epochs, n_batches_per_mini_epoch, batch_size, *x.shape[1:])
+    y = y.reshape(mini_epochs, n_batches_per_mini_epoch, batch_size, *y.shape[1:])
+    m = m.reshape(mini_epochs, n_batches_per_mini_epoch, batch_size, *m.shape[1:])
+
+    return x, y, m, n_batches_per_mini_epoch * mini_epochs
 
 
 if __name__ == "__main__":

@@ -83,7 +83,7 @@ class TrainingConfig:
     batch_size: int
     window_len: int
     epochs: int
-    perc_train_set: float = 1.0
+    mini_epochs: int = 1
     validate_every: float = 1.0
     calibrate: bool = False
     early_stop: bool = False
