@@ -4,7 +4,7 @@
 // #import "figures/tree.typ": tree_fig
 
 #show: thesis.with(
-  title: "Combining Machine-Learning and Dynamic Network Models to Improve Sepsis Prediction",
+  title: "Combining Machine-Learning and \n Dynamic Network Models \n to Improve Sepsis Prediction",
   summary: [],
   // abstract_de: [
   // ],
@@ -57,7 +57,7 @@
   appendix-file: "chapters/appendix.typ",
   bibliography: bibliography("bibliography.bib"),
   // TODO what about notation?
-  table-of-figures: true,  // TODO and make pretty smh
+  table-of-figures: true,
   table-of-tables: true,
   // acknowledgements: [
   //   This thesis was written with the help of many people.
@@ -70,9 +70,9 @@
 #TODO[
   #list(
     [Styling level 1 header],
-    [Figure short captions],
     [fix Bibliography in TOC],
     [fix figure captions],
+    [pretty tables],
     [Sources misc + link],
     [Eq/fig numberings],
     [TUHH address wrong in template],
@@ -90,7 +90,7 @@
 
 #include "chapters/soa.typ"
 
-#include "chapters/problem_def.typ"
+// #include "chapters/problem_def.typ"
 
 #include "chapters/dnm.typ"
 
