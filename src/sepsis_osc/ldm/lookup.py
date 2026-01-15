@@ -60,15 +60,15 @@ class LatentLookup(eqx.Module):
         relevant_metrics_3d = self._extract_relevant(metrics_2d)
         object.__setattr__(self, "relevant_metrics_2d", relevant_metrics_3d)
 
-    @jaxtyped(typechecker=typechecker)
     @staticmethod
+    @jaxtyped(typechecker=typechecker)
     def _extract_relevant(_metrics: MetricBase) -> Float[Array, "nb ns"] | Float[Array, " nbxns"]:
         sofa_metric = _metrics.s_1
 
         return ((sofa_metric - sofa_metric.min()) / (sofa_metric.max() - sofa_metric.min())).squeeze(axis=-1)
 
-    @jaxtyped(typechecker=typechecker)
     @filter_jit
+    @jaxtyped(typechecker=typechecker)
     def hard_get(
         self,
         query_vectors: Float[Array, "batch latent"],
@@ -92,8 +92,8 @@ class LatentLookup(eqx.Module):
 
         return pred_c.astype(orig_dtype)
 
-    @jaxtyped(typechecker=typechecker)
     @filter_jit
+    @jaxtyped(typechecker=typechecker)
     def hard_get_fsq(
         self,
         query_vectors: Float[Array, "batch latent"],
@@ -116,8 +116,8 @@ class LatentLookup(eqx.Module):
 
         return jax.vmap(index_single)(center_idx)
 
-    @jaxtyped(typechecker=typechecker)
     @filter_jit
+    @jaxtyped(typechecker=typechecker)
     def soft_get_local(
         self,
         query_vectors: Float[Array, "batch latent"],
@@ -156,8 +156,8 @@ class LatentLookup(eqx.Module):
 
         return jax.vmap(gather_neighbors)(voxel_idx, q).astype(orig_dtype)
 
-    @jaxtyped(typechecker=typechecker)
     @filter_jit
+    @jaxtyped(typechecker=typechecker)
     def soft_get_global(
         self,
         query_vectors: Float[Array, "batch latent"],
