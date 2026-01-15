@@ -70,8 +70,8 @@ class CalibrationModel(eqx.Module):
         b = b if b is not None else self.b
         return jax.nn.sigmoid(a * self.get_sepsis_logits(p_sofa, p_inf) + b)
 
-    @jaxtyped(typechecker=typechecker)
     @eqx.filter_jit
+    @jaxtyped(typechecker=typechecker)
     def calibrate(
         self,
         p_sofa: Float[Array, " samples"],
@@ -81,7 +81,7 @@ class CalibrationModel(eqx.Module):
         """
         Optimizes the calibration parameters (a, b) using BFGS minimization.
 
-        This method performs Platt scaling by minimizing the binary cross-entropy 
+        This method performs Platt scaling by minimizing the binary cross-entropy
         between the calibrated predictions and the actual sepsis labels/probabilities.
         """
         solver = BFGS(rtol=1e-8, atol=1e-8)

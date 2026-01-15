@@ -155,8 +155,8 @@ class DNMMetrics(MetricBase):
     m_1: Float[Array, "*t"] | Float[Array, "... 1"] | np.ndarray
     m_2: Float[Array, "*t"] | Float[Array, "... 1"] | np.ndarray
     # Ensemble average std
-    s_1: Float[Array, "*t"] | Float[Array, "... 1"] | np.ndarray
-    s_2: Float[Array, "*t"] | Float[Array, "... 1"] | np.ndarray
+    s_1: Float[Array, "*t ensemble"] | Float[Array, "... 1"] | np.ndarray
+    s_2: Float[Array, "*t ensemble"] | Float[Array, "... 1"] | np.ndarray
     # Ensemble phase entropy
     q_1: Float[Array, "*t"] | Float[Array, "... 1"] | np.ndarray
     q_2: Float[Array, "*t"] | Float[Array, "... 1"] | np.ndarray
@@ -211,8 +211,8 @@ class DNMMetrics(MetricBase):
         return DNMMetrics(
             r_1=jnp.mean(jnp.asarray(self.r_1)[..., -1, :], axis=(-1,)),
             r_2=jnp.mean(jnp.asarray(self.r_2)[..., -1, :], axis=(-1,)),
-            s_1=jnp.mean(jnp.asarray(self.s_1)),
-            s_2=jnp.mean(jnp.asarray(self.s_2)),
+            s_1=jnp.mean(jnp.asarray(self.s_1)[..., -1, :], axis=(-1,)),
+            s_2=jnp.mean(jnp.asarray(self.s_2)[..., -1, :], axis=(-1,)),
             m_1=jnp.mean(jnp.asarray(self.m_1), axis=-1),
             m_2=jnp.mean(jnp.asarray(self.m_2), axis=-1),
             q_1=jnp.mean(jnp.asarray(self.q_1), axis=-1),
@@ -272,8 +272,8 @@ class DynamicNetworkModel(ODEBase):
         return init_sampler
 
     @staticmethod
-    @jaxtyped(typechecker=typechecker)
     @eqx.filter_jit
+    @jaxtyped(typechecker=typechecker)
     def system_deriv(
         _t: ScalarLike,
         y: DNMState,
@@ -353,8 +353,8 @@ class DynamicNetworkModel(ODEBase):
             mean_1 = mean_angle(dy.phi_1, axis=-1)
             mean_2 = mean_angle(dy.phi_2, axis=-1)
 
-            s_1 = jnp.mean(std_angle(dy.phi_1, axis=-1))
-            s_2 = jnp.mean(std_angle(dy.phi_2, axis=-1))
+            s_1 = std_angle(dy.phi_1, axis=-1)
+            s_2 = std_angle(dy.phi_2, axis=-1)
 
             # redce ensemble dim
             m_1 = jnp.mean(mean_1, axis=-1)
