@@ -1,5 +1,5 @@
 #import "@preview/cetz:0.4.2": canvas, draw
-#import draw: bezier, circle, content, line
+#import draw: bezier, circle, content, line, rect
 #import "helper.typ": *
 
 #set page(width: auto, height: auto, margin: 8pt, fill: none)
@@ -39,10 +39,10 @@
   line((0, 0), y-end, ..arrow-style, name: "y-axis")
 
   // Add axis labels
-  content((rel: (-.25, .25), to: x-end), $cmbeta(beta)$, anchor: "south-west")
+  content((rel: (-.25, .25), to: x-end), $beta$, anchor: "south-west")
   content(
     (rel: (.55, 0), to: "y-axis.end"),
-    $cmsigma(sigma)$,
+    $sigma$,
     anchor: "north-east",
   )
 
@@ -103,7 +103,7 @@
   line((-netend, y-range / 2), (-0.5, y-range / 2), name: "flow1", mark: emark)
   content(
     (rel: (0.2, -0.2), to: "flow1"),
-    $hat(bold(z))=(hat(z)_cmbeta(beta), hat(z)_cmsigma(sigma))$,
+    $hat(bold(z))=(hat(z)_beta, hat(z)_sigma)$,
     anchor: "north",
   )
   line((5, y-range/2), (7, y-range / 2), name: "flow1", mark: emark)
@@ -112,6 +112,9 @@
     $s^1 (bold(hat(z)))$,
     anchor: "north",
   )
+
+
+  rect((rel: (-1, -1.5), to: zc), (rel: (1.4, 0.9), to: zc), stroke: (paint: red.lighten(1%), dash: "dotted"))
 
 })
 #figure(fsq_fig)
