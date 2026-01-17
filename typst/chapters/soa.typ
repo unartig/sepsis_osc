@@ -2,37 +2,39 @@
 #import "../figures/on_vs_off.typ": oo_fig
 
 = State of the Art <sec:sota>
-This chapter provides a brief overview of the current state of the art in automated sepsis prediction and concludes in @sec:comp with some fundamental challenges found when assessing sepsis prediction systems.
-Sepsis prediction models for individual patients can be categorized into two major classes, the model-based and the data-driven approaches.
+As the last chapter concluded, sepsis represents a critical challenge in modern healthcare, it is both common and deadly, yet hard to diagnose.
+This chapter provides a brief overview of the current approaches of automated sepsis prediction and the fundamental challenges when comparing these.
+
+Sepsis prediction models for individual patients can be categorized into two major classes, the model-based and the data-driven approaches, each with their own distinct strengths and limitations.
 
 == Model-Based Approaches
-Biological and medical inspired models of sepsis offer high interpretability and explainability, since they explicitly encode causal relationships.
+Biologically and medically inspired models of sepsis offer high interpretability and explainability, since they explicitly encode causal relationships.
 However, due to the inherent complexity of sepsis pathophysiology, such mechanistic models remain rare @Schuurman2023Complex.
-Most existing works focus on dynamic immune response on a cellular @Relouw2024@An2024Model@Cockrell2022Model@McDaniel2019body, intricate signaling and production mechanisms influenced by varying cell concentration are typically modeled using large systems of coupled differential equations.
+
+Most existing works focus on dynamic immune response on a cellular level @Relouw2024@An2024Model@Cockrell2022Model@McDaniel2019body.
+Complicated signaling and production mechanisms influenced by varying cell concentration are typically modeled using large systems of coupled differential equations.
 
 To derive risk estimates or disease trajectories, model parameters are fitted to individual patient observations.
 By simulating physiological trajectories under hypothetical infection scenarios, these models enable to estimate the likelihood of sepsis development @An2024Model.
 More advanced digital twins which incorporate bidirectional feedback between the mechanistic model and patient data have also been explored in @Cockrell2022Model.
 
-Validation mechanistic sepsis models is usually done by comparing simulation trajectories to repetitively measured cellular concentrations.
-Since the required high-resolution immunological measurements are difficult and costly to obtain only small samples of patients have been validated.
-To date no model-based prediction approaches has yet been evaluated on large-scale clinical datasets, limiting their insight into real-world performance and generalizability.
+Mechanistic sepsis models are usually validated by comparing simulation trajectories to repetitively measured cellular concentrations.
+Since the required high-resolution immunological measurements are difficult and costly to obtain, only small patient samples have been validated.
+To date, no model-based prediction approach has been evaluated on large-scale clinical datasets, limiting insight into real-world performance and generalizability.
 
 == Data-Driven Approaches <sec:dda>
 With the increasing availability of #acl("EHR") and computational resources, #acr("ML")- and #acr("DL")-methods have become the dominant paradigm for sepsis prediction systems over the last decade.
-Data-driven approaches can capture highly nonlinear relationships in heterogeneous clinical data and have demonstrated strong empirical performance in real-world settings.
-Numerous systems have been proposed and are summarized in surveys such as @Bomrah2024Review and @Moor2021Review.
-The technology-landscape is highly diverse and includes classical #acr("ML")-models (nonlinear regression, random-forests, #acr("SVM")s, and gradient-boosted trees such as XGBoost @XGBoost), as well as #acr("DL")-architectures (standard #acr("MLP"), recurrent models e.g. #acr("GRU")/#acr("LSTM"), attention based e.g. transformers and more specialized models like Gaussian Process Temporal Convolutional Networks @Moor2023Retro.
+Data-driven approaches can capture highly nonlinear relationships in heterogeneous clinical data.
+Unlike mechanistic models, these methods do not require explicit specification of biological relationships, instead, they learn predictive patterns directly from historical data.
 
-== Challenges in comparing sepsis prediction models <sec:comp>
-Although many of data-driven models report reasonable performance, direct comparison across studies is fundamentally limited, as highlighted by @Moor2021Review.
-The main issues particularly relevant to the #acr("LDM") methodology are:
+The research on data-driven sepsis prediction systems is highly active, lots of different methodologies deploying various #acr("ML") and #acr("DL") techniques have been proposed, ranging from classical to specialized methods.
+Alone in the past five years, eight systematic reviews on data-driven sepsis predictions have been published @Bomrah2024Review@Moor2021Review@komorowski2022Review@Yadgarov2024Review@Gao2024Review@Parvin2023Review@Solisgarcia2023Review@Stylianides2025Review.
+The following overview is based on the findings of the reviews, especially @Bomrah2024Review@Moor2021Review@Yadgarov2024Review, and will not discuss specific approaches.
 
-#list([*Prediction Tasks*\
 Studies differ fundamentally in how they frame the prediction problem.
-This includes _online training_, where newly arriving medical measurements are incorporated into a continuously updated risk estimate and _offline training_, where only the information available at a fixed observation time is used to predict the risk of sepsis within a prespecified horizon $T$.
+This includes _online prediction_, where newly arriving medical measurements are incorporated into a continuously updated risk estimate and _offline prediction_, where only the information available at a fixed observation time is used to predict the risk of sepsis within a prespecified horizon $T$.
 Because these setups rely on different information structures and temporal assumptions, their reported performances are not directly comparable.
-Online prediction is more clinically desirable but also more challenging to implement given the current state of available #acr("EHR").
+Online prediction is more clinically relevant but also more challenging to implement given the current state of available #acr("EHR").
 Both schemes are shown in @fig:oo, notice in offline prediction the horizon $T$, the specific choice strongly influences the outcome, with smaller horizons the tasks becomes gradually easier.
 For the online scheme choice of what time range around a sepsis onset qualifies as positive label also significantly changes prediction accuracy and prediction.
 #figure(
@@ -42,38 +44,43 @@ For the online scheme choice of what time range around a sepsis onset qualifies 
     long: [Illustration of the two predictions schemes, _offline_ (*A*) vs. _online_ (*B*) (figure heavily inspired by @Moor2021Review).
     The main difference is the provision and utilization and arrival of observation data.])
 ) <fig:oo>
-To have a meaningful comparisons between two models, they must be evaluated on the _exact same task_.
-This includes the scheme (offline or online), the same choice of $T$ for the offline scheme and the labeling window around the measured onset.
-], 
 
-[*Sepsis Definition and Implementation*\
-Sepsis definitions are vary widely across studies but greatly influence the prevalence, cohort composition as well as task difficulty.
+Most sepsis prediction models are trained in a retrospectively and evaluated using offline prediction tasks, typically predicting sepsis onset $T=6–48$ hours in advance.
+Model performance commonly reported using #acr("AUROC") and #acr("AUPRC") (their derivation and interpretation is discussed in @sec:metrics).
+Across studies, reported #acr("AUROC") values typically range from approximately 0.80 to 0.95, indicating good to very good discrimination, though such values must be interpreted cautiously given differences in task formulation and evaluation protocols.
+In comparison, classical assessment scores achieve #acr("AUROC")s of #acr("SOFA")$=0.667$ and #acr("qSOFA")$=0.612$ 
+
+Methodologically, a wide range of supervised learning approaches has been explored.
+Classical models such as logistic regression, Cox proportional hazards models, and random forests or gradient boosting remain strong baselines due to their robustness and interpretability.
+Deep learning architectures, including #acr("RNN"), temporal convolutional networks, and more recently transformer-based models, have been proposed to capture complex temporal dependencies.
+Despite their expressive capacity, deep models often show only marginal performance improvements over ensemble methods when evaluated under comparable experimental conditions.
+This observation has important implications for clinical deployment, as simpler models may offer better interpretability without sacrificing predictive accuracy
+
+Most models rely on routinely collected clinical data, including vital signs, laboratory measurements, demographics, and treatment variables.
+Publicly available #acr("ICU") datasets, for example the #acr("MIMIC") @johnson2023mimic series, serve as the predominant development and benchmarking platforms.
+Differences in feature choice substantially influences both model performance and real-world usability.
+While a broader set of features can increase predictive accuracy but risks again the clinical applicability, if required measurements are not routinely available.
+Moreover, extensive feature sets increase the risk of label leakage, where the measurements and medical concepts used to derive the sepsis label are provided to the prediction model as feature input.
+This way the model would learn the sepsis derivation but not underlying signals which are actually helpful for early sepsis recognition.
+
+Finally, ambiguities in the Sepsis-3 definition, the deployed definitions vary widely across studies, but greatly influence the prevalence, cohort composition therefore the task difficulty.
 Intuitively different sepsis different sepsis definitions are not comparable with each other since they might capture dissimilar medical concepts.
-Even for the same conceptual definition and same dataset differences in implementation can yield different patient cohorts and therefore different prediction performances @Johnsons2018Data.
+Even for the same conceptual definition and same dataset differences in implementation can yield different patient cohorts and therefore different prediction performances @Johnsons2018Data, with less than 10% publishing their code for label generation.
 More restrictive definitions typically produce lower prevalence and greater class imbalances making #acr("ML")-based prediction more difficult but potentially increasing clinical relevance.
 Less restrictive definitions can artificially inflate prediction performance while reducing practical applicability.
-],
-
-[*Feature selection*\
-Feature choice also influences both model performance and real-world usability.
-Using a broader set of features can increase predictive accuracy but risks again the clinical applicability, since extensive measurements may be not routinely available.
-It also increases the risk of label leakage, where the measurements and medical concepts used to derive the sepsis label are provided to the prediction model as feature input.
-This way the model would learn the sepsis derivation but not underlying signals which are actually helpful for early sepsis recognition.
-],)
-
 
 == Summary of State of the Art
-As of now, neither purely model-based nor purely data-driven approaches were able to fully address the challenges of sepsis prediction.
+As of now, purely model-based nor purely data-driven come with their own sets of strengths and limitations.
 Mechanistic models offer strong interpretability and encode physiological priors, yet their practical usefulness is limited by the scarcity of high-resolution immunological measurements and the lack of large-scale clinical validation.
-In contrast, data-driven models show strong empirical performance on #acr("EHR") datasets, but their prediction behavior is often difficult to interpret and show black-box behavior
+In contrast, data-driven models show strong empirical performance on #acr("EHR") datasets, but their prediction behavior is often difficult to interpret and can show black-box behavior
 
-This work, named the #acl("LDM") aims to combine the strengths of both paradigms: mechanistic components of the #acr("DNM") introduce structured physiological biases that can help stabilize the learning process, and provide more interpretable intermediate quantities.
+This work, aims to combine the strengths of both paradigms: mechanistic components of a physiologically inspired model is used to introduce structured physiological biases to help the learning process and provide more interpretable intermediate quantities.
 At the same time, the data-driven components allow the model to adapt to real clinical variability and make use of information that is not explicitly captured by the mechanistic structure.
-In this way, the #acr("LDM") seeks to make data-driven sepsis prediction models more transparent and more robust to the well-known issues discussed in @sec:comp.
+In this way, this work novel methodology seeks to make data-driven sepsis prediction models more transparent and more robust.
 
 The heterogeneity in prediction tasks, sepsis definitions and feature sets illustrates why each decision of one of these aspects regarding new prediction models should be taken with care.
 For the sake of reproducibility the choices need to be reported as precisely as possible.
 Works such as #acr("YAIB") @yaib attempt to address these challenges by providing a common basis for evaluating models by standardizing the dataset, cohort definition, prediction task, and labeling strategy, thereby enabling fair and reproducible comparison of different approaches.
 
-After introducing the methodology in @sec:ldm, its performance validated on real clinical data in @sec:experiment.
-The experimental setup makes use of the #acr("YAIB") framework, and its dataset, cohort definition, prediction task, and labeling implementation are described in detail in @sec:data, as these settings are adopted for training and evaluating the #acr("LDM").
+After introducing the methodology of this work in @sec:ldm, its performance validated on real clinical data in @sec:experiment.
+The experimental setup makes use of the #acr("YAIB") framework, and its dataset, cohort definition, prediction task, and labeling implementation are described in detail in @sec:data, as these settings are adopted for training and evaluating the developed method.

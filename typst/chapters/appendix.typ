@@ -6,7 +6,7 @@
   table(
     columns: (1fr, auto, auto, auto, auto, auto),
     inset: 10pt,
-    align: horizon,
+    align: (left, left, center, center, center, center),
     table.header([Category], [Indicator], [1], [2], [3], [4]),
     [Respiration], [$"PaO"_2$/$"FiO"_2$ [mmHg]], [< 400], [< 300], [< 200], [< 100],
 
@@ -42,7 +42,6 @@
 #figure(table(
   columns: (auto, auto, auto, auto, auto),
   align: (left, left, left, right, left),
-  stroke: 0.5pt,
   [*ricu - Name*], [*Unit*], [*Min*], [*Max*], [*Description*],
   
   [age], [Years], [0], [-], [Age at hospital admission],
@@ -55,7 +54,6 @@
 #figure(table(
   columns: (auto, auto, auto, auto, auto),
   align: (left, left, left, right, left),
-  stroke: 0.5pt,
   [*ricu - Name*], [*Unit*], [*Min*], [*Max*], [*Description*],
   
   [alb], [g/dL], [0], [6], [albumin],

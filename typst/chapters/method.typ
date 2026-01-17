@@ -147,10 +147,9 @@ Starting with the estimator module for the suspected infection indication module
 #figure(
   table(
     columns: (auto, 1fr),
-    align: (center, left),
+    align: (left, left),
     
     [*Symbol*], [*Description*],
-    table.hline(),
     
     // Core variables
     [$i, N$], [Patient index and total patients],
@@ -175,7 +174,7 @@ Starting with the estimator module for the suspected infection indication module
     
     table.hline(),
     [$cal(L)_"sepsis", cal(L)_"inf", cal(L)_"sofa"$], [Primary sepsis, infection, and #acr("SOFA") losses],
-    [$cal(L)_"focal", cal(L)_"diff", cal(L)_"dec", cal(L)_"spread"$], [Auxiliary focal, directional, decoder, and diversity losses],
+    [$cal(L)_({"focal","diff","dec","spread","boundary"})$], [Auxiliary focal, directional, decoder, diversity, and boundary losses],
     [$lambda_i$], [Loss weight for component $i$],
     [$B$], [Mini-batch size],
     
@@ -207,12 +206,12 @@ The hidden state $bold(h)_t$ propagates temporal information through time.
 For the first time-step $t=0$ a learnable initial hidden state $bold(h)_0$ is used.
 
 The model is implemented as a #acr("RNN"), illustrated in @fig:inf.
-At each timestep, a recurrent cell updates the hidden state, and a learned linear projection followed by sigmoid activation produces the infection risk estimate:
+At each timestep, a recurrent cell updates the hidden state, and a learned linear projection $bold(W)_f bold(h)_t$, with $bold(W)_f in RR^(1times H_f)$, followed by sigmoid activation produces the infection risk estimate:
 $
 bold(h)_t &= "RNN-Cell"_(theta_f^"rnn") (bold(mu)_t, bold(h)_(t-1)) \
-tilde(I)_t &= "sigmoid"(bold(w)_f bold(h)_t + b_f)
+tilde(I)_t &= "sigmoid"(bold(W)_f bold(h)_t + b_f)
 $
-where $theta_f={theta^"rnn"_f, bold(w)_f, b_f}$ combines all learnable parameters.
+where $theta_f={theta^"rnn"_f, bold(W)_f, b_f}$ combines all learnable parameters, the bias $b_f in RR$ is a single scalar.
 
 To fit the model, given a mini-batch if size $B$, #acr("BCE") loss which measures the distance between true label $overline(I)_t$ and the predicted label $tilde(I)_t$:
 $
@@ -286,13 +285,13 @@ $
 is trained to propagate the latent #acr("DNM") parameters forward in time.
 
 This recurrent mechanism, conditioned on the hidden state $bold(h)_t$ and previous latent location $bold(z)^"raw"_(t-1)$, captures how the underlying physiology influences the drift of the #acr("DNM") parameters.
-From the previous hidden state and latent-position a recurrent cells updates the hidden state, followed by a linear down-projection to receive the updated latent-position.
+From the previous hidden state and latent-position a recurrent cells updates the hidden state, followed by a linear down-projection $bold(W)_g bold(h)_t$, with $bold(W)_g in RR^(2times H_f)$, to receive the updated latent-position.
 $
   bold(h)_t &= "RNN-Cell"_(theta_g^"rnn") ((bold(mu)_(t), bold(hat(z))^"raw"_(t-1)), bold(h)_(t-1)), "  " t = 2,...,T \ 
-  Delta hat(bold(z))^"raw"_t &= (bold(w)_g bold(h)_t) \
+  Delta hat(bold(z))^"raw"_t &= (bold(W)_g bold(h)_t) \
   hat(bold(z))^"raw"_t &= bold(hat(z))^"raw"_(t-1) + Delta hat(bold(z))^"raw"_t
 $
-where $theta_g^r={theta^"rnn"_g,bold(w)_g}$ combines all the learnable parameters.
+where $theta_g^r={theta^"rnn"_g,bold(W))_g in RR }$ combines all the learnable parameters.
 The down-projection does not have a bias-term so that no direction is inherently preferred.
 
 Depending on the movement in the latent space the level of synchrony changes across the prediction horizon, which translates to the pathological evolution of patients.
@@ -397,7 +396,8 @@ $
 $
  hat(bold(mu))_t  = d_theta_d (hat(bold(z))_(t))
 $
-This way the decoder only learns to disentangle the latent coordinates in $hat(bold(z))_(t)$ based on ground future #acr("EHR")s $bold(mu)_t$, through a supervised loss:
+This way the decoder only learns to disentangle the latent coordinates in $hat(bold(z))_(t)$ based on ground future #acr("EHR")s $bold(mu)_t$.
+The module is trained using a supervised loss:
 $
   cal(L)_"dec" = 1/(B) sum^B_(i=1) 1/(T_i) sum^(T_i -1)_(t=0) (bold(mu)_(i,t) - bold(hat(mu))_(i,t))^2 
 $
@@ -405,7 +405,6 @@ This serves as regularization because the reconstruction objective forces the la
 
 This latent regularization is motivated by _Representation Learning_ @Bengio2012Representation and ensures that nearby points in the latent $(beta, sigma)$-space correspond to physiologically similar patient states.
 It should help the encoder $g^e_theta^e_g$ to learn a meaningful alignment between #acr("EHR")-derived latent-embeddings and the dynamical #acr("DNM") landscape.
-
 Using this regularization the latent encoder $g^e_theta^e_g$ and the recurrent predictor $g^r_theta^r_g$ are encouraged to map temporally consecutive to spatially near latent coordinates, since it is expected that consecutive #acr("EHR")s do not exhibit drastic changes.
 Leading smooth patient trajectories through the latent space.
 
@@ -449,7 +448,7 @@ This smoothing ensures that organ failure predictions remain elevated during the
   ) <fig:ldm>
 
 
-=== Training Objective and Auxiliary Losses <sec:training_objective>
+== Training Objective and Auxiliary Losses <sec:training_objective>
 Besides the losses already presented, to guide the training process multiple auxiliary losses are used and introduced in the following.
 
 *Primary Sepsis Prediction Loss*\
@@ -506,7 +505,7 @@ In order to keep the predicted latent inside the predefined area, they will be d
 $
   cal(L)_"boundary" = "ReLU"(f - "sigmoid"(bold(z)^"raw"_t)) + "ReLU"("sigmoid"(bold(z)^"raw"_t - (1 - f))
 $
-with $f in (0,1)$ being a hyperparameter that controls how close to the edges the loss starts to act.
+with $f in (0,0.5)$ sets a boundary threshold as a fraction of the space, creating a "penalty buffer" that discourages latent variables from entering the outer $f$-percent of the space near the edges..
 
 === Combined Objective
 The complete #acr("LDM") #footnote[Implementation of the #acr("LDM") components is available at https://github.com/unartig/sepsis_osc/tree/main/src/sepsis_osc/ldm] is trained jointly by optimizing all components with the weighted total loss:
@@ -528,11 +527,10 @@ Specific values for the loss weights $lambda$ and other hyperparameters are repo
 
 @tab:losses provides an overview of all loss components, their purpose, and the modules they supervise.
 
-// All modules $f_theta_f$, $g^e_theta^e_g$, $g^r_theta^r_g$, and $d_theta_d$ are jointly optimized through backpropagation, with gradients flowing through the differentiable #acr("DNM") lookup mechanism described in @sec:theory_fsq.
-
 #figure(
   table(
     columns: 4,
+    align: (left, left, left, left),
     [*Loss*], [*Type*], [*Purpose*], [*Supervises*],
     [$cal(L)_"sepsis"$], [#acr("BCE")], [Primary sepsis prediction], [$f_theta_f, g^e_theta^e_g, g^r_theta^r_g$],
     [$cal(L)_"inf"$], [#acr("BCE")], [Infection indicator], [$f_theta_f$],
@@ -546,18 +544,86 @@ Specific values for the loss weights $lambda$ and other hyperparameters are repo
   caption: flex-caption(long: [Overview of loss components in the #acr("LDM") training objective.], short: [Training Objectives])
 ) <tab:losses>
 
+== LDM Inference
+At inference time, the #acr("LDM") operates as a continuous monitoring system for #acr("ICU") patients, providing real-time risk assessment from admission through the entire ICU stay.
+Upon patient admission to the #acr("ICU"), and once initial laboratory measurements are available, the first #acr("EHR") observation $bold(mu)_0$ is processed by both the Infection Indicator module and the latent encoder.
+The infection indicator $f_theta_f$ produces an initial infection risk estimate  $tilde(I)_0$ and hidden state $h^f_0$.
+The latent encoder $g^e_theta_g^e$ maps the $bold(mu)_0$ to the initial latent coordinates $bold(hat(z))_0$.
+Deriving the synchronicity measure $s^1_(0) (bold(hat(z)))$ from the coordinates provides an immediate indication of organ system functionality.
+
+This initialization establishes the patients baseline physiological state within the #acr("DNM") parameter space and provides initial risk indicators.
+The hidden states $bold(h)^f_0$ and $bold(h)^g_0$ are saved to enable temporal continuity in subsequent predictions.
+Triggered by newly arriving measurements or at regular hourly intervals, the system performs sequential updates.
+Updated #acr("EHR")s $bold(mu)_t$ are processed by the recurrent modules $f_theta_f$ and $g^r_theta_g^r$ generating updated estimates on the infection risk and organ system state $tilde(I)_t$ and $bold(hat(z))_t$.
+From the history of the latent trajectory $bold(hat(z))_(0:t)$ the acute risk of organ failure $tilde(A)_t$ is calculated and the risk of sepsis estimated $tilde(S)_t$.
+This process is run until the patient leaves the #acr("ICU").
+
+Overall, at inference time, the #acr("LDM") provides multiple clinically interpretable indicators at each timestep:
+#align(center,
+list(
+align(left, [*$tilde(I)_t in (0,1)$*: Current infection likelihood]),
+align(left, [*$s^1_t (hat(bold(z))) in [0,1]$*: Organ system desynchronization (proxy for SOFA score)]),
+align(left, [*$tilde(A)_t in (0,1)$*: Acute organ failure risk (recent worsening)]),
+align(left, [*$tilde(S)_t in (0,1)$*: Overall sepsis risk (primary alert signal)]),)
+)
+These outputs allow clinicians to not only assess overall sepsis risk but also understand the contributing factors, whether the risk stems primarily from suspected infection, acute organ deterioration, or both.
+Additionally, the latent trajectory $s^1_(0:t) (hat(bold(z)))$ through the #acr("DNM") parameter space provides interpretable visualization of the patients physiological evolution over time.
+
+== Assessing the Prediction Performance <sec:metrics>
+In order to qualitatively assess the prediction performance of sepsis prediction models two theoretically grounded metrics will be introduced. 
+The prediction of a patient developing sepsis vs. no sepsis is a binary decision problem based off of the continuous estimated heuristic sepsis risk $tilde(S)_t$.
+Given an estimated risk $tilde(S)_t$ and a decision threshold $tau in [0, 1]$, the decision if a prediction value counts as septic is given by the rule:
+$
+  delta(tilde(S)_t) = II (tilde(S)_t > tau)
+$
+where $II(dot)$ is 1 when the condition is met and 0 otherwise.
+For different choices of $tau$ the decision rule can be applied and yield different ratios of:
+#align(center, list(
+    align(left, [*#acr("TP")* where truth and estimation are 1]),
+    align(left, [*#acr("FP")* where truth is 0 and estimation 1]),
+    align(left, [*#acr("TN")* where truth and estimation are 0]),
+    align(left, [*#acr("FN")* where truth is 1 and estimation 0,]),
+  )
+)
+from these one can calculate the #acr("TPR") (also called sensitivity):
+$
+  "TPR" = "TP"/("TP" + "FN")
+$
+and the #acr("FPR"):
+$
+  "FPR" = "FP"/("TP" + "FN")
+$
+Sweeping the decision boundary $tau$ from 0 to 1 and plotting the corresponding implicit function #acr("TPR") vs #acr("FPR") creates the _receiver operating characteristic_ or _ROC_ curve.
+A prediction system operating at chance will have exhibit a diagonal line from (0 #acr("FPR"), 0 #acr("TPR")) to (1 #acr("FPR"), 1 #acr("TPR")).
+Everything above that diagonal indicates better predictions than chance, with an optimal predictor "hugging" the left axis until the point (0 #acr("FPR"), 1 #acr("TPR")) followed by hugging the top axis.
+The quality of the whole curve can be summarized to a single number, the area under the curve, called #acr("AUROC"), where larger values $<=1$ indicate better prediction performance.
+
+When trying to predict rare events, meaning sparse positive against lots of negative events the #acr("FPR") can become small and thus little informative.
+In these cases one commonly plots the _precision_:
+$
+  P = "TP" / ("TP" + "FP")
+$
+against the _recall_:
+$
+  R = "TP" / ("TP" + "FN")
+$
+
+creating the _precision recall curve_ or PRC, where an optimal predictor hugs the top right.
+Also this curve can be summarized by its area to the #acr("AUPRC") metric, where larger values indicate better performance @murphy2012machine.
+
+Traditionally, the #acr("AUPRC") is referred to as the more appropriate metric for imbalanced prediction tasks.
+Though, recent research suggests the #acr("AUROC") as a more reliable metric for use cases with elevated #acr("FN") costs, such as the increased mortality risk in false or delayed sepsis diagnoses @mcdermott2025metrics.
+Together the #acr("AUROC") and #acr("AUPRC") are the commonly reported performance metrics used in the sepsis prediction literature @Moor2021Review and will be used to compare the performance between the #acr("LDM") and a baseline approach.
+
 == Summary of Methods
 This chapter introduced the proposed model for short-term and interpretable risk prediction of developing sepsis for #acr("ICU") patients, referred to as #acl("LDM").
 Starting from the formal task definition, the full processing pipeline and detailed the architecture of the encoder, recurrent latent dynamics module, decoder, and the infection-indicator classifier have been presented.
 A key component of the approach is the integration of the functional #acr("DNM") into the latent dynamics, enabling physiologically meaningful and interpretable temporal modeling.
 
-The training losses used for each component and additional auxiliary losses were defined and how they contribute to the overall optimization objective.
-Finally the chapter also introduced the notation and training setup that will used throughout the remainder of the thesis.
+The training losses, including auxiliary losses, used for each component were defined and explained how they contribute to the overall optimization objective.
+Additionally, chapter explained how the #acr("LDM") can be used to support clinical monitoring of patients.
+Lastly, the two metrics #acr("AUROC") and #acr("AUPRC") were introduced to assess the prediction performance.
 
-The next @sec:experiment presents the #acr("MIMIC")-IV database, a widely used #acr("ICU") used to benchmark sepsis prediction models, and the exact task and cohort definitions used for baseline comparisons.
-The relevant evaluation metrics #acr("AUROC") and #acr("AUPRC") used to assess the predictive performance are introduced.
-
-The chapter concludes with implementation details for training the #acr("LDM") on the #acr("MIMIC")-IV data and specific architectural choices.
-Final quantitative and qualitative results are presented and analyzed in @sec:results.
-
-#TODO[INFERENCE]
+The next @sec:experiment presents an experiment where the #acr("LDM") is trained using a widely used data-source #acr("ICU") in order to benchmark sepsis prediction capabilities.
+Therefore, it presents the exact task and cohort definitions and #acr("LDM") parameterization as well as the training procedure.
+The relevant evaluation metrics #acr("AUROC") and #acr("AUPRC") are used to assess the predictive performance and compare to existing baseline methods.

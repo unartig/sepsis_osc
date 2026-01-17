@@ -218,6 +218,6 @@
     rect((-0.25, -1.5), (2.75, -2.75), name: "risk", stroke: 3pt + red, fill: red.lighten(90%))
     content("risk.center", align(center, text(weight: "bold")[Sepsis Risk \ $tilde(S)_t = "CS"(tilde(A)_t) tilde(I)_t$]))
 
-    line("iout.south", (rel: (-1, 0), to:"risk.west"), "risk.west", mark: (end: ">"), stroke: 1pt)
-    line("aout.south", (rel: (1, 0), to:"risk.east"), "risk.east", mark: (end: ">"), stroke: 1pt)
+    line("iout.south", (rel: (-1.25, 0), to:"risk.west"), "risk.west", mark: (end: ">"), stroke: 1pt)
+    line("aout.south", (rel: (0.75, 0), to:"risk.east"), "risk.east", mark: (end: ">"), stroke: 1pt)
   })

@@ -166,14 +166,15 @@ All the systems variables and parameters are summarized in @tab:dnm together wit
   table(
     columns: (auto, auto, auto),
     // inset: 10pt,
-    align: center,
+    align: (center, left, left),
     table.header([*Symbol*], [*Name*], [*Physiological Meaning*]),
-    table.cell(colspan: 3)[*Variables*],
+
+    table.cell(colspan: 3, align: left)[*Variables*],
     [$phi_i$], [Phase], [Group of cells],
     [$dot(phi)_i$], [Phase Velocity], [Metabolic activity],
     [$kappa_(i j)$], [Coupling Weight], [Cytokine activity],
 
-    table.cell(colspan: 3)[*Parameters*],
+    table.cell(colspan: 3, align: left)[*Parameters*],
     [$alpha$], [Phase lag], [Metabolic interaction delay],
 
     [$beta$],
@@ -196,7 +197,7 @@ All the systems variables and parameters are summarized in @tab:dnm together wit
     [Interlayer coupling],
     [Interaction between parenchymal and \ immune cells through the basal lamina],
 
-    table.cell(colspan: 3)[*Measures*],
+    table.cell(colspan: 3, align:left)[*Measures*],
     [$s$],
     [Standard deviation of frequency \ (see @eq:std)],
     [Pathogenicity (Parenchymal Layer)],
@@ -275,7 +276,7 @@ An exhaustive summary of all variable initializations and parameter choices can 
     columns: (auto, 13em, auto, 13em),
     align: center,
     table.header([*Symbol*], [*Value*], [*Symbol*], [*Value*]),
-    table.cell(colspan: 4)[*Variables*],
+    table.cell(colspan: 4, align: left)[*Variables*],
     [$phi^1_i$], [$~cal(U)[0, 2pi)$],
     [$kappa^1_(i != j)$],
     [$~cal(U)(-1, 1)$],
@@ -283,7 +284,7 @@ An exhaustive summary of all variable initializations and parameter choices can 
     [$kappa^2_(i != j)$],
     [clusters of size $C$ and $1-C$],
 
-    table.cell(colspan: 4)[*Parameters*],
+    table.cell(colspan: 4, align: left)[*Parameters*],
     [$M$], [50], [$N$], [200],
     [$C$], [$20%$], [], [],
     [$beta$], [$[0.0, 1.0]pi$], [$sigma$], [$[0.0, 1.5]$],
