@@ -188,9 +188,7 @@ Patients with a septic shock are can be identified by:
   ))
 )
 
-
-
-== The need for sepsis prediction <sec:sepwhy>
+== Sepsis Prediction <sec:sepwhy>
 To this day sepsis, and the more extreme septic shock, remains an extreme burden to the worldwide healthcare system.
 It is associated with high rates of incidence, high mortality and significant morbidity.
 Despite overall advancements in medical care and slowly decreasing prevalence numbers, sepsis continues to be the leading cause of in-hospital death @Via2024Burden.
@@ -201,11 +199,14 @@ The economic burden is equally severe, with the annual cost of sepsis treatment 
 Globally sepsis remains to be under-diagnosed significantly due to its nonspecific symptoms.
 Environmental and socioeconomic factors, such as insufficient sanitation, limited access to clean water and healthcare increase the incidence particularly in low- to middle income countries @rudd2020global@Via2024Burden.
 
-In the past two decades, through an increasing availability and usage of #acr("EHR") in hospitals, automated patient monitoring systems have become more prominent.
-These systems are designed to alert medical personnel to confirmed or suspected sepsis, as well as to elevated sepsis risk, based on predetermined criteria which are derived from continuously collecting clinical and laboratory measurements.
+Traditional sepsis screening relies on clinical scoring systems such as #acr("SOFA") or #acr("qSOFA").
+While useful for standardizing assessment, these scores are inherently reactive, since they identify patients already experiencing organ dysfunction rather than those at risk of developing sepsis.
+This clinical reality has motivated the development of automated prediction systems that can continuously monitor patients and alert clinicians to elevated sepsis risk before overt organ failure develops.
+Usually, these alerts are based on predetermined criteria which are derived from clinical and laboratory measurements.
 // Prediction horizons can vary substantially between systems, from now-casting, essentially predicting sepsis in realtime, short-term where sepsis is predicted in the next few hours and long-term where it is predicted over the next few days.
 With the help of these automated alerts, clinicians can potentially more rapidly initiate antibiotic or other treatment or intensify patient monitoring.
 
+=== Limitations of Current Prediction Systems
 A meta-analysis of seven sepsis alert systems found no evidence for improvement in patient outcomes, suggesting insufficient predictive power of analyzed alert systems or inadequate system integration @Alshaeba2025Effect.
 Nevertheless, positive treatment outcomes depend heavily on timely recognition and intervention @Via2024Burden.
 Each hour of delayed treatment increases mortality risk, underscoring the critical importance of early detection @seymour2017time while structured screening and early warning systems have demonstrated reductions in time-to-antibiotics and improvements in outcomes @Westphal2009Early.

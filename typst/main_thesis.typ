@@ -98,7 +98,7 @@
 
 #include "chapters/experiment.typ"
 
-#include "chapters/result.typ"
+// #include "chapters/result.typ"
 
 #include "chapters/discussion.typ"
 

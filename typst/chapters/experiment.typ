@@ -55,7 +55,8 @@ The selection process with corresponding exclusion numbers is shown in @fig:coho
 === Cohort Characteristics
 Table @tab:cohort presents the demographic and clinical characteristics of the final cohort, stratified by sepsis status according to the Sepsis-3 criteria.
 Of the 63,425 patients included, 3,320 (5.2%) met criteria for sepsis.
-Sepsis-positive patients exhibited notably higher disease severity, with a median maximum SOFA score of 5.0 compared to 4.0 in sepsis-negative patients, and substantially higher hospital mortality (26.5% vs 6.6%).
+Sepsis-positive patients exhibited notably higher disease severity, with a median maximum #acr("SOFA") score of 5.0 compared to 4.0 in sepsis-negative patients, and substantially higher hospital mortality (26.5% vs 6.6%).
+Additionally, the #acr("LOS") of septic patients was significantly longer than for non-septic patients (median 335.1 hours vs 150.3 hours).
 The median time to sepsis onset was 13.0 hours (#acr("IQR") (25%-75%): 8.0–34.0).
 
 Both groups were similar in terms of demographic characteristics, including age (median 65 years), sex distribution (approximately 55% male), and weight at admission (median 77.6 kg).
@@ -65,7 +66,6 @@ The majority of patients in both groups were white (63.6% overall) and had medic
 #figure(table(
   columns: 4,
   align: (left, center, center, center),
-  stroke: 0.5pt,
   
   table.header(
     [*Characteristic*],
@@ -73,16 +73,18 @@ The majority of patients in both groups were white (63.6% overall) and had medic
     [*SEP-3 positive*],
     [*SEP-3 negative*]
   ),
+  table.cell(colspan: 4)[*Demographics*],
+  table.hline(stroke:1pt),
   
   [N],
-  [63425 (100.0%)],
-  [3320 (5.2%)],
-  [60105 (94.8%)],
+  [63425 (100.0)],
+  [3320 (5.2)],
+  [60105 (94.8)],
   
   [Male],
-  [35170 (55.5%)],
-  [1881 (56.7%)],
-  [33289 (55.4%)],  
+  [35170 (55.5)],
+  [1881 (56.7)],
+  [33289 (55.4)],  
 
   [Age at admission],
   [65.0 (53.0–76.0)],
@@ -94,14 +96,16 @@ The majority of patients in both groups were white (63.6% overall) and had medic
   [77.6 (65.6–94.0)],
   [77.6 (65.0–92.2)],
   
+  table.hline(stroke:1pt),
   table.cell(colspan: 4)[*Clinical Outcomes*],
+  table.hline(stroke:1pt),
 
-  [SOFA median],
+  [#acr("SOFA") median],
   [3.0 (1.0–5.0)],
   [3.0 (1.0–5.0)],
   [3.0 (1.0–5.0)],
 
-  [SOFA max],
+  [#acr("SOFA") max],
   [4.0 (2.0–6.0)],
   [5.0 (4.0–8.0)],
   [4.0 (2.0–6.0)],
@@ -112,58 +116,62 @@ The majority of patients in both groups were white (63.6% overall) and had medic
   [150.3 (90.9–256.0)],
 
   [Hospital Mortality],
-  [4828 (7.6%)],
-  [879 (26.5%)],
-  [3949 (6.6%)],
+  [4828 (7.6)],
+  [879 (26.5)],
+  [3949 (6.6)],
 
   [SEP-3 onset time],
   [-],
   [13.0 (8.0–34.0)],
   [-],
   
+  table.hline(stroke:1pt),
   table.cell(colspan: 4)[*Ethnicity*],
+  table.hline(stroke:1pt),
 
   [White],
-  [40364 (63.6%)],
-  [2087 (62.9%)],
-  [38277 (63.7%)],
+  [40364 (63.6)],
+  [2087 (62.9)],
+  [38277 (63.7)],
 
   [Black],
-  [5809 (9.2%)],
-  [262 (7.9%)],
-  [5547 (9.2%)],
+  [5809 (9.2)],
+  [262 (7.9)],
+  [5547 (9.2)],
 
   [Asian],
-  [721 (1.1%)],
-  [42 (1.3%)],
-  [679 (1.1%)],
+  [721 (1.1)],
+  [42 (1.3)],
+  [679 (1.1)],
 
   [Hispanic],
-  [630 (1.0%)],
-  [32 (1.0%)],
-  [598 (1.0%)],
+  [630 (1.0)],
+  [32 (1.0)],
+  [598 (1.0)],
 
   [Other/Unknown],
-  [14924 (23.5%)],
-  [897 (27.0%)],
-  [14027 (23.3%)],
+  [14924 (23.5)],
+  [897 (27.0)],
+  [14027 (23.3)],
   
+  table.hline(stroke:1pt),
   table.cell(colspan: 4)[*Admission Type*],
+  table.hline(stroke:1pt),
 
   [Medical],
-  [45009 (71.0%)],
-  [2817 (84.8%)],
-  [42192 (70.2%)],
+  [45009 (71.0)],
+  [2817 (84.8)],
+  [42192 (70.2)],
 
   [Surgical],
-  [2239 (3.5%)],
-  [45 (1.4%)],
-  [2194 (3.7%)],
+  [2239 (3.5)],
+  [45 (1.4)],
+  [2194 (3.7)],
 
   [Other/Unknown],
-  [15200 (24.0%)],
-  [458 (13.8%)],
-  [14742 (24.5%)],
+  [15200 (24.0)],
+  [458 (13.8)],
+  [14742 (24.5)],
 ),
 caption: flex-caption(short: [Characteristics and demographics of the cohort], long: [Characteristics and demographics of the cohort. Numerical variables are summarized by _median [IQR 25 - 75]_ and numerical variables by incidence (%)])
 ) <tab:cohort>
@@ -206,60 +214,4 @@ Architecture specifications:
 )
 Loss weights were:
 #TODO[ask]
-
-== Evaluation Metrics <sec:metrics>
-The prediction of a patient developing sepsis vs. no sepsis is a binary decision problem based off of the continuous estimated heuristic sepsis risk $S_t$.
-Given an estimated risk $S_t$ and a decision threshold $tau in [0, 1]$, the decision if a prediction value counts as septic is given by the rule:
-$
-  delta(tilde(S)_t) = II (tilde(S)_t > tau)
-$
-where $II(dot)$ is 1 when the condition is met and 0 otherwise.
-For different choices of $tau$ the decision rule can be applied and yield different ratios of:
-#align(center, list(
-    align(left, [*#acr("TP")* where truth and estimation are 1]),
-    align(left, [*#acr("FP")* where truth is 0 and estimation 1]),
-    align(left, [*#acr("TN")* where truth and estimation are 0]),
-    align(left, [*#acr("FN")* where truth is 1 and estimation 0,]),
-  )
-)
-from these one can calculate the #acr("TPR") (also called sensitivity):
-$
-  "TPR" = "TP"/("TP" + "FN")
-$
-and the #acr("FPR"):
-$
-  "FPR" = "FP"/("TP" + "FN")
-$
-Sweeping the decision boundary $tau$ from 0 to 1 and plotting the corresponding implicit function #acr("TPR") vs #acr("FPR") creates the _receiver operating characteristic_ or _ROC_ curve.
-A prediction system operating at chance will have exhibit a diagonal line from (0 #acr("FPR"), 0 #acr("TPR")) to (1 #acr("FPR"), 1 #acr("TPR")).
-Everything above that diagonal indicates better predictions than chance, with an optimal predictor "hugging" the left axis until the point (0 #acr("FPR"), 1 #acr("TPR")) followed by hugging the top axis.
-The quality of the whole curve can be summarized to a single number, the area under the curve, called #acr("AUROC"), where larger values $<=1$ indicate better prediction performance.
-
-When trying to predict rare events, meaning sparse positive against lots of negative events the #acr("FPR") can become small and thus little informative.
-In these cases one commonly plots the _precision_:
-$
-  P = "TP" / ("TP" + "FP")
-$
-against the _recall_:
-$
-  R = "TP" / ("TP" + "FN")
-$
-
-creating the _precision recall curve_ or PRC, where an optimal predictor hugs the top right.
-Also this curve can be summarized by its area to the #acr("AUPRC") metric, where larger values indicate better performance @murphy2012machine.
-
-Traditionally, the #acr("AUPRC") is referred to as the more appropriate metric for imbalanced prediction tasks.
-Though, recent research suggests the #acr("AUROC") as a more reliable metric for use cases with elevated #acr("FN") costs, such as the increased mortality risk in false or delayed sepsis diagnoses @mcdermott2025metrics.
-Together the #acr("AUROC") and #acr("AUPRC") are the commonly reported performance metrics used in the sepsis prediction literature @Moor2021Review and will be used to compare the performance between the #acr("LDM") and the #acr("YAIB") baseline.
-
-
-
-
-For binary decision problems such as the prediction of 
-Model performance was evaluated using threshold-independent metrics appropriate for imbalanced binary classification:
-- #acr("AUROC") Measures discrimination ability across all classification thresholds
-- #acr("AUPRC") More informative than AUROC for imbalanced data, emphasizes performance on positive (sepsis) cases
-All metrics were computed on the held-out test set. Statistical significance of performance differences was assessed using [bootstrapping / DeLong test / McNemar test].
-
-
-== Results and Benchmark Comparisons
+== Results and Benchmark Comparisons <sec:results>

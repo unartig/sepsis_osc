@@ -283,14 +283,21 @@
   show raw.where(block: true): block.with(inset: (x: 5pt))
 
   // TABLE
+  let tframe(stroke) = (x, y) => (
+    left: if x > 0 { 0pt } else { stroke },
+    right: stroke,
+    top: if y < 2 { stroke } else { 0pt },
+    bottom: stroke,
+  )
   show figure.where(kind: table): set block(breakable: true)
   set table(
     // Increase the table cell's padding
-    inset: 7pt, // default is 5pt
-    stroke: (0.5pt + stroke-color),
+    inset: 5pt, // default is 5pt
+    stroke: tframe(1pt),
   )
   // Use smallcaps for table header row.
   show table.cell.where(y: 0): smallcaps
+
 
   // Wrap `body` in curly braces so that it has its own context. This way show/set rules
   // will only apply to body.
