@@ -131,7 +131,7 @@ The function $o_(s,d) (dot)$ contains two globally learnable parameters, $d$ a t
 While the Sepsis-3 definition corresponds to a fixed threshold of #box($d = 2$), here $d$ is treated as learnable to obtain a smooth, fully differentiable approximation of the discrete #acr("SOFA") increase criterion and to account for uncertainty in baseline estimation.
 The choice of the function
 $
-"sigmoid"(x)=1/(1+e^-x)
+"sigmoid"(x)=1/(1+e^(-x))
 $
 yields a monotonic indicator (larger #acr("SOFA") increase $->$ more likely organ failure) while still being differentiable.
 
@@ -200,16 +200,16 @@ $
 is trained to map the patients physiological state represented by the #acr("EHR") to an estimated risk of suspected infection:
 
 $
-  (tilde(I)_t, bold(h)_t)=f_theta_f (bold(mu)_(t),bold(h)_(t-1))
+  (tilde(I)_t, bold(h)^f_t)=f_theta_f (bold(mu)_(t),bold(h)^f_(t-1))
 $
 The hidden state $bold(h)_t$ propagates temporal information through time.
-For the first time-step $t=0$ a learnable initial hidden state $bold(h)_0$ is used.
+For the first time-step $t=0$ a learnable initial hidden state $bold(h)^f_0$ is used.
 
 The model is implemented as a #acr("RNN"), illustrated in @fig:inf.
-At each timestep, a recurrent cell updates the hidden state, and a learned linear projection $bold(W)_f bold(h)_t$, with $bold(W)_f in RR^(1times H_f)$, followed by sigmoid activation produces the infection risk estimate:
+At each timestep, a recurrent cell updates the hidden state, and a learned linear projection $bold(W)_f bold(h) ^f_t$, with $bold(W)_f in RR^(1times H_f)$, followed by sigmoid activation produces the infection risk estimate:
 $
-bold(h)_t &= "RNN-Cell"_(theta_f^"rnn") (bold(mu)_t, bold(h)_(t-1)) \
-tilde(I)_t &= "sigmoid"(bold(W)_f bold(h)_t + b_f)
+bold(h)_t &= "RNN-Cell"_(theta_f^"rnn") (bold(mu)_t, bold(h)^f_(t-1)) \
+tilde(I)_t &= "sigmoid"(bold(W)_f bold(h)^f_t + b_f)
 $
 where $theta_f={theta^"rnn"_f, bold(W)_f, b_f}$ combines all learnable parameters, the bias $b_f in RR$ is a single scalar.
 
@@ -263,7 +263,7 @@ $
 where the high dimensional patient state is mapped to a two-dimensional latent vector, and a $H_g$-dimensional hidden state.
 
 $
-  (hat(bold(z))^"raw"_0 , bold(h)_0) = ((hat(z)^"raw"_(0,beta), hat(z)^"raw"_(0,sigma)), bold(h)_0) = g^e_(theta_g^e) (bold(mu)_0)
+  (hat(bold(z))^"raw"_0 , bold(h)^g_0) = ((hat(z)^"raw"_(0,beta), hat(z)^"raw"_(0,sigma)), bold(h)^g_0) = g^e_(theta_g^e) (bold(mu)_0)
 $
 This encoding locates the patient within a physiologically meaningful region of the #acr("DNM") parameter space, which in context of the #acr("LDM") is called the latent space.
 To keep latent coordinates in the predefined area they are ultimately transformed by:
@@ -275,20 +275,20 @@ The latent coordinate $hat(bold(z))_0$ provides the initial condition for short-
 As described in @sec:theory_surro the latent coordinates correspond to a #acr("DNM") synchronization behavior and can therefore be directly interpreted as #acr("SOFA")-score estimates (#box($bold(hat(z)) -> s^1 (bold(hat(z))) -> hat(O) (hat(bold(z)))$)).
 
 In addition to the estimated parameter pair $hat(bold(z))^"raw"_0$, the encoder outputs another vector with dimension $H_g<<D$ that is a compressed representation of patient physiology relevant for short-term evolution of $hat(bold(z))$.
-This vector $bold(h)_0 in RR^(H_g)$ is the initial hidden space.
+This vector $bold(h)^g_0 in RR^(H_g)$ is the initial hidden space.
 
-Since the heuristic #acr("SOFA") risk $tilde(A)$ depends on the evolution of organ function $hat(O)_(0:t)$, it is necessary to estimate not only the initial state $hat(bold(z))_0$ but also its evolution.
+Since the heuristic #acr("SOFA") risk $tilde(A)$ depends on the evolution of organ function $hat(O)^g_(0:t)$, it is necessary to estimate not only the initial state $hat(bold(z))_0$ but also its evolution.
 For this purpose a neural recurrent function:
 $
   g^r_theta: RR^(D+2) times RR^(H_g) -> RR^2 times RR^(H_g)
 $
 is trained to propagate the latent #acr("DNM") parameters forward in time.
 
-This recurrent mechanism, conditioned on the hidden state $bold(h)_t$ and previous latent location $bold(z)^"raw"_(t-1)$, captures how the underlying physiology influences the drift of the #acr("DNM") parameters.
-From the previous hidden state and latent-position a recurrent cells updates the hidden state, followed by a linear down-projection $bold(W)_g bold(h)_t$, with $bold(W)_g in RR^(2times H_f)$, to receive the updated latent-position.
+This recurrent mechanism, conditioned on the hidden state $bold(h)^g_t$ and previous latent location $bold(z)^"raw"_(t-1)$, captures how the underlying physiology influences the drift of the #acr("DNM") parameters.
+From the previous hidden state and latent-position a recurrent cells updates the hidden state, followed by a linear down-projection $bold(W)_g bold(h)^g_t$, with $bold(W)_g in RR^(2times H_g)$, to receive the updated latent-position.
 $
-  bold(h)_t &= "RNN-Cell"_(theta_g^"rnn") ((bold(mu)_(t), bold(hat(z))^"raw"_(t-1)), bold(h)_(t-1)), "  " t = 2,...,T \ 
-  Delta hat(bold(z))^"raw"_t &= (bold(W)_g bold(h)_t) \
+  bold(h)_t &= "RNN-Cell"_(theta_g^"rnn") ((bold(mu)_(t), bold(hat(z))^"raw"_(t-1)), bold(h)^g_(t-1)), "  " t = 2,...,T \ 
+  Delta hat(bold(z))^"raw"_t &= (bold(W)_g bold(h)^g_t) \
   hat(bold(z))^"raw"_t &= bold(hat(z))^"raw"_(t-1) + Delta hat(bold(z))^"raw"_t
 $
 where $theta_g^r={theta^"rnn"_g,bold(W))_g in RR }$ combines all the learnable parameters.
@@ -348,7 +348,7 @@ The nearby points are selected by a rectangular kernel around the closest quanti
 Given a kernel-size $k$ the approximated values is calculated by:
 $
 tilde(s)^1 (hat(bold(z)))=sum_(bold(z)' in cal(N)_(k times k)(tilde(bold(z)))) "softmax"(-(||hat(bold(z))-bold(z)'||^2)/T_d)s^1 (bold(z)')
-$
+$ <eq:ll>
 with $"softmax"$ for $K=k dot k$ neighboring points, where $k$ is an odd number $>1$.
 Here, #box($T_d in RR_(>0)$) is a learnable temperature parameter which controls the sharpness of the smoothing, with larger values producing stronger smoothing and smaller values converging to the value of the closest point $tilde(bold(z))$ exclusively.
 This allows the model to adjust the interpolation sharpness during training, potentially using broad smoothing early on for exploration and sharpening later for precision.
@@ -428,7 +428,7 @@ where $"CS"(dot)$ denotes a causal smoothing operator that maintains elevated pr
 The causal smoothing operation is defined as:
 $
   "CS"(x_t) = sum_(tau=0)^r w_tau dot x_(t-tau), quad w_tau = (e^(-alpha tau))/(sum_(k=0)^r e^(-alpha k))
-$
+$ <eq:cs>
 with radius $r$ is a hyper-parameter controlling the temporal radius of the smoothing window, and $alpha$ a learnable decay parameter controlling the length and shape of the smoothing kernel.
 To handle the sequence boundaries $x_(t-tau)=0$ for $t - tau < 0$.
 

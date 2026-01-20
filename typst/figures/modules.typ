@@ -22,7 +22,7 @@
     content("ehr.center", [EHR $bold(mu)_t$])
     
     rect((-3.6, -1.3), (-1.4, -0.7), name: "hprev", stroke: 1pt + gray)
-    content("hprev.center", [$bold(h)_(t-1) in RR^(H_f)$])
+    content("hprev.center", [$bold(h)^f_(t-1) in RR^(H_f)$])
     
     rect((-1, -1.5), (1, -0.5), name: "rnn", stroke: 2pt + inf_c, fill: inf_c.lighten(90%))
     content("rnn.center", [RNN $f_theta_f$])
@@ -33,7 +33,7 @@
     content("inf.center", [$tilde(I)_t in (0,1)$])
     
     rect((2, -1.3), (3, -0.7), name: "h", stroke: 1pt + gray)
-    content("h.center", [$bold(h)_t$])
+    content("h.center", [$bold(h)^f_t$])
     
     line("rnn.south", "inf.north", mark: (end: ">"), stroke: 1.5pt)
     line("rnn.east", "h.west", mark: (end: ">"), stroke: 1pt + gray)
@@ -72,7 +72,7 @@
     content("z0.center", [$hat(bold(z))^"raw"_0 in RR^2$])
     
     rect((rel: (0, dh), to: (-2.1, 0.65)), (rel: (0, dh), to: (-0.25, 1.35)), name: "h0", stroke: 1pt + gray)
-    content("h0.center", [$bold(h)_0 in RR^(H_g)$])
+    content("h0.center", [$bold(h)^g_0 in RR^(H_g)$])
     
     line("enc.south", "z0.north", mark: (end: ">"), stroke: 1pt)
     line((rel: (0, dh), to: "enc.east"), "h0.west", mark: (end: ">"), stroke: 1pt + gray)
@@ -86,7 +86,7 @@
     line("ehr1.south", "rnn0.north", mark: (end: ">"), stroke: 1pt)
     
     rect((rel: (0, dh), to: (4.2, 0.65)), (rel: (0, dh), to: (5.95, 1.35)), name: "h1", stroke: 1pt + gray)
-    content("h1.center", [$bold(h)_1$])
+    content("h1.center", [$bold(h)^g_1$])
     line((rel: (0, dh), to:"rnn0.east"), "h1.west", mark: (end: ">"), stroke: 1pt + gray)
 
 
@@ -170,7 +170,7 @@
     content("inf.center", align(center, [Infection Module $f_theta_f$]))
 
     line((rel:(-1, 0.0), to:"inf.south"), (rel:(-1, -0.5), to:"inf.south"), (rel:(-2.5, -0.5), to:"inf.south"), (rel:(-2.5, 1.5), to:"inf.south"), (rel:(-1, 1.5), to:"inf.south"), (rel:(-1, 0), to:"inf.north"), mark: (end: ">"))
-    content((rel: (-1.5, 0.9), to:"inf.north"), align(center, text(size: 10pt)[hidden state $h_(t-1)$]))
+    content((rel: (-1.5, 0.9), to:"inf.north"), align(center, text(size: 10pt)[hidden state $bold(h)^f_(t-1)$]))
     
     line("ehr.south", (rel: (0, .5), to: "inf.north"), "inf.north", mark: (end: ">"), stroke: 1pt)
     
@@ -182,7 +182,7 @@
     let sofa_c = olive
     rect((1.5, 3.0), (5.5, 4), name: "sofa", stroke: 2pt + sofa_c.lighten(20%), fill: sofa_c.lighten(95%))
     line((rel:(1, 0.0), to:"sofa.south"), (rel:(1, -0.5), to:"sofa.south"), (rel:(2.5, -0.5), to:"sofa.south"), (rel:(2.5, 1.5), to:"sofa.south"), (rel:(1, 1.5), to:"sofa.south"), (rel:(1, 0), to:"sofa.north"), mark: (end: ">"))
-    content((rel: (2.5, 1.1), to:"sofa.north"), align(left, text(size: 10pt)[hidden state $h_(t-1)$\ and previous position $z^"raw"_(t-1)$]))
+    content((rel: (2.5, 1.1), to:"sofa.north"), align(left, text(size: 10pt)[hidden state $bold(h)^g_(t-1)$\ and previous position $bold(z)^"raw"_(t-1)$]))
     
     content("sofa.center", align(center, [SOFA Module $g_theta_g$]))
     line("ehr.south", (rel: (0, .5), to: "sofa.north"), "sofa.north", mark: (end: ">"), stroke: 1pt)

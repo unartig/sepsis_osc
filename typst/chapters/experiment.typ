@@ -1,5 +1,6 @@
 #import "../thesis_env.typ": *
 #import "../figures/cohort.typ": cohort_fig
+#import "../figures/auto_encoder.typ": ae_fig
 
 = Experiment <sec:experiment>
 To assess the potential benefits from embedding the #acl("DNM") into a short-term sepsis prediction system, the #acl("LDM") (see @sec:ldm) was trained and evaluated using real-world medical data.
@@ -10,7 +11,7 @@ This study relies exclusively on the #acl("MIMIC")-IV database (version 2.3) @jo
 The #acr("MIMIC") database series contains #acr("EHR") information capturing day-to-day clinical routines, including patient measurements, orders, diagnoses, procedures, treatments, and free-text clinical notes.
 All included #acr("EHR")s were recorded at Beth Israel Deaconess Medical Center in Boston, America between 2008 and 2022.
 Every part of the data has been de-identified and is publicly available to support research in electronic healthcare applications, with special focus on intensive care.
-While applications trained on #acr("MIMIC") databases are known to have limited generalization to other data-sources and real-world settings, they remain the default open-data resource for developing sepsis prediction systems @Bomrah2024Review @Rockenschaub2023review.
+While applications trained on #acr("MIMIC") databases are known to have limited generalization to other data-sources and real-world settings, they remain the default open-data resource for developing sepsis prediction systems @Bomrah2024Review@Rockenschaub2023review.
 
 === Cohort Definition, Feature Choice and Preprocessing
 To derive the cohort from raw data and preprocess clinical features, the #acr("YAIB") framework is used @yaib.
@@ -57,7 +58,7 @@ Table @tab:cohort presents the demographic and clinical characteristics of the f
 Of the 63,425 patients included, 3,320 (5.2%) met criteria for sepsis.
 Sepsis-positive patients exhibited notably higher disease severity, with a median maximum #acr("SOFA") score of 5.0 compared to 4.0 in sepsis-negative patients, and substantially higher hospital mortality (26.5% vs 6.6%).
 Additionally, the #acr("LOS") of septic patients was significantly longer than for non-septic patients (median 335.1 hours vs 150.3 hours).
-The median time to sepsis onset was 13.0 hours (#acr("IQR") (25%-75%): 8.0–34.0).
+The median time to sepsis onset was 13 hours (#acr("IQR") (25%-75%): 8–34).
 
 Both groups were similar in terms of demographic characteristics, including age (median 65 years), sex distribution (approximately 55% male), and weight at admission (median 77.6 kg).
 The majority of patients in both groups were white (63.6% overall) and had medical admissions (71.0% overall), though sepsis-positive patients had a higher proportion of medical admissions (84.8% vs 70.2%).
@@ -96,9 +97,9 @@ The majority of patients in both groups were white (63.6% overall) and had medic
   [77.6 (65.6–94.0)],
   [77.6 (65.0–92.2)],
   
-  table.hline(stroke:1pt),
+  table.hline(stroke:.5pt),
   table.cell(colspan: 4)[*Clinical Outcomes*],
-  table.hline(stroke:1pt),
+  table.hline(stroke:.5pt),
 
   [#acr("SOFA") median],
   [3.0 (1.0–5.0)],
@@ -125,9 +126,9 @@ The majority of patients in both groups were white (63.6% overall) and had medic
   [13.0 (8.0–34.0)],
   [-],
   
-  table.hline(stroke:1pt),
+  table.hline(stroke:.5pt),
   table.cell(colspan: 4)[*Ethnicity*],
-  table.hline(stroke:1pt),
+  table.hline(stroke:.5pt),
 
   [White],
   [40364 (63.6)],
@@ -154,9 +155,9 @@ The majority of patients in both groups were white (63.6% overall) and had medic
   [897 (27.0)],
   [14027 (23.3)],
   
-  table.hline(stroke:1pt),
+  table.hline(stroke:.5pt),
   table.cell(colspan: 4)[*Admission Type*],
-  table.hline(stroke:1pt),
+  table.hline(stroke:.5pt),
 
   [Medical],
   [45009 (71.0)],
@@ -189,23 +190,83 @@ The data preprocessing involves three main steps: scaling, sampling, and imputat
 All numerical feature were standardized to zero mean and unit variance, while categorical and binary features remained left unchanged.
 To prevent data leakage, used statistics from the training split for all data partitions (training, validation, and testing) were used.
 
-All features were uniformly resampled to an hourly basis.
+All features were uniformly resampled to an hourly basis with every trajectory padded to the maximum length of 169 hours, ensuring uniform processing lengths.
 Missing data points for dynamic variables were forward-filled using the last known value of the same #acr("ICU") stay.
 For missing values without any prior measurement, the training cohort mean is used as fill value instead.
 Lastly the data is augmented by a binary indicator that distinguishes between actual measurements and imputed values.
 
-== Implementation Details <sec:impl>
+== Implementation and Training Details <sec:impl>
 The #acr("LDM") was implemented in the JAX @jax2018 based Equinox framework @kidger2021equinox and trained on a consumer laptop #acr("GPU").
 The cohort was partitioned at the patient level using a stratified split with a 75/12.5/12.5 ratio for training, validation, and test sets respectively.
 The split was stratified by sepsis status to maintain the 5.2% prevalence ratio across all sets.
-To address the strong imbalance between septic and non-septic samples, each training batch has been randomly oversampled to contain 10% positive samples.
+To address the strong imbalance between septic and non-septic samples, each training batch has been randomly over-sampled to contain 10% positive samples.
 
-All modules were jointly optimized using AdamW (learning rate $ = 3 times 10^(-3)$, weight decay $ = 1 times 10^(-4)$) with early stopping (patience=#todo[...] epochs on validation #acr("AUPRC")).
-Batch size was 512 with [sequence handling details].
+All modules were jointly optimized using AdamW (learning rate $ = 3 times 10^(-3)$, weight decay $ = 1 times 10^(-4)$, $beta_1=0.9$, $beta_2=0.999$) with early stopping (patience=30 epochs on validation #acr("AUPRC")).using a batch-size of 512.
 The #acr("DNM") latent space was quantized to a $60 times 100$ grid over $beta in [0.4pi, 0.7pi]$ and $sigma in [0.0,1.5]$, with differentiable lookup using 3x3 neighborhood softmax interpolation.
 
-#TODO[padding]
+Starting values for learnable scalar parameters are listed in @tab:initparams.
 
+#figure(table(
+  columns: 4,
+  align: (left, left, left, center),
+  
+  table.header(
+    [*Parameter*],
+    [*Description*],
+    [],
+    [*Initial Value*],
+  ),
+
+    [$d$],
+    [#acr("SOFA") increase detection threshold ],[@eq:otoa],
+    [0.04],
+
+    [$s$],
+    [#acr("SOFA") increase detection sharpness],[@eq:otoa],
+    [50],
+
+    [$T_d$],
+    [Lookup interpolation temperature],[@eq:ll],
+    [0.05],
+
+    [$alpha$],
+    [Causal smoothing decay],[@eq:cs],
+    [0.7],
+),
+caption: flex-caption(short: [TODO], long: [TODO])
+) <tab:initparams>
+
+
+#let input_dim = 104
+#let z_latent_dim = 2
+#let dec_hidden = 64  
+#let hidden_dim = 32
+#let pre_head_dim = 128  
+#let h_dim = 4  
+#let z_dim = 2  
+
+// Encoder Table
+// #figure(
+//   table(
+//     columns: 5,
+//     align: (left, left, center, center, center),
+//     [*Component*], [*Operation*], [*Input Dim*], [*Output Dim*], [*Activation*],
+//     [Input Split], [Partition into features + indicators], [#input_dim], [#calc.quo(input_dim, 2) + #calc.quo(input_dim, 2)], [-],
+//     [Feature Gating], [linear_gating], [#calc.quo(input_dim, 2)], [#calc.quo(input_dim, 2)], [Sigmoid],
+//     [Concatenating], [concat(gated features, indicators)], [52 + 52], [104], [-],
+//     [Residual Block 1], [layer norm + linear 1], [#input_dim], [#hidden_dim], [GELU],
+//     [Residual Block 2], [layer norm + linear 2], [#hidden_dim], [#hidden_dim], [GELU],
+//     [Residual Block 3], [layer norm + linear 3], [#hidden_dim], [#hidden_dim], [GELU],
+//     [Pre-head], [linear 4], [#hidden_dim], [#pre_head_dim], [GELU],
+//     [Output Heads], [linear h + linear z], [#pre_head_dim], [[#h_dim, #z_dim]], [-],
+//   ),
+//   caption: [Encoder architecture with gated attention and residual blocks]
+// )
+
+#figure(
+  ae_fig,
+  caption: [Encoder architecture with feature gating and residual connections. Dashed arrows indicate residual skip connections.]
+)
 Architecture specifications:
 #list(
 [The infection indicator module is a single single #acr("GRU") cell with a hidden dimension of 16, followed by a linear down projection to the single target dimension.],
