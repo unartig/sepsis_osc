@@ -51,7 +51,9 @@
   ),
   caption: [Static input features for the prediction task],
 )
-#figure(table(
+#figure(
+
+table(
   columns: (auto, auto, auto, auto, auto),
   align: (left, left, left, right, left),
   [*ricu - Name*], [*Unit*], [*Min*], [*Max*], [*Description*],
@@ -104,10 +106,6 @@
   [tnt], [ng/mL], [0], [-], [troponin t],
   [urine], [mL], [0], [2000], [urine output],
   [wbc], [K/uL, G/l], [0], [-], [white blood cell count],
-  [age], [years], [0], [100], [patient age],
-  [sex], [-], [-], [-], [patient sex],
-  [height], [cm], [10], [230], [patient height],
-  [weight], [kg], [1], [500], [patient weight],
 ),
   caption: [Dynamic input features for the prediction task.]
 ) <tab:concepts>

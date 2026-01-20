@@ -123,7 +123,7 @@ According to the Sepsis-3 definition, a patient is in a septic condition if the 
 
   + #text()[
       *Dysregulated Host Response* is characterized by the worsening of organ functionality over time.
-      To measure the "amount of dysregulation" the Sepsis-3 consensus relies on the #acr("SOFA")-score introduced in (@SOFAscore@Sepsis3#todo[can we fix please?]).
+      To measure the "amount of dysregulation" the Sepsis-3 consensus relies on the #acr("SOFA")-score introduced in @SOFAscore@Sepsis3.
       The score is now regularly used to evaluate the functionality of organ systems and helps to predict the risk of mortality, also outside of a sepsis context.
       The #acr("SOFA") score is calculated at least every 24 hours and assess six different organ systems by assigning a score from 0 (normal function) to 4 (high degree of dysfunction) to each.
       The overall score is calculated as sum of each individual system.\
