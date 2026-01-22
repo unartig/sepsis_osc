@@ -330,9 +330,9 @@ This approach is taken in  Neural Differential Equations @kidger2022neuraldiffer
 Practically, in case of the #acr("DNM") this is hardly tractable, since the integration is computationally intensive and gradients are prone to vanish over the large integration time and ensemble setup of the #acr("DNM").
 
 To address these challenges, the #acr("LDM") uses a fully differentiable precomputing and caching methodology that still provides meaningful gradients and simultaneously reduces the computational burden.
-For that, the continuous latent space has been quantized to a discrete and regular grid, with the metric pre-computed for each coordinate pair in the predefined subspace.
+For that, the continuous latent space has been quantized to a discrete and regular grid, with the metric precomputed for each coordinate pair in the predefined subspace.
 The space is limited to the intervals $beta in [0.4pi, 0.7pi]$ and $sigma in [0.0, 1.5]$ (the phase space of the original publication @osc2).
-To retrieve values that do not lie exactly on a grid-points, localized soft interpolation is used to derive  differentiable synchronicity approximation values.
+To retrieve values that do not lie exactly on a grid-points, localized soft interpolation is used to derive differentiable synchronicity approximation values.
 
 For an estimated coordinate pair $hat(bold(z))=(hat(z)_beta, hat(z)_sigma)$ in the continuous $(beta, sigma)$-space the quantized metrics are interpolated by smoothing nearby quantization points with a Gaussian-like kernel, which is illustrated in @fig:fsq.
 
@@ -353,15 +353,17 @@ with $"softmax"$ for $K=k dot k$ neighboring points, where $k$ is an odd number 
 Here, #box($T_d in RR_(>0)$) is a learnable temperature parameter which controls the sharpness of the smoothing, with larger values producing stronger smoothing and smaller values converging to the value of the closest point $tilde(bold(z))$ exclusively.
 This allows the model to adjust the interpolation sharpness during training, potentially using broad smoothing early on for exploration and sharpening later for precision.
 
-While the squared distances $(||hat(bold(z))-bold(z)'||^2)$ receive exponentially more weight, the  $"softmax"$ operation normalizes the weights to 1, creating a proper convex combination of weights. 
+While the squared distances $(||hat(bold(z))-bold(z)'||^2)$ receive exponentially more weight, the  $"softmax"$ operation normalizes the weights to 1, creating a proper convex combination of weights.
 $
  "softmax"(bold(x))_j = (e^(x_j))/(sum^K_(k=1) e^(x_k)), "  for " j=1,...,K
 $
 The $K$ neighboring points can be calculated via:
 
-#box($
+#box(
+[$
  cal(N)_(k times k)(tilde(bold(z))) = {(tilde(z)_beta +i dot beta_"step size"),(tilde(z)_sigma +j dot sigma_"step size") &|\ i,j in -((k-1)/2)...,-1, 0, 1, ...,((k-1)/2)&} 
-$)
+$<eq:llk>]
+)
 
 #figure(
 fsq_fig,
@@ -518,7 +520,7 @@ $
                    lambda_"focal" cal(L)_"focal" &+&
                    lambda_"spread" cal(L)_"spread" &+&
                    lambda_"boundary" cal(L)_"boundary" 
-$
+$ <eq:loss>
 
 The loss weights $lambda$ balance the contribution of each objective during training.
 The primary sepsis prediction loss $cal(L)_"sepsis"$ provides the main learning objective aligned with the clinical task, while component losses $cal(L)_"inf"$ and $cal(L)_"sofa"$ ensure accurate estimation of the underlying infection and organ failure indicators.
