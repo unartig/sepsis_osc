@@ -22,6 +22,7 @@
     "FPR": "False Positive Rate",
     "FSQ": "Finite Scalar Quantization",
     // "GLM": "Generalized Linear Model",
+    "GELU": "Gaussian Error Linear Unit",
     "GPU": "Graphics Processing Unit",
     "GRU": "Gated Recurrent Unit",
     "ICU": "Intensive Care Unit",

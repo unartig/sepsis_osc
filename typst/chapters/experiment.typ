@@ -3,7 +3,7 @@
 #import "../figures/auto_encoder.typ": ae_fig
 
 = Experiment <sec:experiment>
-To assess the potential benefits from embedding the #acl("DNM") into a short-term sepsis prediction system, the #acl("LDM") (see @sec:ldm) was trained and evaluated using real-world medical data.
+To evaluate whether embedding the #acl("DNM") improves short-term sepsis prediction, the #acl("LDM") (see @sec:ldm) was trained and evaluated using real-world medical data.
 This chapter presents the complete experimental setup, including the data basis (data source, cohort selection, preprocessing), the prediction task, and provide details on the implementation and training routine.
 
 == Data <sec:data>
@@ -39,7 +39,6 @@ spent in the ICU "]
 The cohort includes all adult patients (age at admission $>=$18, $N=73,181$).
 To ensure data volume and quality, patients meeting any of the following criteria were excluded:
 #list(
-// [1) invalid admission or discharge time defined as a missing value or negative calculated #acr("LOS").],
 [Less than six hours spent in the #acr("ICU").],
 [Less than four separate hours across the entire stay where at least one feature was measured.],
 [Any time interval of $>=$12 consecutive hours throughout the stay during which no feature was measured.],
@@ -75,7 +74,7 @@ The majority of patients in both groups were white (63.6% overall) and had medic
     [*SEP-3 negative*]
   ),
   table.cell(colspan: 4)[*Demographics*],
-  table.hline(stroke:1pt),
+  table.hline(stroke:.5pt),
   
   [N],
   [63425 (100.0)],
@@ -121,7 +120,7 @@ The majority of patients in both groups were white (63.6% overall) and had medic
   [879 (26.5)],
   [3949 (6.6)],
 
-  [SEP-3 onset time],
+  [Sepsis-3 onset time],
   [-],
   [13.0 (8.0–34.0)],
   [-],
@@ -188,23 +187,69 @@ The target variables include the #acr("SOFA")-score, a #acr("SI") label and the 
 ==== Preprocessing
 The data preprocessing involves three main steps: scaling, sampling, and imputation of features, which again were adopted from @yaib.
 All numerical feature were standardized to zero mean and unit variance, while categorical and binary features remained left unchanged.
-To prevent data leakage, used statistics from the training split for all data partitions (training, validation, and testing) were used.
+To prevent data leakage, all normalization statistics were computed exclusively from the training split and applied to all partitions.
 
 All features were uniformly resampled to an hourly basis with every trajectory padded to the maximum length of 169 hours, ensuring uniform processing lengths.
 Missing data points for dynamic variables were forward-filled using the last known value of the same #acr("ICU") stay.
 For missing values without any prior measurement, the training cohort mean is used as fill value instead.
-Lastly the data is augmented by a binary indicator that distinguishes between actual measurements and imputed values.
+Lastly the input data is augmented by a binary indicator that distinguishes between actual measurements and imputed values.
 
-== Implementation and Training Details <sec:impl>
-The #acr("LDM") was implemented in the JAX @jax2018 based Equinox framework @kidger2021equinox and trained on a consumer laptop #acr("GPU").
-The cohort was partitioned at the patient level using a stratified split with a 75/12.5/12.5 ratio for training, validation, and test sets respectively.
+== Implementation Details <sec:impl>
+The #acr("LDM") was implemented in the JAX @jax2018 based Equinox framework @kidger2021equinox.
+The following sections present the implementation details for each module along with their respective parameter counts.
+
+The infection indicator module $f_theta_f$ is a single #acr("GRU")-cell with a hidden size of $H_f = 16$, followed by the down-projection layer,.
+In total this adds up to $5777$ parameters.
+
+
+The latent encoder architecture $g_(theta^e_g)$ implements a gated attention mechanism with residual processing.
+The input is split into the actual features and the imputation indicator.
+A sigmoid-gate weights for the features, effectively learning which features to emphasize.
+After gating, both halves are recombined and processed through a three-layer residual network, where each block applies layer-normalization @ba2016layer, #acr("GELU") activation @hendrycks2023gelu, and a linear transformation with residual connections.
+With #acr("GELU"):
+$
+  "GELU"(x) = x Phi(x)
+$
+where $Phi(x)$ is the cumulative distribution function for gaussian distribution.
+The final hidden state passes through another #acr("GELU")-activated layer before being projected into the two outputs $bold(h)_0$ and $bold(z)_0^"raw"$.
+The architecture is illustrated in panel *A)* of @fig:ae, in total the encoder has $9213$ parameter.
+The rollout module $g_(theta^r_g)$ performs latent space dynamics using a single #acr("GRU")-cell, without a bias term and a hidden size of $H_g=8$, followed by the down projecting layer.
+This adds to $2752$ parameter.
+
+The decoder $d_theta_d$ is implemented as a four-layer feed-forward network that progressively up-samples from the latent representation back to the feature dimension, reconstructing only the features, not the imputation indicator.
+It uses #acr("GELU") activations between layers to introduce non-linearity.
+The architecture is illustrated in panel *B)* of @fig:ae, in total the decoder has $3370$ parameter.
+
+#figure(
+  ae_fig,
+  caption: [*A)* Shows the initial latent encoder $g_(theta^e_g)$ architecture with feature gating and residual connections. Dashed arrows indicate residual skip connections. *B)* Shows the decoder $d_theta^d$ architecture, reconstructing only the features but not the imputation indicators.]
+) <fig:ae>
+
+=== Training Details <sec:train>
+The cohort was partitioned at the patient level using a stratified split with a 75/12.5/12.5 ($N=$6342/6342) ratio for training, validation, and test sets respectively, yielding 57082, 6343 and 6343 samples each.
 The split was stratified by sepsis status to maintain the 5.2% prevalence ratio across all sets.
 To address the strong imbalance between septic and non-septic samples, each training batch has been randomly over-sampled to contain 10% positive samples.
 
-All modules were jointly optimized using AdamW (learning rate $ = 3 times 10^(-3)$, weight decay $ = 1 times 10^(-4)$, $beta_1=0.9$, $beta_2=0.999$) with early stopping (patience=30 epochs on validation #acr("AUPRC")).using a batch-size of 512.
-The #acr("DNM") latent space was quantized to a $60 times 100$ grid over $beta in [0.4pi, 0.7pi]$ and $sigma in [0.0,1.5]$, with differentiable lookup using 3x3 neighborhood softmax interpolation.
+All modules were jointly optimized using the AdamW-optimizer @loshchilov2019adamw.
+The first epoch serves as a warm-up phase where the learning rate increases linearly from 0 to $1.75 times 10^(-4)$.
+Subsequently, a constant learning rate is maintained for all remaining epochs.
+The weight decay $ $lambda$ = 1 times 10^(-4)$ is chosen, with momentum parameters $beta_1=0.9$, $beta_2=0.999$.
+The #acr("DNM") latent space was quantized to a $60 times 100$ grid over $beta in [0.4pi, 0.7pi]$ and $sigma in [0.0,1.5]$, with differentiable lookup using a $3times 3$ neighborhood softmax interpolation ($K=9$).
 
-Starting values for learnable scalar parameters are listed in @tab:initparams.
+
+Hyperparameters were manually tuned rather than automatically optimized for two key reasons.
+First, the loss function jointly optimizes prediction accuracy and latent space interpretability.
+Automated hyperparameter optimization would require reducing these to a single scalar metric, which risks producing models with high predictive performance but degraded latent space interpretability, defeating a core purpose of the #acr("DNM") integration.
+Second, exhaustive search over eight loss components and 14 tunable parameters would require hundreds of training runs, which is prohibitive for a proof-of-concept study.
+The primary goal is demonstrating feasibility and interpretability rather than achieving state-of-the-art performance.
+Full hyperparameter specifications and initial values for learnable parameters are listed in @tab:tparams.
+The test set was reserved for final evaluation only and was not involved in hyperparameter tuning.
+
+Training was carried out on a consumer laptop #acr("GPU") (NVIDIA RTX 500 Ada Generation with 4 GB of VRAM) on 32-bit floating-point precision.
+The model trained on a batch-size of $256$ and a maximum of $1000$ epochs.
+To prevent overfitting, early stopping was employed, where training stops after $30$ consecutive epochs without improvement in validation #acr("AUPRC").
+A typical training run to convergence required approximately 40 minutes, with early stopping occurring around epoch 140 to 200.
+The final model is selected by the geometric mean between the peaks of #acr("AUROC") and #acr("AUPRC").
 
 #figure(table(
   columns: 4,
@@ -212,67 +257,128 @@ Starting values for learnable scalar parameters are listed in @tab:initparams.
   
   table.header(
     [*Parameter*],
+    [*Value*],
     [*Description*],
-    [],
-    [*Initial Value*],
+    [*Reference*],
   ),
 
+  table.cell(colspan: 4)[*Hyperparameter*],
+  table.hline(stroke:.5pt),
+    [$lambda_"sepsis"$],
+    [$100.0$],
+    [Weight of $cal(L)_"sepsis"$],
+    [@eq:loss],
+    
+    [$lambda_"inf"$],
+    [$1.0$],
+    [Weight of $cal(L)_"inf"$],
+    [@eq:loss],
+    
+    [$lambda_"sofa"$],
+    [$1 times 10^3$],
+    [Weight of $cal(L)_"sofa"$],
+    [@eq:loss],
+    
+    [$lambda_"focal"$],
+    [$2.0$],
+    [Weight of $cal(L)_"focal"$],
+    [@eq:loss],
+    
+    [$lambda_"diff"$],
+    [$10.0$],
+    [Weight of $cal(L)_"diff"$],
+    [@eq:loss],
+    
+    [$lambda_"dec"$],
+    [$5.0$],
+    [Weight of $cal(L)_"dec"$],
+    [@eq:loss],
+    
+    [$lambda_"spread"$],
+    [$6 times 10^(-3)$],
+    [Weight of $cal(L)_"spread"$],
+    [@eq:loss],
+    
+    [$lambda_"boundary"$],
+    [$30.0$],
+    [Weight of $cal(L)_"boundary"$],
+    [@eq:loss],
+
+    [$tau$],
+    [$12$],
+    [Radius of causal smoothing],
+    [@eq:cs],
+
+    [$k$],
+    [$3$],
+    [Side length of the latent-lookup kernel],
+    [@eq:ll\ @eq:llk],
+
+  table.hline(stroke:.5pt),
+  table.cell(colspan: 4)[*Learnable Parameter*],
+  table.hline(stroke:.5pt),
+
     [$d$],
-    [#acr("SOFA") increase detection threshold ],[@eq:otoa],
     [0.04],
+    [#acr("SOFA") increase detection threshold ],
+    [@eq:otoa],
 
     [$s$],
-    [#acr("SOFA") increase detection sharpness],[@eq:otoa],
     [50],
+    [#acr("SOFA") increase detection sharpness],
+    [@eq:otoa],
 
     [$T_d$],
-    [Lookup interpolation temperature],[@eq:ll],
     [0.05],
+    [Lookup interpolation temperature],
+    [@eq:ll],
 
     [$alpha$],
-    [Causal smoothing decay],[@eq:cs],
     [0.7],
+    [Causal smoothing decay],
+    [@eq:cs],
 ),
-caption: flex-caption(short: [TODO], long: [TODO])
-) <tab:initparams>
+caption: flex-caption(
+  short: [Hyperparameters and learnable parameters],
+  long: [Hyperparameters and initial values for learnable parameters.
+  Hyperparameters control training dynamics and loss weighting.
+  Learnable parameters are initialized to the listed values and updated during training.]
+  )
+) <tab:tparams>
 
-
-#let input_dim = 104
-#let z_latent_dim = 2
-#let dec_hidden = 64  
-#let hidden_dim = 32
-#let pre_head_dim = 128  
-#let h_dim = 4  
-#let z_dim = 2  
-
-// Encoder Table
-// #figure(
-//   table(
-//     columns: 5,
-//     align: (left, left, center, center, center),
-//     [*Component*], [*Operation*], [*Input Dim*], [*Output Dim*], [*Activation*],
-//     [Input Split], [Partition into features + indicators], [#input_dim], [#calc.quo(input_dim, 2) + #calc.quo(input_dim, 2)], [-],
-//     [Feature Gating], [linear_gating], [#calc.quo(input_dim, 2)], [#calc.quo(input_dim, 2)], [Sigmoid],
-//     [Concatenating], [concat(gated features, indicators)], [52 + 52], [104], [-],
-//     [Residual Block 1], [layer norm + linear 1], [#input_dim], [#hidden_dim], [GELU],
-//     [Residual Block 2], [layer norm + linear 2], [#hidden_dim], [#hidden_dim], [GELU],
-//     [Residual Block 3], [layer norm + linear 3], [#hidden_dim], [#hidden_dim], [GELU],
-//     [Pre-head], [linear 4], [#hidden_dim], [#pre_head_dim], [GELU],
-//     [Output Heads], [linear h + linear z], [#pre_head_dim], [[#h_dim, #z_dim]], [-],
-//   ),
-//   caption: [Encoder architecture with gated attention and residual blocks]
-// )
-
-#figure(
-  ae_fig,
-  caption: [Encoder architecture with feature gating and residual connections. Dashed arrows indicate residual skip connections.]
-)
-Architecture specifications:
-#list(
-[The infection indicator module is a single single #acr("GRU") cell with a hidden dimension of 16, followed by a linear down projection to the single target dimension.],
-[The #acr("SOFA") pre-encoder uses #todo[...], and the recurrent module a single #acr("GRU") cell #todo[in methods?] with hidden dimension 4 followed by a linear down-projection to the 2 dimensional latent space.],
-[The decoder #todo[...]]
-)
-Loss weights were:
-#TODO[ask]
 == Results and Benchmark Comparisons <sec:results>
+
+// Quantitatively
+// Learning curves? Maybe Total loss?
+// Lookup Temp
+// 
+// AUROC & AUPRC  - with plots
+// Benchmark comparison, also with params and training?
+// Heatmap of which latent areas are mostly used :^)
+//
+//
+// Qualitatively
+// How one healthy one unhealthy move over time
+// In space and in Values
+//
+//
+//
+//
+// Discussion
+// +++++++
+// Competitive performance - DNM seems beneficial
+// Already more informative and interpretable predictions
+// Small and straight forward
+// Modular - change infection module - or add more
+// -------
+// Sensitivity regarding initializations (random seed)
+// Pseudo-interpretability of latent space (we still guess semantics) - problem of projection
+//
+//
+// Outlook
+// Latent Space analysis, does the decoder reg really work? Is the gating informative?
+// Actually backprop through ODE solver
+// More parameters to tune
+// Validate on external data
+// Incorporate treatment?
+// Offline Predictions
