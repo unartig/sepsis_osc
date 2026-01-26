@@ -88,7 +88,7 @@ $
   cmred(dot(kappa)_(i j) = - epsilon (kappa_(i j) + sin(phi_i - phi_j + beta^mu)))
 $ <eq:kurasaka>
 Here adaption rate $0 < epsilon << 1$ separates the fast moving oscillator dynamics from slower moving coupling adaptivity @Berner2020Birth.
-Such adaptive couplings have been used to model neural plasticity and learning-like processes in physiological systems @Placeholder.
+Such adaptive couplings have been used to model neural plasticity and learning-like processes in physiological systems @Jttner2023Dynamic.
 The so called new phase lag parameter $beta$ of the adaptation function (also called plasticity rule) plays an essential role in the synchronization process.
 At a value of $beta^mu=pi/2$ the coupling, and therefore the adaptivity, is at a maximum positive feedback, strengthening the link $kappa_(i j)$ and encouraging synchronization between oscillators $i$ and $j$.
 This maximal connectivity is referred to _Hebbian Rule_ and found in synchronizing systems such as the brain  @Berner2020Birth.
@@ -145,11 +145,15 @@ For the organ layer there is an additional non-adaptive coupling part $bold(A)^1
 
 The dimensionless system dynamics are described with the following coupled #acr("ODE") terms, build on the classical Kuramoto model described in @sec:kuramoto and its extensions from @sec:extent:
 
+// I know this is awful, but please typst, fix your align / sub-numbering
 $
   dot(phi)^1_i =& omega^1 - 1/N sum^N_(j=1) lr({ (a^1_(i j) + kappa^1_(i j))sin(phi^1_i - phi^1_j + alpha^(11)) }) - sigma sin(phi^1_i - phi^2_i + alpha^(12)) #<odep1> \
-  dot(kappa)^1_(i j) &= -epsilon^1 (kappa^1_(i j) + sin(phi^1_i - phi^1_j - beta)) #<odek1> \
+$$
+  dot(kappa)^1_(i j) &= -epsilon^1 (kappa^1_(i j) + sin(phi^1_i - phi^1_j - beta)) quad quad quad quad quad quad #<odek1> \
+$$
   dot(phi)^2_i =& omega^2 - 1/N sum^N_(j=1) lr({kappa^2_(i j)sin(phi^2_i - phi^2_j + alpha^(22)) }) - sigma sin(phi^2_i - phi^1_i + alpha^(21)) #<odep2> \
-  dot(kappa)^2_(i j) &= -epsilon^2 (kappa^2_(i j) + sin(phi^2_i - phi^2_j - beta)) #<odek2>
+$$
+  dot(kappa)^2_(i j) &= -epsilon^2 (kappa^2_(i j) + sin(phi^2_i - phi^2_j - beta)) quad quad quad quad quad quad #<odek2>
 $ <eq:ode-sys>
 Where the interlayer coupling, i.e. a symmetric information through the basal lamina, is modeled by the parameter $sigma in RR_(>=0)$.
 The internal oscillator frequencies are modeled by the parameters $omega^ot$ and correspond to a natural metabolic activity.
@@ -202,7 +206,7 @@ All the systems variables and parameters are summarized in @tab:dnm together wit
     [Standard deviation of frequency \ (see @eq:std)],
     [Pathogenicity (Parenchymal Layer)],
   ),
-  caption: flex-caption(short: [DNM Notation Table], long: [Summarization of notation used in the Dynamic Network Model. Superscripts indicating the layer are left out for readability.]),
+  caption: flex-caption(short: [#acl("DNM") Notation Table], long: [Summarization of notation used in the Dynamic Network Model. Superscripts indicating the layer are left out for readability.]),
 ) <tab:dnm>
 
 === Pathology in the DNM
@@ -313,13 +317,12 @@ An example for initial variable values of a system with $N=200$ and $C=0.2$ is s
   image("../images/init.svg", width: 100%),
   caption:
   flex-caption(
-  short: [DNM Initialization],
+  short: [#acl("DNM") Initialization],
   long: [
     Initializations for the variable values of a #acr("DNM") with $N=200$ oscillators per layer.
     The middle two plots show the phases of the oscillators, with $phi^1_i$ for parenchymal and $phi^2_i$ for the immune layer, sampled from a uniform random distribution from 0 to $2pi$.
     On the left-hand side is the initialization of the parenchymal intralayer coupling matrix $bold(Kappa)^1$ from a uniform distribution in the interval from -1 to 1.
     On the right-hand side is the two cluster initialization for the coupling matrix $bold(Kappa)^2$ of the immune layer, with a cluster size of $C=0.2$, where each cluster is intra-connected, but without connections between the clusters.
-    #todo[index for immune]
   ]),
 ) <fig:init>
 
@@ -330,7 +333,7 @@ Throughout this work an ensemble size of $M=50$ was used.
 As introduced in @sec:kuramoto, for the complex Kuramoto networks the synchronization behavior is usually the point of interest, in the following two metrics are introduced, relevant to connect the #acr("DNM")-dynamics to sepsis.
 There are two relevant states or system configurations that should be identifiable and quantifiable to allow qualified state analyzes: phase and frequency synchronization, for each a distinct measure is required.
 
-*Phase synchronization* of a layer is commonly measured by the _Kuramoto Order Parameter_ @Placeholder:
+*Phase synchronization* of a layer is commonly measured by the _Kuramoto Order Parameter_ @acebron2005kuramoto:
 
 $
   R^ot_2 (t) = 1/N abs(sum^N_j e^(i dot phi^ot_j (t))) "   with " 0<=R^ot_2<=1
@@ -344,9 +347,10 @@ $
 $ <eq:mean>
 The original definition uses an approximated version using the oscillators mean velocity:
 $
-  tilde(mean(dot(phi)^ot_j (t))) & = (phi^ot_j (t + T) - phi^ot_j (t))/T \
+  quad "  " tilde(mean(dot(phi)^ot_j (t))) & = (phi^ot_j (t + T) - phi^ot_j (t))/T
+$$
    tilde(overline(omega)^ot (t)) & = 1/N sum^N_j tilde(mean(dot(phi)^ot_j (t)))
-$ <eq:meanapprox>
+$
 for some averaging time window $T$.
 But since their choice of $T$ is not documented while having substantial influence on the calculation the instantaneous angle velocity from @eq:mean was preferred.
 Due to this change in definition, while the overall systematics stay the same, deviations from their original results are expected.
@@ -400,7 +404,6 @@ Rows C and C' share the same parameterization but are different samples from the
     Snapshots of different #acr("DNM") parametrization and initialization. Configuration A can be regarded as healthy, with phases and frequencies being fully synchronized.
     In contrast, B and C are pathologic, due to their clustering in $dot(phi)^1$. Configuration C' corresponds to a vulnerable state, because of uniformly distributed phases (splay state).
     Lastly, D is regarded as resilient, since the phases exhibit clustering, but the frequencies $dot(phi)^1$ are synchronized.
-    #TODO[$Kappa$ colorbar]
   ]),
 ) <fig:snap>
 Row A in @fig:snap is fully synchronized/coherent since it not only has the frequencies synchronized but also the phases and can therefore interpreted as healthy.
@@ -425,6 +428,7 @@ Where lower values for $R^ot$ indicate decoherence in phases, with its minimum $
     Emphasizing the influence of $beta$ and $sigma$ on the systems synchronization behavior, and presenting different stable emergent system states.
   ]),
 ) <fig:ensemble>
+#todo[Mean erklären]
 
 Every ensemble in @fig:ensemble shows decoherence for early time-points, which is expected for randomly initialized variables, but changes relatively fast through a transient phase $t in [0.0, 200]$ into systematic stable behavior.
 The stable states align with the observations made for @fig:snap, configuration A has, besides small jitter, mostly synchronized frequencies $s^ot approx 0$.
@@ -448,7 +452,7 @@ Coordinates of the configurations A, B, C, and D are also labeled.
   short: [Phase Space of $sigma$ and $beta$],
   long: [
     Phase space of the parameters $beta$ and $sigma$ and illustrating the broader picture their influence on the frequency and phase synchronization of the #acr("DNM").
-    White rectangle indicates the grid-limits of the original publication @osc2.
+    White rectangle indicates the grid-limits of the original publication @osc2.
   ]),
 ) <fig:phase>
 Generally there is a similarity between phase and frequency desynchronization but no full equality, meaning there are parameter regions where the phase is synchronized and frequency desynchronized and vice versa.
@@ -462,17 +466,17 @@ With larger values of $sigma > 0.5$ the dynamics more or less harmonize between 
 == Limitations and Research Direction <sec:problemdef>
 While the #acr("DNM") provides a structured, functional and biologically inspired model sepsis for dynamics, several limitations must be acknowledged when interpreting its physiological relevance.
 
-*Uniform and Symmetric Couplings:* The fully connected intralayer topology (all oscillators inside a layer interact with each other), may not reflect actual cytokine networks behavior, where communication is spatially localized.
+The fully connected intralayer topology (all oscillators inside a layer interact with each other), may not reflect actual cytokine networks behavior, where communication is spatially localized.
 Similarly the interlayer is modeled via uniform connections which treats infected areas not different than healthy areas, even though the communication patterns are most likely not the same for both cases.
 
-*Selective Space Interpretation:* In their original works, and adapted for this thesis, only a very small subspace has been simulated and interpreted @osc2.
+In the original work, and adapted for this thesis, only a very small subspace has been simulated and interpreted @osc2.
 For this selected subspace one can find regimes of synchronization, phase clustering and frequency clustering, which allow physiological interpretation.
 But what about the unexplored space, does it not align with existing medical knowledge?
 
-*Parameter Interpretability:* Central parameters like $beta$ the medical age, $sigma$ the interlayer coupling, the phase lags $alpha$, and the timescale ratios $epsilon$ do not correlate to any real observable quantity.
+Central parameters like $beta$ the medical age, $sigma$ the interlayer coupling, the phase lags $alpha$, and the timescale ratios $epsilon$ do not correlate to any real observable quantity.
 This dimensionless formulation makes the model scale-free, which strengthens theoretical analysis but possibly weakens clinical translation.
 
-*Functional vs. Mechanistic:* The #acr("DNM") is explicitly functional, where individual oscillators do not correspond to specific cells, instead the model captures aggregated behavior.
+The #acr("DNM") is explicitly functional, where individual oscillators do not correspond to specific cells, instead the model captures aggregated behavior.
 This abstraction brings the benefit of computational tractability, compared to mechanistic cell simulation, and simplified system state interpretation, but it also brings drawbacks of limited ability to identify which biological processes drive the observed dynamics.
 It boils down to the question: Does the functional description capture the essential dynamics of sepsis, or does it produce patterns that resemble physiological behavior without true correspondence?
 
@@ -496,7 +500,7 @@ Conversely, if #acr("DNM") parameters learned from data correlate with disease s
 The second question tackles the functional vs. mechanistic limitation.
 Does embedding the #acr("DNM") structure as an inductive bias improve predictions compared to black-box models that ignore physiological principles? Or does the model's abstraction level sacrifice too much biological detail to be useful? This comparison will reveal whether the DNM's theoretical framework translates to practical advantages in clinical prediction tasks.
 
-== Summary of the DNM
+== Summary of the Dynamic Network Model
 This chapter introduced the #acl("DNM") as a functional, mesoscopic description of coordinated physiological activity during sepsis, modeling cellular cytokine-based communication.
 Based on adaptive Kuramoto-type oscillators arranged in a two-layer parenchymal–immune architecture, the model exhibits a range of emergent regimes like synchronization, clustering, chimera-like patterns, that may be interpreted physiological states.
 Key parameters such as the biological age $beta$ and interlayer coupling $sigma$ were shown to modulate these regimes.

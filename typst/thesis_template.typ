@@ -24,6 +24,8 @@
 #let stroke-color = luma(200)
 #let fill-color = luma(250)
 
+  
+
 #show math.equation.where(block: false): box
 // This function gets your whole document as its `body`.
 #let thesis(
@@ -142,6 +144,26 @@
   show figure.where(
     kind: table,
   ): set figure.caption(position: top)
+
+  show figure.caption: it => {
+    let supplement = it.supplement
+    let number = it.counter.display(it.numbering)
+    let label = text(weight: "bold")[#supplement #number:]
+  
+    pad(
+      left: 0pt,
+      block(width: 100%)[
+        #grid(
+          columns: (auto, 1fr),
+          column-gutter: 0.5em,
+          label,
+          align(left, {
+                                        set text(size: font-size - 1pt)
+                                        it.body})
+        )
+      ]
+    )
+  }
 
   // Configure paragraph properties.
   set par(
@@ -268,7 +290,13 @@
   // TODO can we have both?
   // set math.equation(numbering: "(1.1)")
   set math.equation(numbering: (n, ..) => {
-    numbering("(1.1.1)", counter(heading).get().first(), n)
+    let h1 = counter(heading).get().first()
+    numbering("(1.1)", h1, n)
+  })
+   // OTHER NUMBERINGS
+   set figure(numbering: (n, ..) => {
+    let h1 = counter(heading).get().first()
+    numbering("1.1.", h1, n)
   })
 
   // INLINE CODE
@@ -305,13 +333,22 @@
   set heading(numbering: "1.1.")
   {
     show heading.where(level: 1): it => {
+      // reset counter numbers
+      counter(math.equation).update(0)
+      counter(figure).update(0)
+      //
       if chapter-pagebreak {
         pagebreak(weak: true, to: "odd")
       }
-      v(15%)
-      counter(heading).display("1")
-      h(0.8em)
+      // v(15%)
+      {
+        set text(size: 90pt, font: "URW Bookman", fill:luma(150))
+        counter(heading).display("1")
+      }
+      // h(0.8em)
+      linebreak()
       it.body
+      v(2.5%)
     }
     counter(page).update(1)
     body

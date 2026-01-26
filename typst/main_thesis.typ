@@ -70,12 +70,8 @@
 
 #TODO[
   #list(
-    [Styling level 1 header],
     [fix Bibliography in TOC],
-    [fix figure captions],
-    [pretty tables],
     [Sources misc + link],
-    [Eq/fig numberings],
     [TUHH address wrong in template],
   )
 ]
