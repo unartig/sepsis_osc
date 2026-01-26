@@ -181,7 +181,7 @@ Starting with the estimator module for the suspected infection indication module
   ),
   caption: flex-caption(
     long: [Summarization of notation used in the Latent Dynamics Model methodology.],
-    short: [LDM Notation Table]
+    short: [#acl("LDM") Notation Table]
   ),
   kind: table
 ) <tab:ldnmnot>
@@ -208,7 +208,8 @@ For the first time-step $t=0$ a learnable initial hidden state $bold(h)^f_0$ is 
 The model is implemented as a #acr("RNN"), illustrated in @fig:inf.
 At each timestep, a recurrent cell updates the hidden state, and a learned linear projection $bold(W)_f bold(h) ^f_t$, with $bold(W)_f in RR^(1times H_f)$, followed by sigmoid activation produces the infection risk estimate:
 $
-bold(h)_t &= "RNN-Cell"_(theta_f^"rnn") (bold(mu)_t, bold(h)^f_(t-1)) \
+" " bold(h)_t &= "RNN-Cell"_(theta_f^"rnn") (bold(mu)_t, bold(h)^f_(t-1))
+$$
 tilde(I)_t &= "sigmoid"(bold(W)_f bold(h)^f_t + b_f)
 $
 where $theta_f={theta^"rnn"_f, bold(W)_f, b_f}$ combines all learnable parameters, the bias $b_f in RR$ is a single scalar.
@@ -287,9 +288,11 @@ is trained to propagate the latent #acr("DNM") parameters forward in time.
 This recurrent mechanism, conditioned on the hidden state $bold(h)^g_t$ and previous latent location $bold(z)^"raw"_(t-1)$, captures how the underlying physiology influences the drift of the #acr("DNM") parameters.
 From the previous hidden state and latent-position a recurrent cells updates the hidden state, followed by a linear down-projection $bold(W)_g bold(h)^g_t$, with $bold(W)_g in RR^(2times H_g)$, to receive the updated latent-position.
 $
-  bold(h)_t &= "RNN-Cell"_(theta_g^"rnn") ((bold(mu)_(t), bold(hat(z))^"raw"_(t-1)), bold(h)^g_(t-1)), "  " t = 2,...,T \ 
-  Delta hat(bold(z))^"raw"_t &= (bold(W)_g bold(h)^g_t) \
-  hat(bold(z))^"raw"_t &= bold(hat(z))^"raw"_(t-1) + Delta hat(bold(z))^"raw"_t
+  "               " bold(h)_t &= "RNN-Cell"_(theta_g^"rnn") ((bold(mu)_(t), bold(hat(z))^"raw"_(t-1)), bold(h)^g_(t-1)), "  " t = 2,...,T  
+$$
+  Delta hat(bold(z))^"raw"_t &= (bold(W)_g bold(h)^g_t) "                                   "
+$$
+  hat(bold(z))^"raw"_t &= bold(hat(z))^"raw"_(t-1) + Delta hat(bold(z))^"raw"_t "                          "
 $
 where $theta_g^r={theta^"rnn"_g,bold(W))_g in RR }$ combines all the learnable parameters.
 The down-projection does not have a bias-term so that no direction is inherently preferred.
@@ -446,7 +449,7 @@ This smoothing ensures that organ failure predictions remain elevated during the
   The Decoder $d_theta_d$ reconstructs EHR features $bold(mu)_t$ from latent coordinates, regularizing the latent space to maintain clinically meaningful structure.
   Final sepsis risk $S_t$ combines infection and acute change signals.
   ],
-  short: [Complete #acs("LDM") Architecture])
+  short: [Complete #acl("LDM") Architecture])
   ) <fig:ldm>
 
 
@@ -512,14 +515,14 @@ with $f in (0,0.5)$ sets a boundary threshold as a fraction of the space, creati
 === Combined Objective
 The complete #acr("LDM") #footnote[Implementation of the #acr("LDM") components is available at https://github.com/unartig/sepsis_osc/tree/main/src/sepsis_osc/ldm] is trained jointly by optimizing all components with the weighted total loss:
 $
-  cal(L)_"total" = lambda_"inf" cal(L)_"inf" &+&
-                   lambda_"sofa" cal(L)_"sofa" &+&
-                   lambda_"dec" cal(L)_"dec" &+&
-                   lambda_"sepsis" cal(L)_"sepsis" + \
-                   lambda_"diff" cal(L)_"diff"  &+&
-                   lambda_"focal" cal(L)_"focal" &+&
-                   lambda_"spread" cal(L)_"spread" &+&
-                   lambda_"boundary" cal(L)_"boundary" 
+  cal(L)_"total" = lambda_"inf" &cal(L)_"inf" &+&
+                   lambda_"sofa" &cal(L)_"sofa" &+&
+                   lambda_"dec" &cal(L)_"dec" &+&
+                   lambda_"sepsis" &cal(L)_"sepsis" + \
+                   lambda_"diff" &cal(L)_"diff"  &+&
+                   lambda_"focal" &cal(L)_"focal" &+&
+                   lambda_"spread" &cal(L)_"spread" &+&
+                   lambda_"boundary" &cal(L)_"boundary" 
 $ <eq:loss>
 
 The loss weights $lambda$ balance the contribution of each objective during training.
@@ -546,7 +549,7 @@ Specific values for the loss weights $lambda$ and other hyperparameters are repo
   caption: flex-caption(long: [Overview of loss components in the #acr("LDM") training objective.], short: [Training Objectives])
 ) <tab:losses>
 
-== LDM Inference
+== Inference
 At inference time, the #acr("LDM") operates as a continuous monitoring system for #acr("ICU") patients, providing real-time risk assessment from admission through the entire ICU stay.
 Upon patient admission to the #acr("ICU"), and once initial laboratory measurements are available, the first #acr("EHR") observation $bold(mu)_0$ is processed by both the Infection Indicator module and the latent encoder.
 The infection indicator $f_theta_f$ produces an initial infection risk estimate  $tilde(I)_0$ and hidden state $h^f_0$.

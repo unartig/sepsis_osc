@@ -30,7 +30,8 @@ Unlike mechanistic models, these methods do not require explicit specification o
 Research on data-driven sepsis prediction systems is highly active, in the past five years alone (2021-2026), six systematic reviews on data-driven sepsis predictions have been published @Bomrah2024Review@Moor2021Review@Yadgarov2024Review@Gao2024Review@Parvin2023Review@Stylianides2025Review.
 // (21+ 29 + 73 + 7 + 39 + 11)
 The reviews include a total of 180 studies (including 7 to 73 works per review), proposing over 50 distinct #acr("ML") and #acr("DL") methodologies that range from classical to highly specialized methods.
-The following overview is based primarily on findings from @Bomrah2024Review@Moor2021Review@Yadgarov2024Review.
+The following overview is based primarily on findings from @Bomrah2024Review@Moor2021Review@Yadgarov2024Review because, taken together, they provide a very comprehensive and complementary coverage of data-driven sepsis prediction research within the considered time frame.
+By focusing on these three reviews, the analysis captures the majority of relevant studies and conclusions while avoiding redundancy.
 
 Studies differ fundamentally in how they frame the prediction problem, most prominently in _online prediction_ versus _offline prediction_.
 In online prediction newly arriving medical measurements are incorporated into a continuously updated risk estimate.,
