@@ -7,10 +7,16 @@
 #let mean(f) = $chevron.l$ + f + $chevron.r$
 #let ot = $1","2$
 
-
 #let todo = margin-note
 #let TODO = inline-note
 
-
-
 #let multicite(x) = {x}
+
+
+
+// Results
+#let auroc = 0.84
+#let aurocp = 84.2
+#let auprc = 0.09
+#let auprcp = 9.3
+

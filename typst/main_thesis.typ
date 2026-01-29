@@ -99,3 +99,4 @@
 
 #include "chapters/discussion.typ"
 
+#include "chapters/conclusion.typ"
