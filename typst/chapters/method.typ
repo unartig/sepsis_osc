@@ -23,12 +23,6 @@ This chapter proceeds with @sec:formal, where the prediction task will be reiter
 Desired prediction properties, together with the justification of modeling choices are also introduced here.
 Afterwards, in @sec:arch, the architecture will be discussed, focusing on what purpose each part serves and how it is integrated into the broader system.
 
-// To predict the increase in #acr("SOFA"), namely the worsening of organ functionality, the main idea is to utilize parameter level synchronization dynamics inside the parenchymal layer of the functional #acr("DNM"), which is expected to model systemic organ failure.
-// Particularly the parameters $cmbeta(beta)$ and $cmsigma(sigma)$, interpreted as biological age and amount of cellular interaction between immune cells and functional organ cells, are of great interest.
-
-// Pre-computed #acr("DNM") dynamics give rise to differentiable #acr("SOFA") and #acr("SI") estimates.
-
-
 == Formalizing the Prediction Strategy <sec:formal>
 In automated clinical prediction systems, a patient is typically represented through their #acl("EHR") (#acr("EHR")).
 The #acr("EHR") aggregates multiple clinical variables, such as laboratory biomarker, for example from blood or urine tests, or physiological scores and, further demographic information, like age and gender.
@@ -134,6 +128,7 @@ $
 "sigmoid"(x)=1/(1+e^(-x))
 $
 yields a monotonic indicator (larger #acr("SOFA") increase $->$ more likely organ failure) while still being differentiable.
+#TODO[0.5 baseline might be problematic]
 
 == Architecture <sec:arch>
 The previous subsection explained how the sepsis onset target even $S_t$ can be decomposed into the conjunction of suspected infection indication $I_t$ and organ failure event $A_t$ that itself can be calculated from two consecutive #acr("SOFA")-scores $O_(t-1:t)$.
@@ -174,7 +169,7 @@ Starting with the estimator module for the suspected infection indication module
     
     table.hline(),
     [$cal(L)_"sepsis", cal(L)_"inf", cal(L)_"sofa"$], [Primary sepsis, infection, and #acr("SOFA") losses],
-    [$cal(L)_({"focal","diff","dec","spread","boundary"})$], [Auxiliary focal, directional, decoder, diversity, and boundary losses],
+    [$cal(L)_({"dec","spread","boundary"})$], [Auxiliary decoder, latent-diversity, and -boundary losses],
     [$lambda_i$], [Loss weight for component $i$],
     [$B$], [Mini-batch size],
     
@@ -387,7 +382,7 @@ Both allow for differentiable quantization, with details on the latent lookup im
 // #footnote[Dropping the softmax-normalization and defining the $2T_d=sigma^2$, where $sigma^2$ is the variance, the smoothing resembles a Gaussian or Radial-Basis Kernel]
 === Decoder <sec:mdec>
 As shown in the visualization of the #acr("DNM") phase space in @fig:phase multiple latent coordinates $bold(z)$ result in the same amount of desynchronization, since different physiological states share the same #acr("SOFA") level.
-But when different physiological states have a common #acr("SOFA")-score but from different physiological reasons, their latent representations should be different and unique to that exact physiological state.
+But when different physiological states have a common #acr("SOFA")-score, their latent representations should be different and unique to that exact physiological state.
 This should enable to distinguish different triggers of the organ failure inside the latent space, similarly to how it is possible to distinguish the different triggers from the #acr("EHR").
 
 In a classical Auto-Encoder @Bengio2012Representation setting, to encourage a semantically structured latent space, a decoder module is added as an auxiliary regularization component.
@@ -464,36 +459,6 @@ cal(L)_"sepsis" = -1/B sum^B_(i=1) 1/T_i sum^(T_i)_(t=1) [S_(i,t)log(tilde(S)_(i
 $
 using the #acr("BCE").
 
-*Organ Failure Alignment*\
-To address the problem of high class imbalance, the focal loss @lin2018focal is used to penalize the misclassification of the rare discrete organ failure events:
-$
-cal(L)_"focal" = -1/B sum^B_(i=1) sum^(T_i)_(t=1) alpha(1-p_(i,t))^gamma log(p_(i,t))
-$
-with $p_(i,t) = A_(i,t)dot tilde(A)_(i,t) + (1 - A_(i,t)dot (1 - tilde(A)_(i,t)))$, the hyper-parameter $gamma$ controlling the focus on hard examples and $alpha$ emphasizing positive vs. negative samples.
-With this loss the model is encouraged to align the timing of predicted #acr("SOFA") increase with the ground truth.
-
-*Difference Alignment*\
-This loss encourages temporally coherent latent dynamics that align with ground truth #acr("SOFA") progression:
-$
-  cal(L)_"diff" = 1/B sum^B_(i=1) sum_(t=1)^(T_i) sum_(t'=t+1)^(T_i) w_(t,t') dot "ReLU"(-a_(t,t'))
-$
-
-where the alignment term $a_(t,t')$ measures directional consistency between predicted and true #acr("SOFA") changes:
-$
-  a_(t,t') = (hat(O)_(t') - hat(O)_t) dot (O_(t') - O_t)
-$
-
-and the weight $w_(t,t')$ emphasizes larger ground truth changes:
-$
-  w_(t,t') = |O_(t') - O_t| + 1
-$
-The #acr("ReLU") activation:
-$
- "ReLU"(x) = max(x, 0)
-$
-penalizes only misaligned directions (when $a_(t,t') < 0$), meaning the predicted change points in the opposite direction to the true change.
-This loss ensures that if a patient's ground truth #acr("SOFA")-score increases between time $t$ and $t'$, the predicted score also increases (and vice versa for decreases), without strictly enforcing the magnitude of change.
-
 *Latent Space Regularization*\
 To prevent collapse and ensure diverse latent representations the following loss is introduced:
 $
@@ -519,15 +484,13 @@ $
                    lambda_"sofa" &cal(L)_"sofa" &+&
                    lambda_"dec" &cal(L)_"dec" &+&
                    lambda_"sepsis" &cal(L)_"sepsis" + \
-                   lambda_"diff" &cal(L)_"diff"  &+&
-                   lambda_"focal" &cal(L)_"focal" &+&
                    lambda_"spread" &cal(L)_"spread" &+&
                    lambda_"boundary" &cal(L)_"boundary" 
 $ <eq:loss>
 
 The loss weights $lambda$ balance the contribution of each objective during training.
 The primary sepsis prediction loss $cal(L)_"sepsis"$ provides the main learning objective aligned with the clinical task, while component losses $cal(L)_"inf"$ and $cal(L)_"sofa"$ ensure accurate estimation of the underlying infection and organ failure indicators.
-The auxiliary losses ($cal(L)_"focal"$, $cal(L)_"diff"$, $cal(L)_"dec"$, $cal(L)_"spread"$) regularize the latent space structure and temporal dynamics to improve generalization and interpretability.
+The auxiliary losses ($cal(L)_"dec"$, $cal(L)_"spread"$) regularize the latent space structure to improve generalization and interpretability.
 Specific values for the loss weights $lambda$ and other hyperparameters are reported in @sec:impl.
 
 @tab:losses provides an overview of all loss components, their purpose, and the modules they supervise.
@@ -538,13 +501,11 @@ Specific values for the loss weights $lambda$ and other hyperparameters are repo
     align: (left, left, left, left),
     [*Loss*], [*Type*], [*Purpose*], [*Supervises*],
     [$cal(L)_"sepsis"$], [#acr("BCE")], [Primary sepsis prediction], [$f_theta_f, g^e_theta^e_g, g^r_theta^r_g$],
-    [$cal(L)_"inf"$], [#acr("BCE")], [Infection indicator], [$f_theta_f$],
     [$cal(L)_"sofa"$], [Weighted #acr("MSE")], [#acr("SOFA") estimation], [$g^e_theta^e_g, g^r_theta^r_g$],
-    [$cal(L)_"focal"$], [Focal Loss], [Organ failure timing], [$g^e_theta^e_g, g^r_theta^r_g$],
-    [$cal(L)_"diff"$], [Directional], [Difference timing], [$g^r_theta^r_g$],
-    [$cal(L)_"dec"$], [#acr("MSE")], [Latent semantics], [$d_theta_d$, ($g^e_theta^e_g, g^r_theta^r_g$)],
+    [$cal(L)_"inf"$], [#acr("BCE")], [Infection indicator], [$f_theta_f$],
     [$cal(L)_"spread"$], [Covariance], [Latent diversity], [$g^e_theta^e_g, g^r_theta^r_g$],
     [$cal(L)_"boundary"$], [Positional], [Latent Space], [$g^e_theta^e_g, g^r_theta^r_g$],
+    [$cal(L)_"dec"$], [#acr("MSE")], [Latent semantics], [$d_theta_d$, ($g^e_theta^e_g, g^r_theta^r_g$)],
   ),
   caption: flex-caption(long: [Overview of loss components in the #acr("LDM") training objective.], short: [Training Objectives])
 ) <tab:losses>
@@ -580,7 +541,7 @@ The prediction of a patient developing sepsis vs. no sepsis is a binary decision
 Given an estimated risk $tilde(S)_t$ and a decision threshold $tau in [0, 1]$, the decision if a prediction value counts as septic is given by the rule:
 $
   delta(tilde(S)_t) = II (tilde(S)_t > tau)
-$
+$ <eq:detect>
 where $II(dot)$ is 1 when the condition is met and 0 otherwise.
 For different choices of $tau$ the decision rule can be applied and yield different ratios of:
 #align(center, list(
