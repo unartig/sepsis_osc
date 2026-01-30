@@ -98,20 +98,21 @@ def custom_warmup_cosine(
     init_value: float,
     peak_value: float,
     warmup_steps: int,
-    steps_per_cycle: list[int],
-    end_value: float,
-    peak_decay: float = 0.5,
+    cycles: list[tuple[int, float]],
 ) -> Callable:
     """
     Creates a learning rate schedule with linear warmup and multi-cycle cosine decay.
-
     The schedule starts at `init_value`, increases linearly to `peak_value` over
-    `warmup_steps`, and then enters a series of cosine decay cycles. In each
-    subsequent cycle, the peak value is scaled by `peak_decay`.
+    `warmup_steps`, and then enters a series of cosine decay cycles. Each cycle
+    decays from its starting value to peak_value * peak_decay using cosine annealing.
     """
+    steps_per_cycle = [steps for steps, _ in cycles]
+    peak_decays = [decay for _, decay in cycles]
+
     cycle_boundaries = jnp.array([warmup_steps + sum(steps_per_cycle[:i]) for i in range(len(steps_per_cycle))])
     cycle_lengths = jnp.array(steps_per_cycle)
-    num_cycles = len(steps_per_cycle)
+    cycle_peak_decays = jnp.array(peak_decays)
+    num_cycles = len(cycles)
 
     def schedule(step: Int[Array, ""]) -> Float[Array, ""]:
         step = jnp.asarray(step)
@@ -131,12 +132,16 @@ def custom_warmup_cosine(
             cycle_start = cycle_boundaries[cycle_idx]
             cycle_len = cycle_lengths[cycle_idx]
             step_in_cycle = step - cycle_start
-
             cycle_frac = jnp.clip(step_in_cycle / jnp.maximum(cycle_len, 1), 0.0, 1.0)
-            peak = peak_value * (peak_decay**cycle_idx)
-            return end_value + 0.5 * (peak - end_value) * (1 + jnp.cos(jnp.pi * cycle_frac))
 
-        # Select warmup vs decay
+            # Start of this cycle is the end of the previous cycle (or peak_value for first cycle)
+            start = jnp.where(cycle_idx == 0, peak_value, peak_value * cycle_peak_decays[cycle_idx - 1])
+
+            # peak_value * peak_decay (relative to peak_value)
+            end = peak_value * cycle_peak_decays[cycle_idx]
+
+            return end + 0.5 * (start - end) * (1 + jnp.cos(jnp.pi * cycle_frac))
+
         return jax.lax.cond(step < warmup_steps, in_warmup_fn, in_decay_fn, step)
 
     return schedule
