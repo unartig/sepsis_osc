@@ -11,11 +11,11 @@ import jax.tree_util as jtu
 import numpy as np
 import optax
 from jaxtyping import Array, Bool, Float, Int, PyTree, jaxtyped
-from sklearn.metrics import average_precision_score
+from sklearn.metrics import average_precision_score, roc_auc_score
 from tensorboardX import SummaryWriter
 
 from sepsis_osc.dnm.dynamic_network_model import DNMConfig, DNMMetrics
-from sepsis_osc.ldm.calibration_model import CalibrationModel
+from sepsis_osc.ldm.calibration_model import PlattScaling, TemperatureScaling
 from sepsis_osc.ldm.checkpoint_utils import load_checkpoint, save_checkpoint
 from sepsis_osc.ldm.commons import binary_logits, custom_warmup_cosine
 from sepsis_osc.ldm.data_loading import get_data_sets_online, prepare_batches_mask
@@ -45,6 +45,7 @@ def prob_increase_steps(
     the result through a sigmoid function. It essentially acts as a soft
     thresholding mechanism to detect 'jumps'.
     """
+    # return jnp.concat([jnp.array([0.0]), jnp.tanh((jax.nn.relu(jnp.diff(preds, axis=-1) - threshold)) * scale)])
     return jnp.concat([jnp.array([0.0]), jax.nn.sigmoid((jnp.diff(preds, axis=-1) - threshold) * scale)])
 
 
@@ -73,29 +74,6 @@ def causal_smoothing(
     smooth = smooth[:, : labels.shape[1]]
 
     return jnp.clip(smooth, 0.0, 1.0)
-
-
-@jaxtyped(typechecker=typechecker)
-def calc_full_directional_loss(
-    pred_sofa: Float[Array, " time"],
-    true_sofa: Float[Array, " time"],
-    mask: Bool[Array, " time"],
-) -> Float[Array, " time"]:
-    """
-    Computes a pairwise temporal alignment loss that penalizes predictions,
-    where relative change in predicted SOFA scores contradicts the relative change in ground truth scores.
-    """
-    T = pred_sofa.shape[0]
-    dp = pred_sofa[None, :] - pred_sofa[:, None]
-    dt = true_sofa[None, :] - true_sofa[:, None]
-    triu_mask = jnp.triu(jnp.ones((T, T)), k=1)
-    mask2d = mask[None, :] & mask[:, None]
-    valid = jnp.abs(dt) > EPS
-    weight = jnp.abs(dt) + 1.0
-
-    alignment = dp * dt
-    penalty = jax.nn.relu(-alignment)
-    return (penalty * mask2d * triu_mask * valid * weight).sum(axis=0)
 
 
 @jaxtyped(typechecker=typechecker)
@@ -208,10 +186,13 @@ def loss(
     B, T, D = x.shape
     aux = AuxLosses.empty()
     sofa_true, infection_true, sepsis_true = true_concepts[..., 0], true_concepts[..., 1], true_concepts[..., 2]
-    z_seq_raw, inf_seq = jax.vmap(model.online_sequence)(x)
-    z_seq = constrain_z_margin(z_seq_raw, model.lookup_kernel_size // 2)
+    batch_keys = jr.split(key, B)
+    z_seq_sigm, inf_seq_raw = jax.vmap(model.online_sequence)(x, batch_keys)
+    z_seq = constrain_z_margin(z_seq_sigm, model.lookup_kernel_size // 2)
 
-    aux.boundary_loss = boundary_loss(z_seq_raw, margin_fraction=0.1)
+    fine = cosine_annealing(0.01, 200 * params.steps_per_epoch, 100 * params.steps_per_epoch, step)
+
+    aux.boundary_loss = boundary_loss(z_seq_sigm, margin_fraction=0.1)
 
     aux.beta, aux.sigma = z_seq[..., 0], z_seq[..., 1]
 
@@ -228,27 +209,18 @@ def loss(
     weights_per_sample = class_weights[sofa_true.astype(jnp.int32)]
     aux.sofa_loss_t = (sofa_pred - (sofa_true / 23.0)) ** 2 * (weights_per_sample)
 
-    aux.infection_p_loss_t = optax.sigmoid_binary_cross_entropy(inf_seq.squeeze(), infection_true)
+    aux.infection_p_loss_t = optax.sigmoid_binary_cross_entropy(inf_seq_raw, infection_true)
 
-    aux.susp_inf_p = jax.nn.sigmoid(inf_seq).squeeze()
+    aux.susp_inf_p = jax.nn.sigmoid(inf_seq_raw).squeeze()
 
-    aux.sofa_d2_p = jax.vmap(prob_increase_steps, in_axes=(0, None, None))(sofa_pred, model.d_thresh, model.d_scale)
+    aux.sofa_d2_risk = jax.vmap(prob_increase_steps, in_axes=(0, None, None))(sofa_pred, model.d_thresh, model.d_scale)
 
-    sofa_d2_true = jnp.concat(
-        [jnp.expand_dims(jnp.zeros(B, dtype=jnp.bool), axis=1), (jnp.diff(sofa_true, axis=-1) > 0)], axis=-1
-    )
-    aux.sofa_d2_p_loss = optax.sigmoid_focal_loss(binary_logits(aux.sofa_d2_p), sofa_d2_true, alpha=0.7, gamma=1.5)
-
-    aux.sep3_p = causal_smoothing(aux.sofa_d2_p, decay=model.sofa_d2_label_smooth, radius=12) * aux.susp_inf_p
-    aux.sep3_p_loss = optax.sigmoid_binary_cross_entropy(binary_logits(aux.sep3_p), sepsis_true)
-
-    # --------- Directional Loss
-    aux.sofa_directional_loss = jax.vmap(calc_full_directional_loss)(sofa_pred, sofa_true / 23.0, mask)
+    aux.sep3_risk = causal_smoothing(aux.sofa_d2_risk, decay=model.sofa_d2_pred_smooth, radius=12) * aux.susp_inf_p
+    aux.sep3_loss_t = optax.sigmoid_binary_cross_entropy(binary_logits(aux.sep3_risk), sepsis_true)  # * fine
 
     # --------- Spreading Loss
     zcov = masked_cov(z_seq, mask)
     det_loss = -jnp.log(jnp.linalg.det(zcov + EPS))
-
     aux.spreading_loss = det_loss
 
     # --------- Total Loss
@@ -256,14 +228,12 @@ def loss(
     sofa_score_pred = jnp.sum(sofa_pred[..., None] > thresholds, axis=-1)
     aux.hists_sofa_score = jax.lax.stop_gradient(sofa_score_pred)
     aux.total_loss = (
-        mask_padding(aux.recon_loss * params.w_recon, mask)
-        + mask_padding(aux.sofa_d2_p_loss * params.w_sofa_d2, mask)
-        + mask_padding(aux.infection_p_loss_t * params.w_inf, mask)
-        + mask_padding(aux.sofa_loss_t * params.w_sofa_classification, mask)
-        + mask_padding(aux.sep3_p_loss * params.w_sep3, mask)
-        + mask_padding(aux.sofa_directional_loss * params.w_sofa_direction, mask)
-        + mask_padding(aux.spreading_loss * params.w_spreading)
-        + mask_padding(aux.boundary_loss * params.w_boundary, mask)
+        mask_padding(aux.recon_loss * params.lambda_recon, mask)
+        + mask_padding(aux.infection_p_loss_t * params.lambda_inf, mask)
+        + mask_padding(aux.sofa_loss_t * params.lambda_sofa_classification, mask)
+        + mask_padding(aux.sep3_loss_t * params.lambda_sep3, mask)
+        + mask_padding(aux.spreading_loss * params.lambda_spreading)
+        + mask_padding(aux.boundary_loss * params.lambda_boundary, mask)
     )
     return aux.total_loss, aux
 
@@ -305,7 +275,7 @@ def process_train_epoch(
             x=batch_x,
             true_concepts=batch_true_c,
             mask=batch_mask,
-            step=opt_state[0].count,
+            step=opt_state[1][0].count,
             key=key,
             lookup_func=lookup_func,
             params=loss_params,
@@ -401,24 +371,26 @@ if __name__ == "__main__":
     logger = logging.getLogger(__name__)
 
     train_conf = TrainingConfig(
-        batch_size=512,
-        window_len=1 + 6,
+        batch_size=128,
         epochs=int(3e3),
         mini_epochs=4,
         validate_every=1,
         calibrate=False,
         early_stop=True,
     )
-    lr_conf = LRConfig(init=0.0, peak=1.75e-4, peak_decay=0.5, end=1.75e-4, warmup_epochs=1, enc_wd=1e-4, grad_norm=100.0)
+    lr_conf = LRConfig(
+        init=0.0,
+        warmup_epochs=1,
+        peak=5e-5,
+        enc_wd=2e-1,
+    )
     loss_conf = LossesConfig(
-        w_recon=5.0,
-        w_sofa_direction=10.0,
-        w_sofa_classification=1e3,
-        w_sofa_d2=2.0,
-        w_inf=1.0,
-        w_sep3=1e2,
-        w_spreading=5e-2,
-        w_boundary=30.0,
+        lambda_sep3=600.0,
+        lambda_inf=1.0,
+        lambda_sofa_classification=2000.0,
+        lambda_spreading=6e-3,
+        lambda_boundary=30.0,
+        lambda_recon=2.5,
     )
     load_conf = LoadingConfig(from_dir="", epoch=0)
     save_conf = SaveConfig(save_every=1, perform=True)
@@ -442,9 +414,18 @@ if __name__ == "__main__":
     logger.info(f"Train shape      - Y {train_y.shape}, X {train_x.shape}, m {train_m.shape}")
     logger.info(f"Validation shape - Y {val_y.shape},  X {val_x.shape},  m {val_m.shape}")
     logger.info(f"Frac Pos labels in Test {train_y[train_m, 2].sum() / train_m.sum() * 100:.2f}%")
-    logger.info(f"Prevalence Train Set {train_y[..., 2].max(axis=-1).sum() / train_m.max(axis=-1).sum() * 100:.2f}%")
-    logger.info(f"Prevalence Val Set   {val_y[..., 2].max(axis=-1).sum() / val_m.max(axis=-1).sum() * 100:.2f}%")
-    logger.info(f"Prevalence Test Set  {_y[..., 2].max(axis=-1).sum() / _m.max(axis=-1).sum() * 100:.2f}%")
+    for y, m, s in ((train_y, train_m, "Train"), (val_y, val_m, "Val"), (_y, _m, "Test")):
+        logger.info(
+           f"Patient Prevalence {s:5}   {((y * m[..., None]).max(axis=1) == 1.0).mean(axis=0).round(4)[[1, 2]] * 100}%"
+        )
+    logger.info("")
+    for y, m, s in ((train_y, train_m, "Train"), (val_y, val_m, "Val"), (_y, _m, "Test")):
+        logger.info(f"Time Prevalence {s:5}      {((y * m[..., None]) > 0.0).mean(axis=(0, 1)).round(4)[[1, 2]] * 100}%")
+    for y, m, s in ((train_y, train_m, "Train"), (val_y, val_m, "Val"), (_y, _m, "Test")):
+        logger.info(f"Mean sequence length {s:5} {m.sum(axis=-1).mean().round(2)}h")
+    for y, m, s in ((train_y, train_m, "Train"), (val_y, val_m, "Val"), (_y, _m, "Test")):
+        logger.info(f"Max values {s:5}           {(y * m[..., None]).max(axis=((0,1)))}")
+
     logger.info(f"First septic patient labels {train_y[1, train_m[1], 2]}")
     del _x, _y, _m
 
@@ -466,7 +447,7 @@ if __name__ == "__main__":
     metrics_2d = metrics_2d.to_jax()
     lookup_table = LatentLookup(
         metrics=metrics_2d.reshape((-1, 1)),
-        indices=indices_2d.reshape((-1, 2)),  # since param space only alpha beta sigma
+        indices=indices_2d.reshape((-1, 2)),  # since param space only beta sigma
         metrics_2d=metrics_2d,
         indices_2d=indices_2d,
         grid_spacing=spacing_2d,
@@ -478,9 +459,9 @@ if __name__ == "__main__":
         init_value=lr_conf.init,
         peak_value=lr_conf.peak,
         warmup_steps=lr_conf.warmup_epochs * steps_per_epoch,
-        steps_per_cycle=[steps_per_epoch * n for n in [100]],  # cycle durations
-        end_value=lr_conf.end,
-        peak_decay=lr_conf.peak_decay,
+        cycles=[
+            (steps_per_epoch * n, scale) for (n, scale) in [(200, 1.0)]
+        ],  # (cycle durations, end_value relative to peak)
     )
 
     # === Initialization ===
@@ -496,10 +477,10 @@ if __name__ == "__main__":
     model = LatentDynamicsModel(
         key=key_model,
         input_dim=52,
-        latent_enc_hidden_dim=32,
+        latent_enc_hidden_dim=64,
         latent_hidden_dim=4,
         latent_dim=2,
-        inf_hidden_dim=16,
+        inf_hidden_dim=32,
         inf_dim=1,
         dec_hidden_dim=32,
         sofa_dist=jnp.asarray(sofa_dist),
@@ -508,12 +489,10 @@ if __name__ == "__main__":
     model = init_ldm_weights(model, key_weights, scale=1e-4)
 
     hyper_ldm = model.hypers_dict()
-
-    # optimizer = optax.chain(
-    #     # optax.clip_by_global_norm(lr_conf.grad_norm),
-    #     optax.adamw(learning_rate=schedule, weight_decay=lr_conf.enc_wd),
-    # )
-    optimizer = optax.adamw(learning_rate=schedule, weight_decay=lr_conf.enc_wd)
+    optimizer = optax.chain(
+        optax.clip_by_global_norm(1.0),
+        optax.adamw(learning_rate=schedule, weight_decay=lr_conf.enc_wd),
+    )
     params_model, static_model = eqx.partition(model, eqx.is_inexact_array)
     opt_state = optimizer.init(params_model)
     if load_conf.from_dir:
@@ -546,13 +525,12 @@ if __name__ == "__main__":
             "lr": asdict(lr_conf),
         }
     )
-    writer.add_hparams(hyper_params, metric_dict={})
+    writer.add_hparams(hyper_params, metric_dict={}, name="")
 
-    shuffle_val_key = jr.fold_in(key, jax_random_seed)
-    val_x, val_y, val_m, _ = prepare_batches_mask(val_x, val_y, val_m, train_conf.batch_size, key=shuffle_val_key)
-    val_x, val_y, val_m = val_x[0], val_y[0], val_m[0]  # strip mini-epoch dimension
     stop = False
-    early_stop = EarlyStopping(direction=1, patience=30, min_steps=20)
+    early_stop_auprc = EarlyStopping(direction=1, patience=30, min_steps=20)
+    early_stop_auroc = EarlyStopping(direction=1, patience=30, min_steps=20)
+
     for epoch in range(load_conf.epoch if load_conf.from_dir else 0, train_conf.epochs):
         if epoch > 0:
             shuffle_key = jr.fold_in(key, epoch)
@@ -564,7 +542,7 @@ if __name__ == "__main__":
                 key=shuffle_key,
                 batch_size=train_conf.batch_size,
                 mini_epochs=train_conf.mini_epochs,
-                pos_fraction=0.1,
+                pos_fraction=-1,
             )
             loss_conf.steps_per_epoch = ntrain_batches
             train_metrics = []
@@ -585,7 +563,7 @@ if __name__ == "__main__":
                 model = eqx.combine(params_model, static_model)
 
             train_metrics = jtu.tree_map(lambda *xs: jnp.stack(xs), *train_metrics)
-            log_msg = log_train_metrics(train_metrics, model.params_to_dict(), epoch, writer)
+            log_msg = log_train_metrics(train_metrics, model.params_to_dict(), epoch, writer, mask=m_shuffled)
             writer.add_scalar(
                 "lr/learning_rate",
                 np.asarray(schedule(np.float64(epoch) * np.float64(train_x.shape[0]))),
@@ -598,35 +576,48 @@ if __name__ == "__main__":
             val_key = jr.fold_in(key, epoch + 2)
             val_metrics = process_val_epoch(
                 val_model,
-                x_data=val_x,
-                y_data=val_y,
-                mask_data=val_m,
-                step=opt_state[0].count,
+                x_data=val_x[None],
+                y_data=val_y[None],
+                mask_data=val_m[None],
+                step=opt_state[1][0].count,
                 key=val_key,
                 lookup_func=lookup_table.hard_get_fsq,
                 loss_params=loss_conf,
             )
 
             if train_conf.calibrate and epoch > 0:
-                cal = CalibrationModel().calibrate(
+                cal = TemperatureScaling().calibrate(
                     train_metrics.sofa_d2_p[m_shuffled],
                     train_metrics.susp_inf_p[m_shuffled],
-                    train_y[m_shuffled, 2],
+                    y_shuffled[m_shuffled, 2],
                 )
-                val_metrics.sep3_p = cal.get_sepsis_probs(val_metrics.sofa_d2_p[val_m], val_metrics.susp_inf_p[val_m])
+                val_metrics.sep3_risk = np.zeros_like(val_metrics.sep3_risk)
+                val_metrics.sep3_risk[val_m[None]] = cal.get_sepsis_probs(
+                    val_metrics.sofa_d2_risk[val_m[None]], val_metrics.susp_inf_p[val_m[None]]
+                )
                 logger.error(cal.coeffs)
 
             if train_conf.early_stop:
-                stop = early_stop.step(average_precision_score((val_y[val_m, 2] == 1.0), val_metrics.sep3_p[val_m]))
+                auprc = average_precision_score((val_y[val_m, 2] == 1.0), val_metrics.sep3_risk[val_m[None]])
+                auroc = roc_auc_score((val_y[val_m, 2] == 1.0), val_metrics.sep3_risk[val_m[None]])
+                auprc_stop = early_stop_auprc.step(auprc)
+                auroc_stop = early_stop_auroc.step(auroc)
+                stop = auprc_stop & auroc_stop
+                logger.info(
+                    f"Bad Steps|Stopped: AUROC {early_stop_auroc.bad_steps}|{early_stop_auroc.stopped} and "
+                    f"AUPRC {early_stop_auprc.bad_steps}|{early_stop_auprc.stopped}"
+                )
 
-            log_msg = log_val_metrics(val_metrics, val_y, lookup_table, epoch, writer, mask=val_m)
-            pred_sep = np.asarray(val_metrics.sep3_p)[val_m]
+            log_msg = log_val_metrics(val_metrics, val_y[None], lookup_table, epoch, writer, mask=val_m[None])
+            pred_sep = np.asarray(val_metrics.sep3_risk)[val_m[None]]
             true_sep = val_y[..., 2][val_m]
             logger.warning(log_msg)
 
             model = eqx.nn.inference_mode(val_model, value=False)
 
-        gc.collect()
+        if epoch > 0:
+            del train_metrics, x_shuffled, y_shuffled, m_shuffled, val_metrics
+            gc.collect()
 
         # --- Save checkpoint ---
         if ((epoch + 1) % save_conf.save_every == 0 or stop) and save_conf.perform:
