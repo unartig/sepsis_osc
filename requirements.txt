@@ -4,6 +4,7 @@ diffrax==0.7.0
 equinox==0.13.2
 faiss-cpu==1.12.0
 jax[cuda13]==0.8.0  # or jax[cuda13]
+jaxlie==1.5.0
 matplotlib>=3.7.1
 msgpack-numpy==0.4.8
 numpy>=2.0.1
