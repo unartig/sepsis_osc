@@ -47,12 +47,12 @@ def space_plot(
     ys: np.ndarray,
     title: str,
     *,
-    filename: str = "space_plot.svg",
+    filename: str = "",
     figure_dir: str = "figures",
     fs: tuple[int, int] = (6, 4),
     cmap: bool = True,
     figax: tuple[plt.Figure, plt.Axes] | None = None,
-    show: bool = False
+    show: bool = False,
 ) -> plt.Axes:
     if not figax:
         fig, ax = plt.subplots(1, 1, figsize=fs)
@@ -73,8 +73,7 @@ def space_plot(
     ax.set_yticklabels([f"{val:.2f}" for val in ys[ytick_positions]][::-1])
     if cmap:
         cbar = fig.colorbar(im, ax=ax, location="right", shrink=0.8)
-        cbar.set_label(r"$s^{mu}$")
-    plt.tight_layout()
+        cbar.set_label(r"$s^{1}$")
     if filename and figure_dir:
         plt.savefig(f"{figure_dir}/{filename}.svg", format="svg")
     if show:
@@ -88,13 +87,15 @@ def pretty_plot(
     title: str,
     xs: np.ndarray,
     ys: np.ndarray,
-    orig_xs:np.ndarray, orig_ys: np.ndarray,
+    orig_xs: np.ndarray,
+    orig_ys: np.ndarray,
     *,
     filename: str = "",
     figure_dir: str = "",
     fs: tuple[int, int] = (8, 6),
     show: bool = False,
     figax: tuple[plt.Figure, list[plt.Axes]] | None = None,
+    x_label: bool = True,
 ) -> None:
     if not figax:
         fig, axes = plt.subplots(1, 2, figsize=fs)
@@ -104,12 +105,12 @@ def pretty_plot(
     im0 = axes[0].imshow(metric_parenchymal.T[::-1, :], aspect="auto", cmap="viridis")
     im1 = axes[1].imshow(metric_immune.T[::-1, :], aspect="auto", cmap="viridis")
 
-    axes[0].set_title(f"{title}\nParenchymal Layer", fontsize=14)
-    axes[1].set_title(f"{title}\nImmune Layer", fontsize=14)
-    axes[0].set_ylabel(r"$\sigma$", fontsize=12)
-    axes[1].set_ylabel(r"$\sigma$", fontsize=12)
-    axes[1].set_xlabel(r"$\beta / \pi$", fontsize=12)
-    axes[0].set_xlabel(r"$\beta / \pi$", fontsize=12)
+    axes[0].set_title(f"{title}{r'${}^{1}$'}")
+    axes[1].set_title(f"{title}{r'${}^{2}$'}")
+    axes[0].set_ylabel(r"$\sigma$")
+    if x_label:
+        axes[1].set_xlabel(r"$\beta / \pi$")
+        axes[0].set_xlabel(r"$\beta / \pi$")
 
     xtick_positions = np.linspace(0, len(xs) - 1, num_ticks, dtype=int)
     ytick_positions = np.linspace(0, len(ys) - 1, num_ticks, dtype=int)
@@ -124,8 +125,8 @@ def pretty_plot(
         a.plot([orig_xs[1], orig_xs[1]], [orig_ys[0], orig_ys[1]], color="white", linewidth=0.5)
 
     # Add a colorbar to each subplot
-    fig.colorbar(im0, ax=axes[0], location="right", shrink=0.8)
-    fig.colorbar(im1, ax=axes[1], location="right", shrink=0.8)
+    fig.colorbar(im0, ax=axes[0], location="right",)
+    fig.colorbar(im1, ax=axes[1], location="right",)
 
     plt.tight_layout()
     if filename and figure_dir:
@@ -174,7 +175,8 @@ if __name__ == "__main__":
         "Kuramoto Order Parameter R",
         xs=xs,
         ys=ys,
-        orig_xs=orig_xs, orig_ys=orig_ys,
+        orig_xs=orig_xs,
+        orig_ys=orig_ys,
         filename="kuramoto_beta_sigma",
         figure_dir=figure_dir,
         fs=fs,
@@ -186,7 +188,8 @@ if __name__ == "__main__":
         "Splay Ratio",
         xs=xs,
         ys=ys,
-        orig_xs=orig_xs, orig_ys=orig_ys,
+        orig_xs=orig_xs,
+        orig_ys=orig_ys,
         filename="splay_ratio_beta_sigma",
         figure_dir=figure_dir,
         fs=fs,
@@ -198,7 +201,8 @@ if __name__ == "__main__":
         "Mean Phase Velocity Std",
         xs=xs,
         ys=ys,
-        orig_xs=orig_xs, orig_ys=orig_ys,
+        orig_xs=orig_xs,
+        orig_ys=orig_ys,
         filename="std_beta_sigma",
         figure_dir=figure_dir,
         fs=fs,
@@ -210,7 +214,8 @@ if __name__ == "__main__":
         "Mean Phase Velocity",
         xs=xs,
         ys=ys,
-        orig_xs=orig_xs, orig_ys=orig_ys,
+        orig_xs=orig_xs,
+        orig_ys=orig_ys,
         filename="mean_beta_sigma",
         figure_dir=figure_dir,
         fs=fs,
@@ -222,7 +227,8 @@ if __name__ == "__main__":
         "Entropy",
         xs=xs,
         ys=ys,
-        orig_xs=orig_xs, orig_ys=orig_ys,
+        orig_xs=orig_xs,
+        orig_ys=orig_ys,
         filename="entropy_beta_sigma",
         figure_dir=figure_dir,
         fs=fs,
@@ -234,7 +240,8 @@ if __name__ == "__main__":
         "Cluster Fraction",
         xs=xs,
         ys=ys,
-        orig_xs=orig_xs, orig_ys=orig_ys,
+        orig_xs=orig_xs,
+        orig_ys=orig_ys,
         filename="cluster_beta_sigma",
         figure_dir=figure_dir,
         fs=fs,
@@ -246,7 +253,8 @@ if __name__ == "__main__":
         "Cluster Fraction",
         xs=xs,
         ys=ys,
-        orig_xs=orig_xs, orig_ys=orig_ys,
+        orig_xs=orig_xs,
+        orig_ys=orig_ys,
         filename="cluster_beta_sigma",
         figure_dir=figure_dir,
         fs=fs,
@@ -258,7 +266,8 @@ if __name__ == "__main__":
         "Coupling Entropy",
         xs=xs,
         ys=ys,
-        orig_xs=orig_xs, orig_ys=orig_ys,
+        orig_xs=orig_xs,
+        orig_ys=orig_ys,
         filename="coupling_entropy",
         figure_dir=figure_dir,
         fs=fs,
@@ -270,7 +279,8 @@ if __name__ == "__main__":
         "Coupling Std",
         xs=xs,
         ys=ys,
-        orig_xs=orig_xs, orig_ys=orig_ys,
+        orig_xs=orig_xs,
+        orig_ys=orig_ys,
         filename="coupling_std",
         figure_dir=figure_dir,
         fs=fs,

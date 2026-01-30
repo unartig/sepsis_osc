@@ -1,24 +1,30 @@
-import numpy as np
-from matplotlib.animation import FuncAnimation, PillowWriter
 import matplotlib.pyplot as plt
+import numpy as np
 
-from sepsis_osc.dnm.dynamic_network_model import DNMConfig, DNMMetrics, DynamicNetworkModel
-from sepsis_osc.dnm.lie_dnm import LieDynamicNetworkModel
+from sepsis_osc.dnm.dynamic_network_model import DNMConfig, DynamicNetworkModel
 
 
-def plot_metric_t(var_1: np.ndarray, var_2: np.ndarray, a: float =1.0, step_size=1.0, ax=None):
-    if not ax:
+def plot_metric_t(
+    var_1: np.ndarray,
+    var_2: np.ndarray,
+    a: float = 1.0,
+    step_size: float = 1.0,
+    ax: plt.Axes | None = None,
+    *,
+    rasterized: bool = True,
+) -> plt.Axes:
+    if ax is None:
         _, ax = plt.subplots(2, 1)
     t = np.arange(var_1.shape[0]) * step_size
-    ax[0].plot(t, var_1, color="tab:blue", alpha=a)
-    ax[1].plot(t, var_2, color="tab:blue", alpha=a)
+    ax[0].plot(t, var_1, color="tab:blue", alpha=a, rasterized=rasterized)
+    ax[1].plot(t, var_2, color="tab:blue", alpha=a, rasterized=rasterized)
     return ax
 
 
 if __name__ == "__main__":
     import jax.numpy as jnp
     import jax.random as jr
-    from diffrax import Bosh3, Dopri5, Tsit5, Dopri8, ODETerm, PIDController
+    from diffrax import Bosh3, Dopri5, Dopri8, ODETerm, PIDController, Tsit5
     from jax import vmap
 
     from sepsis_osc.utils.config import jax_random_seed
