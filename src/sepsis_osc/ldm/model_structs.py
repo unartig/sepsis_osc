@@ -17,26 +17,22 @@ class AuxLosses:
     beta: Array
     sigma: Array
 
-    total_loss: Array
-    recon_loss: Array
-
     hists_sofa_score: Array
     hists_sofa_metric: Array
     hists_inf_prob: Array
 
     total_loss: Array
+    sep3_loss_t: Array
+    sofa_loss_t: Array
+    infection_p_loss_t: Array
+
     recon_loss: Array
     spreading_loss: Array
     boundary_loss: Array
-    sofa_loss_t: Array
-    sofa_d2_p_loss: Array
-    infection_p_loss_t: Array
-    sep3_p_loss: Array
-    sofa_directional_loss: Array
 
-    sofa_d2_p: Array
+    sofa_d2_risk: Array
     susp_inf_p: Array
-    sep3_p: Array
+    sep3_risk: Array
 
     @staticmethod
     def empty() -> "AuxLosses":
@@ -54,11 +50,9 @@ class AuxLosses:
                 "spreading_loss": self.spreading_loss,
                 "boundary_loss": self.boundary_loss,
                 "recon_loss": self.recon_loss,
-                "sofa_directional_loss": self.sofa_directional_loss,
                 "sofa": self.sofa_loss_t,
-                "sofa_d2": self.sofa_d2_p_loss,
                 "infection": self.infection_p_loss_t,
-                "sepsis-3": self.sep3_p_loss,
+                "sepsis-3": self.sep3_loss_t,
             },
             "hists": {
                 "sofa_score": self.hists_sofa_score,
@@ -67,9 +61,9 @@ class AuxLosses:
                 "sofa_t": self.sofa_loss_t,
             },
             "sepsis_metrics": {
-                "sofa_d2_p": self.sofa_d2_p,
+                "sofa_d2_risk": self.sofa_d2_risk,
                 "susp_inf_p": self.susp_inf_p,
-                "sep3_p": self.sep3_p,
+                "sep3_risk": self.sep3_risk,
             },
         }
 
@@ -81,7 +75,6 @@ class TrainingConfig:
     """
 
     batch_size: int
-    window_len: int
     epochs: int
     mini_epochs: int = 1
     validate_every: float = 1.0
@@ -117,11 +110,8 @@ class LRConfig:
 
     init: float
     peak: float
-    peak_decay: float
-    end: float
     warmup_epochs: int
     enc_wd: float
-    grad_norm: float
 
 
 @register_dataclass
@@ -131,13 +121,14 @@ class LossesConfig:
     Configuration dataclass for the losses involved in training.
     """
 
-    w_spreading: float
-    w_boundary: float
-    w_recon: float
-    w_sofa_direction: float
-    w_sofa_classification: float
-    w_sofa_d2: float
-    w_inf: float
-    w_sep3: float
+    lambda_sep3: float
+    lambda_sofa_classification: float
+    lambda_inf: float
+
+    lambda_spreading: float
+    lambda_boundary: float
+
+    lambda_recon: float
+
     steps_per_epoch: int = 0
 

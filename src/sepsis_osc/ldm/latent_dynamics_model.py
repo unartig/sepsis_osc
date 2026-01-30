@@ -6,7 +6,7 @@ from jaxtyping import Array, Float, PRNGKeyArray, jaxtyped
 from numpy.typing import DTypeLike
 
 from sepsis_osc.ldm.ae import Decoder, LatentEncoder
-from sepsis_osc.ldm.commons import apply_initialization, qr_init, zero_bias_init
+from sepsis_osc.ldm.commons import qr_init
 from sepsis_osc.utils.jax_config import typechecker
 
 ones_24 = jnp.ones(24)
@@ -76,11 +76,11 @@ class LatentDynamicsModel(eqx.Module):
             latent_pred_hidden=latent_hidden_dim,
             dtype=dtype,
         )
-        self.latent_encoder = eqx.nn.GRUCell((input_dim * 2) + latent_dim, latent_hidden_dim, key=keyz, use_bias=False)
+        self.latent_encoder = eqx.nn.GRUCell((input_dim * 2) + latent_dim, latent_hidden_dim, key=keyz, dtype=dtype)
         self.latent_rollout = eqx.nn.GRUCell(latent_dim, latent_hidden_dim, key=keyz, dtype=dtype)
         self.latent_proj_out = eqx.nn.Linear(latent_hidden_dim, latent_dim, key=keyz, dtype=dtype, use_bias=False)
 
-        self.inf_encoder = eqx.nn.GRUCell(input_dim * 2, inf_hidden_dim, key=keyinf, use_bias=False)
+        self.inf_encoder = eqx.nn.GRUCell(input_dim * 2, inf_hidden_dim, key=keyinf, dtype=dtype)
         self.inf_h0 = jnp.zeros(inf_hidden_dim)
         self.inf_rollout = eqx.nn.GRUCell(inf_dim, inf_hidden_dim, key=keyinf, dtype=dtype)
         self.inf_proj_out = eqx.nn.Linear(inf_hidden_dim, inf_dim, key=keyinf, dtype=dtype)
@@ -147,8 +147,8 @@ class LatentDynamicsModel(eqx.Module):
 
     @jaxtyped(typechecker=typechecker)
     def online_sequence(
-        self, xs: Float[Array, "time input_dim"]
-    ) -> tuple[Float[Array, "time latent_dim"], Float[Array, "time 1"]]:
+        self, xs: Float[Array, "time input_dim"], key: PRNGKeyArray
+    ) -> tuple[Float[Array, "time latent_dim"], Float[Array, " time"]]:
         @jaxtyped(typechecker=typechecker)
         def z_step(
             carry: tuple[Float[Array, " latent_hidden_dim"], Float[Array, " latent_dim"]],
@@ -168,6 +168,7 @@ class LatentDynamicsModel(eqx.Module):
         (_, _), z_preds = jax.lax.scan(z_step, (h0, z0), xs[1:])
         z_seq = jnp.concat([z0[None], z_preds], axis=0)
 
+
         @jaxtyped(typechecker=typechecker)
         def inf_step(
             h_prev: Float[Array, " inf_hidden_dim"], x_t: Float[Array, " input_dim"]
@@ -176,7 +177,7 @@ class LatentDynamicsModel(eqx.Module):
             return h_next, h_next
 
         _, ihs = jax.lax.scan(inf_step, self.inf_h0, xs)
-        inf_seq = jax.vmap(self.inf_proj_out)(ihs)
+        inf_seq = jax.vmap(self.inf_proj_out)(ihs).squeeze()
 
         return jax.nn.sigmoid(z_seq), inf_seq
 
@@ -249,9 +250,5 @@ def make_ldm(
 
 
 def init_ldm_weights(ldm: LatentDynamicsModel, key: jnp.ndarray, scale: float = 1e-1) -> LatentDynamicsModel:
-    enc_key, gru_key = jr.split(key)
-    # ldm = eqx.tree_at(
-    #     lambda e: e.latent_pre_encoder, ldm, apply_initialization(ldm.latent_pre_encoder, qr_init, zero_bias_init, enc_key)
-    # )
-    ldm = eqx.tree_at(lambda e: e.latent_proj_out.weight, ldm, qr_init(ldm.latent_proj_out.weight, gru_key) * scale)
+    ldm = eqx.tree_at(lambda e: e.latent_proj_out.weight, ldm, qr_init(ldm.latent_proj_out.weight, key) * scale)
     return ldm
