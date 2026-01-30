@@ -1,27 +1,16 @@
-from typing import Optional
-
 import jax.numpy as jnp
 import matplotlib.pyplot as plt
 import numpy as np
+from matplotlib import colors
 from matplotlib.cm import ScalarMappable
 from matplotlib.pyplot import Axes, Figure
 from sklearn.metrics import PrecisionRecallDisplay, RocCurveDisplay
 
-from sepsis_osc.ldm.lookup import LatentLookup
-from sepsis_osc.utils.config import BETA_SPACE, SIGMA_SPACE
+from sepsis_osc.ldm.lookup import LatentLookup, get_aligned_subgrid
+from sepsis_osc.utils.config import BETA_SPACE, SIGMA_SPACE, plt_params
 from sepsis_osc.visualisations.viz_param_space import space_plot
 
-SMALL_SIZE = 12
-MEDIUM_SIZE = 14
-BIGGER_SIZE = 14
-
-plt.rc("font", size=SMALL_SIZE)  # controls default text sizes
-plt.rc("axes", titlesize=SMALL_SIZE)  # fontsize of the axes title
-plt.rc("axes", labelsize=MEDIUM_SIZE)  # fontsize of the x and y labels
-plt.rc("xtick", labelsize=SMALL_SIZE)  # fontsize of the tick labels
-plt.rc("ytick", labelsize=SMALL_SIZE)  # fontsize of the tick labels
-plt.rc("legend", fontsize=SMALL_SIZE)  # legend fontsize
-plt.rc("figure", titlesize=BIGGER_SIZE)  # fontsize of the figure title
+plt.rcParams.update(plt_params)
 
 
 def viz_starter(
@@ -77,38 +66,6 @@ def viz_starter(
     return ax
 
 
-def viz_progression(
-    true_sofa: jnp.ndarray | np.ndarray,
-    true_infs: jnp.ndarray | np.ndarray,
-    pred_sofa: jnp.ndarray | np.ndarray,
-    pred_infs: jnp.ndarray | np.ndarray,
-    mask: np.ndarray,
-    ax: Axes | None = None,
-    figure_dir: str = "figures/model",
-    filename: str = "latent_plane",
-) -> Axes:
-    if ax is None:
-        _fig, ax = plt.subplots(1, 1)
-
-    NB, B, T = pred_sofa.shape
-
-    # --- SOFA
-    mean_sofa = (pred_sofa - true_sofa).mean(axis=(0, 1), where=mask)
-    std_sofa = (pred_sofa - true_sofa).std(axis=(0, 1), where=mask)
-    ci95_sofa = 1.96 * std_sofa / np.sqrt(NB * B)
-
-    ax.plot(np.arange(T), mean_sofa, label="SOFA Error")
-    ax.plot(np.arange(T), mean_sofa + ci95_sofa, linestyle="--", color="gray")
-    ax.plot(np.arange(T), mean_sofa - ci95_sofa, linestyle="--", color="gray")
-    ax.set_title("Progression Prediction - True")
-
-    plt.tight_layout()
-    ax.grid()
-    if filename and figure_dir:
-        plt.savefig(f"{figure_dir}/{filename}.svg", format="svg")
-    return ax
-
-
 def viz_plane(
     true_sofa: jnp.ndarray | np.ndarray,
     betas: jnp.ndarray,
@@ -116,24 +73,29 @@ def viz_plane(
     lookup: LatentLookup,
     mask: np.ndarray,
     figax: tuple[Figure, Axes] | None = None,
-    figure_dir: str = "figures/model",
-    filename: str = "latent_plane",
     *,
+    window_size: int = 5,
+    zoom: bool = True,
     cmaps: bool = True,
-) -> Axes:
+    cs: tuple[str, ...] | list[str] = ("tab:cyan", "tab:purple", "tab:pink", "tab:orange"),
+) -> tuple[Figure, Axes]:
     if figax is not None:
         fig, ax = figax
     if ax is None:
         fig, ax = plt.subplots(1, 1)
 
-    betas_space = jnp.arange(*BETA_SPACE)
-    sigmas_space = jnp.arange(*SIGMA_SPACE)
-    beta_grid, sigma_grid = np.meshgrid(betas_space, sigmas_space, indexing="ij")
-    param_grid = np.stack([beta_grid.ravel(), sigma_grid.ravel()], axis=1)
+    if zoom:
+        param_grid, betas_space, sigmas_space = get_aligned_subgrid(
+            betas[mask], sigmas[mask], BETA_SPACE, SIGMA_SPACE, window_size=window_size
+        )
+    else:
+        betas_space = jnp.arange(*BETA_SPACE)
+        sigmas_space = jnp.arange(*SIGMA_SPACE)
+        beta_grid, sigma_grid = np.meshgrid(betas_space, sigmas_space, indexing="ij")
+        param_grid = np.stack([beta_grid.ravel(), sigma_grid.ravel()], axis=1)
 
     metrics = lookup.hard_get_fsq(jnp.asarray(param_grid)).reshape((len(betas_space), len(sigmas_space)))
 
-    # --- SOFA
     std_sym = r"$s^{1}$"
     ax = space_plot(
         metrics,
@@ -141,24 +103,51 @@ def viz_plane(
         ys=np.asarray(sigmas_space),
         title=rf"SOFA Progression over {std_sym} space{'\n'}Parenchymal Layer",
         cmap=cmaps,
-        filename=filename,
-        figure_dir=figure_dir,
+        filename="",
         figax=(fig, ax),
     )
-    beta_scale = len(betas_space) * (betas[mask] - BETA_SPACE[0]) / (BETA_SPACE[1] - BETA_SPACE[0])
-    sigma_scale = len(sigmas_space) * (1 - (sigmas[mask] - SIGMA_SPACE[0]) / (SIGMA_SPACE[1] - SIGMA_SPACE[0]))
-    cm = plt.colormaps.get_cmap("copper")
-    if cmaps:
-        sm = ScalarMappable(cmap=cm)
-        sm.set_array([])
-        cbar2 = plt.colorbar(sm, ax=ax, shrink=0.8)
-        cbar2.set_label("Actual SOFA-score")
-    ax.scatter(beta_scale, sigma_scale, c=(true_sofa / 24)[mask], cmap=cm)
 
-    # plt.tight_layout()
-    if filename and figure_dir:
-        plt.savefig(f"{figure_dir}/{filename}.svg", format="svg")
-    return ax
+    cm = plt.colormaps.get_cmap("copper")
+    norm = colors.Normalize(vmin=0, vmax=24)
+
+    if cmaps:
+        sm = ScalarMappable(cmap=cm, norm=norm)
+        sm.set_array([])
+        sm.set_clim(0, 24)
+        cbar2 = plt.colorbar(sm, ax=ax, shrink=0.8)
+        cbar2.set_label("Ground Truth SOFA-score")
+
+    # Ensure arrays are 2D (N, T)
+    true_sofa = np.atleast_2d(true_sofa)
+    betas = np.atleast_2d(betas)
+    sigmas = np.atleast_2d(sigmas)
+    mask = np.atleast_2d(mask)
+
+    for i in range(true_sofa.shape[0]):
+        m = mask[i]
+
+        beta_scale = len(betas_space) * (betas[i, m] - betas_space[0]) / (betas_space[-1] - betas_space[0])
+        sigma_scale = len(sigmas_space) * (1 - (sigmas[i, m] - sigmas_space[0]) / (sigmas_space[-1] - sigmas_space[0]))
+
+        ax.scatter(
+            beta_scale,
+            sigma_scale,
+            c=true_sofa[i, m],
+            cmap=cm,
+            norm=norm,
+            s=20,
+        )
+        ax.scatter(
+            beta_scale[[0, -1]],
+            sigma_scale[[0, -1]],
+            c=cs[i],
+            marker="x",
+        )
+
+        ax.annotate(f"{i + 1}:t0", (beta_scale[0] + 1, sigma_scale[0] + 1))
+        ax.annotate(f"{i + 1}:t{beta_scale.size}", (beta_scale[-1] + 1, sigma_scale[-1] + 1))
+
+    return fig, ax
 
 
 def viz_heatmap_concepts(
@@ -166,55 +155,64 @@ def viz_heatmap_concepts(
     true_infs: jnp.ndarray | np.ndarray,
     pred_sofa: jnp.ndarray | np.ndarray,
     pred_infs: jnp.ndarray | np.ndarray,
+    *,
     cmap: bool,
-    figure_dir: str = "figures/model",
-    filename: str = "prediction.jpg",
-    figax: tuple[Figure, tuple[Axes, Axes]] | None = None,
-) -> tuple[Axes, Axes]:
+    figax: tuple[Figure, tuple[Axes, Axes, Axes]] | None = None,
+) -> tuple[Figure, tuple[Axes, Axes, Axes]]:
     if figax is not None:
         fig, ax = figax
-    if ax is None or len(ax) < 2:
-        fig, ax = plt.subplots(1, 2)
+    else:
+        fig, ax = plt.subplots(1, 3)
 
-    sofa_bins = [np.arange(-0.5, 24.5, 1), np.arange(-0.5, 24.5, 1)]  # 1-point bins
-    sofa_heatmap, sofa_xedges, sofa_yedges = np.histogram2d(true_sofa, pred_sofa, bins=sofa_bins)
+    sofa_bins = [np.arange(-0.5, 24.5, 1), np.arange(-0.5, 24.5, 1)]
+    sofa_heatmap = np.histogram2d(true_sofa, pred_sofa, bins=sofa_bins)
+    sofa = (sofa_heatmap, "SOFA-score", ax[0])
 
-    # Plot the 2D histogram as an image
-    # --- SOFA
-    im = ax[0].imshow(
-        np.log(sofa_heatmap.T + 1),  # transpose so it matches axes orientation
-        origin="lower",
-        extent=[sofa_xedges[0], sofa_xedges[-1], sofa_yedges[0], sofa_yedges[-1]],
-        aspect="auto",
-        cmap="hot",
+    dsofa_bins = [np.arange(-24.5, 24.5, 1), np.arange(-24.5, 24.5, 1)]  # 1-point bins
+    dsofa_heatmap = np.histogram2d(np.diff(true_sofa), np.diff(pred_sofa), bins=dsofa_bins)
+    dsofa = (dsofa_heatmap, r"$\Delta$SOFA-score", ax[1])
+
+    infection_bins = [np.arange(-0.05, 1.05, 0.1), np.arange(-0.05, 1.05, 0.1)]
+    inf_heatmap = np.histogram2d(true_infs, pred_infs, bins=infection_bins)
+    inf = (inf_heatmap, "Suspected Infection", ax[2])
+
+    heats = np.log(
+        np.concat(
+            [
+                np.asarray(sofa_heatmap[0]).flatten(),
+                np.asarray(dsofa_heatmap[0]).flatten(),
+                np.asarray(inf_heatmap[0]).flatten(),
+            ]
+        )
+        + 1
     )
-    ax[0].plot(range(24), range(24), color="tab:red", label="optimum")
-    ax[0].set_ylabel("Predicted SOFA-score")
-    ax[0].set_xlabel("Actual SOFA-score")
-    ax[0].legend()
-    if cmap:
-        fig.colorbar(im, ax=ax[0], label="Count")
+    norm = colors.Normalize(vmin=np.min(heats), vmax=np.max(heats))
 
-    # --- infection
-    infection_bins = [np.arange(-0.05, 1.05, 0.1), np.arange(-0.05, 1.05, 0.1)]  # 1-point bins
-    infection_heatmap, infection_xedges, infection_yedges = np.histogram2d(true_infs, pred_infs, bins=infection_bins)
-    im = ax[1].imshow(
-        np.log(infection_heatmap.T + 1),
-        origin="lower",
-        extent=[infection_xedges[1], infection_xedges[-1], infection_yedges[0], infection_yedges[-1]],
-        aspect="auto",
-        cmap="hot",
-    )
-    ax[1].set_ylabel("Predicted infection (probability)")
-    ax[1].set_xlabel("Actual infection (bool)")
-    # ax[1].legend()
+    images = []
+    for (heatmap, xedges, yedges), name, axi in [sofa, dsofa, inf]:
+        # Plot the 2D histogram as an image
+        images.append(
+            axi.imshow(
+                np.log(heatmap.T + 1),  # transpose so it matches axes orientation
+                origin="lower",
+                extent=[xedges[0], xedges[-1], yedges[0], yedges[-1]],
+                aspect="equal",
+                cmap="magma",
+                norm=norm,
+            )
+        )
+        axi.set_title(name)
+        axi.set_xlabel(f"Ground Truth")
     if cmap:
-        fig.colorbar(im, ax=ax[1], label="Count")
+        pos = ax[-1].get_position()
 
-    plt.tight_layout()
-    if filename and figure_dir:
-        plt.savefig(f"{figure_dir}/{filename}", transparent=True, dpi=800)
-    return ax
+        # Create colorbar axes outside the plot
+        cax = fig.add_axes([pos.x1 + 0.02, pos.y0, 0.02, pos.height])
+        fig.colorbar(images[-1], cax=cax, label="log(Count)")
+
+    ax[0].set_ylabel(f"Predicted")
+    fig.subplots_adjust(wspace=0.2)
+    return fig, ax
 
 
 def viz_curves(
@@ -246,8 +244,8 @@ def viz_curves(
     )
     PrecisionRecallDisplay.from_predictions(true_sep3, pred_sep3, ax=ax[1], label="Sepsis3", color="tab:green")
 
-    ax[0].set_title("ROC")
-    ax[1].set_title("PRC")
+    ax[0].set_title("Receiver Operating Characteristics")
+    ax[1].set_title("Precision Recall Curve")
     # ax[0].legend()
     ax[1].legend()
 

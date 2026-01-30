@@ -201,3 +201,39 @@ def as_2d_indices(
     ys = np.arange(*y_space)
     x_grid, y_grid = np.meshgrid(xs, ys, indexing="ij")
     return x_grid, y_grid
+
+
+def get_aligned_subgrid(
+    betas: np.ndarray | Array,
+    sigmas: np.ndarray | Array,
+    beta_space: tuple[float, float, float],
+    sigma_space: tuple[float, float, float],
+    window_size: int = 5,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """
+    Extract subgrid around given parameter values, aligned with original grid.
+    """
+    betas_space = np.arange(*beta_space)
+    sigmas_space = np.arange(*sigma_space)
+
+    # Find indices of nearest grid points
+    beta_idx = np.argmin(np.abs(betas_space[:, None] - betas[None, :]), axis=0)
+    sigma_idx = np.argmin(np.abs(sigmas_space[:, None] - sigmas[None, :]), axis=0)
+
+    # Get unique indices and extend window around them
+    beta_idx_unique = np.unique(beta_idx)
+    sigma_idx_unique = np.unique(sigma_idx)
+
+    # Expand to window
+    beta_min = max(0, beta_idx_unique.min() - window_size)
+    beta_max = min(len(betas_space), beta_idx_unique.max() + window_size)
+    sigma_min = max(0, sigma_idx_unique.min() - window_size)
+    sigma_max = min(len(sigmas_space), sigma_idx_unique.max() + window_size)
+
+    betas_subspace = betas_space[beta_min:beta_max]
+    sigmas_subspace = sigmas_space[sigma_min:sigma_max]
+
+    beta_grid, sigma_grid = np.meshgrid(betas_subspace, sigmas_subspace, indexing="ij")
+    param_grid = np.stack([beta_grid.ravel(), sigma_grid.ravel()], axis=1)
+
+    return param_grid, betas_subspace, sigmas_subspace
