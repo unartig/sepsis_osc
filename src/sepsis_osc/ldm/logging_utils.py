@@ -13,7 +13,6 @@ from sepsis_osc.visualisations.viz_model_results import (
     viz_curves,
     viz_heatmap_concepts,
     viz_plane,
-    viz_progression,
     viz_starter,
 )
 
@@ -39,7 +38,7 @@ def log_train_metrics(
     mask: np.ndarray | None = None,
 ) -> str:
     if mask is None:
-        mask = np.ones_like(aux_losses.sep3_p.astype(np.bool))
+        mask = np.ones_like(aux_losses.sep3_risk.astype(np.bool))
     log_msg = f"Epoch {epoch} Training "
     metrics = aux_losses.to_dict()
     metrics = {**metrics, "model_params": {**model_params}}
@@ -65,13 +64,13 @@ def log_val_metrics(
 ) -> str:
     metrics = aux_losses.to_dict()
     if mask is None:  # if prediction
-        mask = np.ones_like(aux_losses.sep3_p.astype(np.bool))
+        mask = np.ones_like(aux_losses.sep3_risk.astype(np.bool))
         true_sofa = np.asarray(y[..., 0]).flatten()
         true_sofa_d2 = np.asarray(jnp.diff(y[..., 0], axis=-1) > 0).any(axis=-1).flatten()
         true_inf = np.asarray((y[..., 1]).max(axis=-1)).flatten()
         true_sep3 = np.asarray((y[..., 2] == 1.0).any(axis=-1)).flatten()
-        pred_sep3_p = np.asarray(metrics["sepsis_metrics"]["sep3_p"]).flatten()
-        pred_sofa_d2_p = np.asarray(metrics["sepsis_metrics"]["sofa_d2_p"]).flatten()
+        pred_sep3_risk = np.asarray(metrics["sepsis_metrics"]["sep3_risk"]).flatten()
+        pred_sofa_d2_risk = np.asarray(metrics["sepsis_metrics"]["sofa_d2_risk"]).flatten()
         pred_susp_inf_p = np.asarray(metrics["sepsis_metrics"]["susp_inf_p"]).flatten()
         pred_sofa_score = np.asarray(metrics["hists"]["sofa_score"]).flatten()
     else:  # if detection
@@ -81,14 +80,10 @@ def log_val_metrics(
         )[mask]
         true_inf = np.asarray(y[..., 1])[mask]
         true_sep3 = np.asarray(y[..., 2] == 1.0)[mask]
-        pred_sep3_p = np.asarray(metrics["sepsis_metrics"]["sep3_p"])[mask]
-        pred_sofa_d2_p = np.asarray(metrics["sepsis_metrics"]["sofa_d2_p"])[mask]
+        pred_sep3_risk = np.asarray(metrics["sepsis_metrics"]["sep3_risk"])[mask]
+        pred_sofa_d2_risk = np.asarray(metrics["sepsis_metrics"]["sofa_d2_risk"])[mask]
         pred_susp_inf_p = np.asarray(metrics["sepsis_metrics"]["susp_inf_p"])[mask].squeeze()
         pred_sofa_score = np.asarray(metrics["hists"]["sofa_score"])[mask]
-
-    print("lims sofa", pred_sofa_d2_p.min(), pred_sofa_d2_p.max())
-    print("lims inf ", pred_susp_inf_p.min(), pred_susp_inf_p.max())
-    print("lims sep ", pred_sep3_p.min(), pred_sep3_p.max())
 
     fig, ax = plt.subplots(1, 1)
     ax = viz_starter(
@@ -102,20 +97,7 @@ def log_val_metrics(
     writer.add_figure("LatentsOverTime", fig, epoch, close=True)
 
     fig, ax = plt.subplots(1, 1)
-    ax = viz_progression(
-        y[..., 0],
-        y[..., 1],
-        metrics["hists"]["sofa_score"],
-        metrics["sepsis_metrics"]["susp_inf_p"],
-        mask=mask,
-        filename="",
-        ax=ax,
-    )
-    writer.add_figure("Progression", fig, epoch, close=True)
-
-    fig, ax = plt.subplots(1, 1)
     seq_idx = np.argmax(y[0, :, :, 0].var(axis=-1))  # highest sofa std in first batch
-
     ax = viz_plane(
         true_sofa=y[0, seq_idx, :, 0],
         betas=metrics["latents"]["beta"][0, seq_idx],
@@ -123,20 +105,16 @@ def log_val_metrics(
         mask=mask[0, seq_idx],
         lookup=lookup,
         cmaps=False,
-        filename="",
         figax=(fig, ax),
     )
     writer.add_figure("SingleLatent", fig, epoch, close=True)
 
-    fig, ax = plt.subplots(1, 2)
-    ax = viz_heatmap_concepts(
+    fig, ax = viz_heatmap_concepts(
         true_sofa,
         true_inf,
         pred_sofa_score,
         pred_susp_inf_p,
-        cmap=False,
-        filename="",
-        figax=(fig, ax),
+        cmap=True,
     )
     writer.add_figure("Performance", fig, epoch, close=True)
 
@@ -145,9 +123,9 @@ def log_val_metrics(
         true_sofa_d2,
         true_inf > 0,
         true_sep3,
-        pred_sofa_d2_p,
+        pred_sofa_d2_risk,
         pred_susp_inf_p,
-        pred_sep3_p,
+        pred_sep3_risk,
         filename="",
         figax=(fig, ax),
     )
@@ -161,14 +139,14 @@ def log_val_metrics(
             for t, v in enumerate(np.asarray(metrics["mult"]["sofa_t"]).mean(axis=(0, 1))):
                 writer.add_scalar(f"sofa_per_timestep/t{t}", np.asarray(v), epoch)
         elif k == "sepsis_metrics":
-            writer.add_scalar(k + "/AUROC_pred_sep", roc_auc_score(true_sep3, pred_sep3_p), epoch)
-            writer.add_scalar(k + "/AUPRC_pred_sep", average_precision_score(true_sep3, pred_sep3_p), epoch)
-            writer.add_scalar(k + "/AUROC_pred_sofa_d2", roc_auc_score(true_sofa_d2, pred_sofa_d2_p), epoch)
-            writer.add_scalar(k + "/AUPRC_pred_sofa_d2", average_precision_score(true_sofa_d2, pred_sofa_d2_p), epoch)
+            writer.add_scalar(k + "/AUROC_pred_sep", roc_auc_score(true_sep3, pred_sep3_risk), epoch)
+            writer.add_scalar(k + "/AUPRC_pred_sep", average_precision_score(true_sep3, pred_sep3_risk), epoch)
+            writer.add_scalar(k + "/AUROC_pred_sofa_d2", roc_auc_score(true_sofa_d2, pred_sofa_d2_risk), epoch)
+            writer.add_scalar(k + "/AUPRC_pred_sofa_d2", average_precision_score(true_sofa_d2, pred_sofa_d2_risk), epoch)
             writer.add_scalar(k + "/AUROC_pred_susp_inf", roc_auc_score(true_inf > 0, pred_susp_inf_p), epoch)
             writer.add_scalar(k + "/AUPRC_pred_susp_inf", average_precision_score(true_inf > 0, pred_susp_inf_p), epoch)
-            log_msg += f"AUROC = {float(roc_auc_score(true_sep3, pred_sep3_p)):.4f}, "
-            log_msg += f"AUPRC = {float(average_precision_score(true_sep3, pred_sep3_p)):.4f}, "
+            log_msg += f"AUROC = {float(roc_auc_score(true_sep3, pred_sep3_risk)):.4f}, "
+            log_msg += f"AUPRC = {float(average_precision_score(true_sep3, pred_sep3_risk)):.4f}, "
         elif k in ("cosine_annealings"):
             continue
         else:
