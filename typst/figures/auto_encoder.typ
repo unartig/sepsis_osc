@@ -164,7 +164,7 @@
     y-gap = 1.5
     y-current -= y-gap
     box-node((x-center + x-off, y-current), box-width, box-height, 
-      [Linear (32 → #half-dim)], fill: rgb("#b2dfdb"))
+      [Linear + tanh  $dot$ 5 (32 → #half-dim)], fill: rgb("#b2dfdb"))
     arrow-down(y-current + y-gap, y-current + box-height, x-off + box-width/2)
 
 
