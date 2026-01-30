@@ -16,7 +16,18 @@
 
 // Results
 #let auroc = 0.84
-#let aurocp = 84.2
+#let aurocp = 84.69
 #let auprc = 0.09
-#let auprcp = 9.3
+#let auprcp = 9.87
 
+#let rocpeak = 0.847
+#let prcpeak = 0.104
+
+#let rocepo =  255
+#let prcepo =  260
+#let selepo = 258
+#let stopepo = 290
+
+#let totalstart = 493
+#let totalendt = 82
+#let totalendv = 94

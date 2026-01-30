@@ -79,7 +79,9 @@ This ambiguity offers infinitely many mappings, while others might be more plaus
 Ultimately, when interpreting results, the variability in solutions should be acknowledged rather than treating a single trained model as definitive.
 Ensemble methods aggregating predictions from multiple initializations could improve robustness while quantifying this uncertainty.
 
-As discussed in @sec:problemdef, the #acr("DNM") faces inherent limitations: parameters like $beta$ (biological age) and $sigma$ (interaction strength between organ and immune system) do not correlate to any directly observable physiological quantity, the fully connected topology may not reflect actual organ interaction patterns, and individual oscillators do not correspond to specific biological processes.
+As discussed in @sec:problemdef, the #acr("DNM") faces inherent limitations.
+Parameters like $beta$ (biological age) and $sigma$ (interaction strength between organ and immune system) do not correlate to any directly observable physiological quantity.
+Furthermore, the fully connected topology may not reflect actual organ interaction patterns, and individual oscillators do not correspond to specific biological processes.
 Currently, the #acr("LDM") does not directly implement the #acr("DNM") dynamical system, since it does not solve the coupled differential equations at each time step.
 Instead, it learns to position patients in a parameter space abstracted from the #acr("DNM"), with the hope (encouraged by loss functions) that these positions correlate meaningfully with true physiological states.
 It is learning a projection from high-dimensional #acr("EHR") data into a two-dimensional space.
@@ -87,7 +89,8 @@ The desynchronization metric $s^1(bold(z))$ computed from these projected positi
 Experimental results provide some reassurance, the systematic correlation between latent position and #acr("SOFA") scores, the meaningful trajectory patterns in @fig:traj, and the competitive predictive performance all suggest the model has learned clinically relevant structure.
 However, direct mechanistic interpretability cannot be claimed, a more honest characterization might be "physiologically-motivated dimensionality reduction".
 
-Right now, the #acr("LDM") produces risk-scores $tilde(S)_t$ indicating sepsis likelihood, but they have not been calibrated to represent true probabilities of sepsis onset, meaning to move from plain distinction septic vs. non-septic to sensitive estimates, how critical patient states are.
+Right now, the #acr("LDM") produces risk-scores $tilde(S)_t$ indicating sepsis likelihood, but they have not been calibrated to represent true probabilities of sepsis onset.
+This means, the prediction has to move from plain distinction septic vs. non-septic to sensitive estimates, how critical patient states are compared to others.
 For clinical deployment, well-calibrated probabilities would be essential, which could be achieved with post-training calibration, like simple Platt- or Temperature scaling or more involved calibration techniques @guo2017calibration.
 As noted in @sec:sepwhy, traditional sepsis screening relies on reactive clinical scores like #acr("SOFA"), while automated prediction systems aim to identify patients before organ failure develops.
 However, as highlighted by the meta-analysis in @Alshaeba2025Effect, many alert systems fail to improve patient outcomes, often due to alert fatigue from excessive false positives.
@@ -96,7 +99,7 @@ However, as highlighted by the meta-analysis in @Alshaeba2025Effect, many alert 
 
 All experiments used #acr("MIMIC")-IV exclusively.
 While this enables direct comparison with #acr("YAIB") benchmarks, it limits generalizability claims.
-As noted in @sec:sota, applications trained on #acr("MIMIC") databases "are known to have limited generalization to other data sources and real-world settings" despite being "the default open-data resource for developing sepsis prediction systems."
+As noted in @sec:sota, applications trained on #acr("MIMIC") databases "are known to have limited generalization to other datasources and real-world settings" despite being "the default open-data resource for developing sepsis prediction systems."
 External validation on independent datasets is essential to assess whether learned representations transfer across settings, but are out of this scope for this proof-of-concept thesis.
 Some performance degradation on external data is expected, but the central question is whether the #acr("DNM")-structured latent space provides robust representations.
 If the latent space captures fundamental physiological principles rather than dataset-specific patterns, these representations should be more transferable.
@@ -108,7 +111,7 @@ Could this information used to deduce practical patient treatment?
 
 Furthermore, the encoder $g_theta_g^e$ uses sigmoid gates to weight input features.
 Analyzing learned gate weights could reveal, which features the model considers most informative for positioning patients in #acr("DNM") space, whether gating patterns differ between septic and non-septic patients or if gates encode any known clinical knowledge.
-Lastly quantitative analysis of latent trajectory curvature, velocity, and acceleration could give insights if these geometric properties correlate with clinical severity or outcomes
+Lastly quantitative analysis of latent trajectory curvature, velocity, and acceleration could give insights if these geometric properties correlate with clinical severity or outcomes.
 Such analyses would either strengthen confidence in the #acr("DNM")s clinical validity or reveal specific weaknesses requiring architectural modification.
 
 Current implementation uses a differential lookup methodology to retrieve the #acr("DNM") synchronization metrics.
@@ -119,7 +122,7 @@ This approach would come with a tremendous increase in computational cost, but i
 
 Current work focused on online prediction, where risk estimates update continuously as new measurements arrive.
 As noted in @sec:sota, offline prediction tasks, meaning predicting sepsis risk at a fixed observation time for a specified future horizon $T$, are also clinically relevant.
-Because of the #acr("LDM")s modularity, an extension to handle offline predictions is straightforward and would require minimal changes. 
+Because of the #acr("LDM")s modularity, an extension to handle offline predictions is straightforward and would require minimal changes.
 This would test whether learned latent dynamics capture sufficient structure to extrapolate forward in time, and whether #acr("DNM")-based trajectories provide better forecasting than purely data-driven alternatives.
 Training a model on both online- and offline-prediction might offer cross-benefits for both tasks.
 

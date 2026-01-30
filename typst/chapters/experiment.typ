@@ -218,16 +218,17 @@ $
 where $Phi(x)$ is the cumulative distribution function for Gaussian distribution.
 The final hidden state passes through another #acr("GELU")-activated layer before being projected into the two outputs $bold(h)_0$ and $bold(z)_0^"raw"$.
 The architecture is illustrated in panel *A* of @fig:ae, in total the encoder has $19,350$ parameter.
-The rollout module $g_(theta^r_g)$ performs latent space dynamics using a single #acr("GRU")-cell, with a hidden size of $H_g=8$, followed by the down projecting layer.
+The rollout module $g_(theta^r_g)$ performs latent space dynamics using a single #acr("GRU")-cell, with a hidden size of $H_g=4$, followed by the down projecting layer.
 This adds to $1,344$ parameter.
+Choosing a small hidden dimension $H_g$ simplifies post-hoc analysis of what information is carried inside hidden dimension, while still allowing for sufficient information preservation to steer the latent trajectory effectively.
+Though this analysis is out of the scope for this work and is not performed in this work.
 
 #figure(
   scale(ae_fig, 80%),
   caption: flex-caption(
   short: [Implementation of the latent encoder and decoder module.],
-  long: [*A* Shows the initial latent encoder $g_(theta^e_g)$ architecture with feature gating and residual connections. Dashed arrows indicate residual skip connections. *B* Shows the decoder $d_theta^d$ architecture, reconstructing only the features but not the imputation indicators. #todo[SHAPES]])
+  long: [*A* Shows the initial latent encoder $g_(theta^e_g)$ architecture with feature gating and residual connections. Dashed arrows indicate residual skip connections. *B* Shows the decoder $d_theta^d$ architecture, reconstructing only the features but not the imputation indicators.])
 ) <fig:ae>
-
 
 The decoder $d_theta_d$ is implemented as a four-layer feed-forward network that progressively up-samples from the latent representation back to the feature dimension, reconstructing only the features, not the imputation indicator.
 It uses #acr("GELU") activations between layers to introduce non-linearity.
@@ -237,7 +238,6 @@ The architecture is illustrated in panel *B* of @fig:ae, in total the decoder ha
 The cohort was partitioned at the patient level using a stratified split with a 80/10/10 ratio for training, validation, and test sets respectively, yielding $N=$50,740/6,343/6,342 samples.
 Splitting was stratified by sepsis status to maintain the 5.2% prevalence ratio across all sets.
 The test set was reserved for final evaluation only and was not involved in hyperparameter tuning.
-To address the strong imbalance between septic and non-septic samples, each training mini-batch of size $128$ was randomly over-sampled to contain 10% positive samples.
 
 Hyperparameters were manually tuned rather than automatically optimized for two key reasons.
 First, the loss function jointly optimizes prediction accuracy and latent space interpretability.
@@ -246,10 +246,14 @@ Second, exhaustive search over six loss components and 12 total tunable paramete
 The primary goal is to demonstrate feasibility and interpretability rather than achieving state-of-the-art performance.
 @tab:tparams lists full hyperparameter specifications and initial values for learnable parameters.
 
-All modules were jointly optimized using the AdamW-optimizer @loshchilov2019adamw.
+Notably, the weight for the #acr("SOFA") classification loss $cal(L)_"SOFA"$ is magnitudes larger than every other loss.
+Empirically, this has lead to the best results, and it is not uncommon for multitask optimizations that one loss outweighs others by multiple magnitudes @kendall2018uncertain.
+In the end the size of the loss-gradients matter, not the raw numerical values.
+
+All modules were jointly optimized using the AdamW-optimizer @loshchilov2019adamw with a mini-batch size of $128$.
 The first epoch serves as a warm-up phase where the learning rate increases linearly from $0.0$ to $5 times 10^(-5)$.
 Subsequently, a constant learning rate is maintained for all remaining epochs.
-For the optimizer configuration, a weight decay of $lambda = 1 times 10^(-4)$ is chosen, with momentum parameters $beta_1=0.9$, $beta_2=0.999$.
+For the optimizer configuration, a weight decay of $lambda = 1 times 10^(-1)$ is chosen, with momentum parameters $beta_1=0.9$, $beta_2=0.999$.
 #acr("DNM") latent space was quantized to a $60 times 100$ grid over $beta in [0.4pi, 0.7pi]$ and $sigma in [0.0,1.5]$, with differentiable lookup using a $3times 3$ neighborhood softmax interpolation ($K=9$).
 
 Training was carried out on a consumer laptop #acr("GPU") (NVIDIA RTX 500 Ada Generation with 4 GB of VRAM) on 32-bit floating-point precision.
@@ -271,12 +275,12 @@ To evaluate model performance against the held-out test set, the parameter confi
   table.cell(colspan: 4)[*Hyperparameter*],
   table.hline(stroke:.5pt),
     [$lambda_"sepsis"$],
-    [$100.0$],
+    [$600.0$],
     [Weight of $cal(L)_"sepsis"$],
     [@eq:loss],
     
     [$lambda_"sofa"$],
-    [$1 times 10^3$],
+    [$2 times 10^3$],
     [Weight of $cal(L)_"sofa"$],
     [@eq:loss],
     
@@ -342,8 +346,6 @@ caption: flex-caption(
   )
 ) <tab:tparams>
 
-#todo[justify large auxil weight, why H_g so small]
-
 == Results <sec:results>
 Following sections present the experimental results generated by training the #acr("LDM") on the #acr("MIMIC")-IV dataset.
 Details on the implementation and hyperparameters are specified in the previous two sections.
@@ -352,14 +354,13 @@ Here, the training progression is discussed in @sec:train_pro, quantitative resu
 === Training Progression <sec:train_pro>
 @fig:losses shows the progression of total loss $cal(L)_"total"$ and each loss component on both the training and validation set, as well as the metrics #acr("AUROC") and #acr("AUPRC") on the validation set.
 The total loss $cal(L)_"total"$ rapidly decreases in the first $10$ epochs in both the training and validation set, thereafter, declining more gradually.
-For the whole training time, the training and validation curves closely align, indicating stable multitask, showing no signs of overfitting.
-Total training loss decreases from $474$ to $79$, while the total validation loss reaches a slightly lower value of $78$.
+For the majority of training time, the curves closely align, indicating stable multitask, showing only slight signs of overfitting towards the end.
+Total training loss decreases from $totalstart$ to $totalendt$, while the total validation loss reaches a slightly higher value of $totalendv$.
 
-#TODO[Analyzing component losses $cal(L)_"sofa"$ and $cal(L)_"inf"$ provides further insight into the learning dynamics.
+Analyzing component losses $cal(L)_"sofa"$ and $cal(L)_"inf"$ does not provide much further insight into the learning dynamics.
 Both validation curves decrease rapidly and stabilize afterwards, indicating the respective modules quickly learn robust representation, namely the alignment of the latent space with organ dysfunction, as well as #acr("SI").
-
-The primary sepsis loss $cal(L)_"sepsis"$ decreases more gradually, reflecting the higher complexity of predicting the conjunction of infection and acute organ failure, but follows a stable downward trend on validation data, in contrast.]
-
+The $cal(L)_"inf"$ is also indirectly influenced by the sepsis-sample upsampling, causing a slightly worse training loss. 
+This behavior is also found in the primary sepsis loss $cal(L)_"sepsis"$, sharing the same dynamics of strong early decrease, followed by a stabilization phase.
 
 #figure(
   image("../images/losses.svg"),
@@ -369,20 +370,19 @@ The primary sepsis loss $cal(L)_"sepsis"$ decreases more gradually, reflecting t
   The plots illustrate stable multi-objective convergence, early alignment of infection $f_theta_f$ and #acr("SOFA") $g_theta_g$ submodules, and gradual refinement of the final sepsis risk prediction without signs of overfitting.])
 ) <fig:losses>
 
-Decoder reconstruction loss $cal(L)_"dec"$ exhibits an overall healthy learning progression, again decreasing early and followed by a complete stabilization.
-Here, a modest gap between training and validation, i.e. weak generalization, does not negatively affect predictive metrics and the loss can still fulfill main role as a structural regularizer of the latent space.
+Decoder reconstruction loss $cal(L)_"dec"$ exhibits an overall healthy learning progression, again decreasing early and followed by a complete stabilization, indicating that it is able to fulfill main role as a structural regularizer of the latent space.
 
 Spread loss $cal(L)_"spread"$ decreases gradually initially, preventing latent collapse, and later rises slightly, indicating a balanced trade-off between latent diversity and task alignment.
-Starting from $0.0$, since no latent points are close to the edges of the parameter space, $cal(L)_"boundary"$ starts increasing gradually over training, as the model carefully learns to approach the space boundaries.
+Starting from $0.0$, since no latent points are placed close to the edges of the parameter space, $cal(L)_"boundary"$ starts increasing gradually over training, as the model carefully learns to approach the space boundaries.
 
 By optimizing these losses, the model improves at predicting the sepsis label from #acr("EHR") histories.
-Quantitatively, #acr("AUROC") rises from near random performance (0.5) to $0.84$, with most gains occurring in the first third of training, followed by smaller but consistent improvements.
-Similarly, #acr("AUPRC") increases monotonically, which is particularly relevant given the strong class imbalance.
-Absence of any late-stage decline in these metrics suggests that the model continues refining clinically meaningful discrimination rather than memorizing training data.
+Quantitatively, validation #acr("AUROC") rises from near random performance (0.5) to $rocpeak$, with most gains occurring in the first third of training, followed by smaller but consistent improvements.
+Similarly, validation #acr("AUPRC") increases monotonically, which is particularly relevant given the strong class imbalance.
+Absence of any significant late-stage decline in these metrics suggests that the model continues refining clinically meaningful discrimination rather than memorizing training data, though both slightly deacrease after peaking.
 
 === Quantitative Results <sec:quant>
 
-This training run was early-stopped after $217$ epochs, with $174$ being the selected epoch, from validation #acr("AUROC") peak at epoch $160$ with value $0.838$ and #acr("AUPRC") peak at epoch $187$ with value $0.096$  .
+This training run was early-stopped after $stopepo$ epochs, with $selepo$ being the selected epoch, from validation #acr("AUROC") peak at epoch $rocepo$ with value $rocpeak$ and #acr("AUPRC") peak at epoch $prcepo$ with value $prcpeak$.
 Evaluating the model on the held-out test set, complete curves of the ROC and precision-recall curves are shown in @fig:areas by sweeping the decision threshold $tau$ from @eq:detect.
 Here, the ROC curve exhibits an expected shape, bending toward the top-left corner and away from the chance level curve shown as the dashed line.
 An #acr("AUROC") of $auroc$ tells us that the model will assign ground truth sepsis patients a higher risk $tilde(S)_t$ than non-septic patients in $aurocp%$ of the time.
@@ -400,8 +400,9 @@ On average, when model predicts a positive label, it is correct only $auprcp%$ o
 
 To put these results into perspective, @tab:comp compares the #acr("LDM") performance to baseline models trained in #acr("YAIB") @yaib on the same task, data-source, cohort definition and train-test split.
 The baseline models include include classical #acr("ML") and #acr("DL") approaches, with hyperparameters tuned via Bayesian optimization, 30 iterations for #acr("ML") models, 50 for #acr("DL") models.
-The #acr("LDM") slightly outperforms all baselines in both metrics.
+The #acr("LDM") outperforms all baselines in both metrics.
 
+#pagebreak()
 #figure(
   table(
   columns: 3,
@@ -467,11 +468,10 @@ The model captures this concentration as well as the spread toward positive and 
 Yet there remains some weight where the ground truth increases but the model predicts a decrease, and vice versa.
 
 Density values of prediction $tilde(I)_t$ vs. ground truth $I_t$ show a mild separation between low and high infection probabilities.
-It is highly concentrated around non-infectious ground-truth values, but one can see a staircase pattern starting from correct non-infectious, leading up to infectious predictions.
+It is highly concentrated around non-infectious ground-truth values, but one can see a staircase pattern starting from correct non-infectious, leading up to to correct infectious predictions.
 Together, these results indicate that the models internal representations align well with the clinical variables that define sepsis.
 Prediction densities are not shown for the sepsis label $S_t$ since the strong imbalance renders this visualization uninformative even with log scaling.
  
-
 #figure(
   image("../images/heat.svg"),
   caption: flex-caption(
@@ -485,8 +485,8 @@ Prediction densities are not shown for the sepsis label $S_t$ since the strong i
 
 This section investigates, whether the models is able to create plausible patient trajectories inside #acr("DNM") parameter space.
 First of all, in panel *A* of @fig:heat_space shows predicted sample density of $bold(z)$ layered over the latent space, where both the smooth low-desynchronized between $beta$ values $0.4$ and $0.5$ and the more dynamic highly-desynchronized area between $beta$ values $0.4$ and $1.0$ are occupied.
-The lower half of the latent space is completely unused.
-The distribution strongly centers around the point $bold(z)_"center" approx (beta=0.58, sigma=1.00)$, from there, individual trajectories spread out into all directions, mostly ending up in the low-desynchronized.
+The lower-right part of the latent space is completely unused.
+The distribution strongly centers around the point $bold(z)_"center" approx (beta=0.58, sigma=0.98)$, from there, individual trajectories spread out into all directions, mostly ending up in the low-desynchronized.
 
 In panel *B*, the predicted latent positions colored by the ground truth #acr("SOFA")-scores are layered over the latent space.
 Since brighter colors for predicted $s^1(bold(z))$ and ground truth correspond to higher desynchronization values, and therefore a more pathologic state of the organ system, ideally the gradients perfectly match.
@@ -508,22 +508,24 @@ These hand-picked examples illustrate possible physiological progressions and ho
 The figure includes Patient 1 indicated by cyan, Patient 2 by purple and Patient 3 by pink colors.
 Their predicted and ground truth #acr("SOFA")-score evolution is shown on the right side of the figure, with the left side showing corresponding latent trajectories colored by the ground truth values.
 
-Patient 1 has at #acr("ICU") admission $t=0$ a relatively low #acr("SOFA")-score of 2 but the organ system quickly deteriorates and the score increases to a final value of 17.
-In the beginning, the prediction strongly overestimates the severity of Patient 1's condition, yet it picks up the trend of deterioration and arrives at the same final value.
-This mirrors in the latent space, where the points clearly move from darker background-colors (more synchronization, better organ functionality) to brighter ones (less synchronization, worse organ functionality).
+Patient 1 has at #acr("ICU") admission $t=0$ a relatively low #acr("SOFA")-score of 12, and the organ system deteriorates further and the score increases to value of 18 and settles down at a final value of 17.
+In the beginning, the prediction strongly underestimates the severity of Patient 1's condition by a value of 10, yet it picks up the trend of deterioration, but overshoots and arrives at a #acr("SOFA")-score of 20.
+This progression is mirrors in the latent space, where the points clearly move from darker background-colors (more synchronization, better organ functionality) to brighter ones (less synchronization, worse organ functionality).
 
-Patient 2 arrives in the #acr("ICU") with a similarly low #acr("SOFA") score of 2 followed by a steep increase and a subsequent recovery after roughly 36 hours.
-Again the model is able to detect the trend, even though not the full magnitude, and is able to match increase and decrease timings better.
-This is reflected visually by the trajectory in the latent space, where it starts by moving towards the brighter region to the right but starts to rotate back into the darker region.
+Patient 2 illustrates a recovery trajectory.
+Arriving with a #acr("SOFA") score of 1, the patient experiences a brief deterioration to a score of 7 before recovering to a score of 2, approximately around 26 hours post-admission. 
+The model tracks this directional change, though with imprecise magnitude estimates.
+In latent space, the trajectory initially moves toward the brighter right region, then rotates back into the darker zone as recovery progresses.
+Notably, while predicted #acr("SOFA") scores do not fully align with ground truth values toward the end, the trajectory's rotational pattern clearly indicates recovery, the model captures the qualitative shift even when quantitative predictions deviate.
 
-Similarly, Patient 3 arrives with a initial #acr("SOFA")-score of 3, which increases to 4 over one day and returns to the baseline value, the prediction does not detect the slight increase and stays at 3 for the whole time.
-The latent trajectory of Patient 3 shortly moves towards the brighter region for the first few steps, but the corresponding prediction value does not increase.
-After taking a sharp turn orthogonal to the bright region the trajectory keeps slowly bending away into the darker part.
-Even though the prediction value does not indicate the small increase, the latent trajectory provides a visual hint.
+Similarly, Patient 3 arrives with an initial #acr("SOFA")-score of 0, which increases shortly to 1 over two days and returns to the baseline value 0, after 6 days the #acr("SOFA") score peaks for a few hours.
+The prediction does not detect the slight increase and stays at its initial value of 2 for the first day before decreasing to 1 and down to 0 after two more days.
+Initially, the latent trajectory of Patient 3  moves parallel to the brighter region, followed by a turn away into the darker region, predicting a healthy progression, the small peak is not picked up anymore.
 
 Overall these three exemplary patients show that the model can capture diverse physiological trajectories within the #acr("DNM") parameter space.
 While the magnitude of predicted #acr("SOFA")-scores sometimes deviates from ground truth, the model consistently captures directional trends, like deterioration, recovery, and stability, through meaningful movement in latent space.
 Correspondence between trajectory direction and organ dysfunction severity suggests the model has learned clinically relevant representations that map physiological states to interpretable #acr("DNM") parameters.
+
 However, it should be noted that these hand-picked examples demonstrate typical model behavior, though performance varies across patients.
 Some trajectories show better alignment with clinical progression, while others exhibit larger deviations from ground truth, this is somewhat reflected by the deviations in @fig:heat and heterogeneity of trajectories in panel *B* in @fig:heat_space. 
 

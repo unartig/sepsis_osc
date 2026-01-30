@@ -88,8 +88,8 @@ Thus, the overall prediction requires two separate risk estimators:
 $
   tilde(A)_t approx Pr(A_t|bold(mu)_(0:t)) " and " tilde(I)_t approx overline(I)_t
 $
-Both $tilde(A)_t in (0, 1)$ and $tilde(I)_t in (0, 1)$ are heuristic risk scores serving as approximations for the real event probabilities and the surrogate infection risk score.
-The original prediction target has been converted from a calibrated probability to a _heuristic risk score_ $tilde(S)_t$:
+Where $tilde(A)_t in (0, 1)$ will be implemented as a heuristic risk scores, to conform differentiability, serving as approximation for the real event probabilities.
+Due to this implementation, the original prediction target has been converted from a calibrated probability to a _heuristic risk score_ $tilde(S)_t$:
 
 $
  Pr(S_(t)|bold(mu)_(0:t)) approx tilde(S)_t := tilde(A)_t tilde(I)_t
@@ -99,7 +99,7 @@ It is important to note that $tilde(S)$ is *not a calibrated probability* but a 
 Larger values of $tilde(S)_t$ correspond to higher expected risk of sepsis outbreak.
 
 === From EHR to Risk Scores
-The high-dimensional #acr("EHR") history $bold(mu)_(0:t)$ must now be condensed into these two clinically motivated statistics $tilde(A)_t$ and $tilde(I)_t$. 
+The high-dimensional #acr("EHR") history $bold(mu)_(0:t)$ must now be condensed into these two clinically motivated statistics $tilde(A)_t$ and $tilde(I)_t$.
 The #acr("LDM") architecture implements two learned mappings:
 
 *Infection risk estimation*: A data-driven module directly estimates infection risk from the #acr("EHR") history:
@@ -128,7 +128,8 @@ $
 "sigmoid"(x)=1/(1+e^(-x))
 $
 yields a monotonic indicator (larger #acr("SOFA") increase $->$ more likely organ failure) while still being differentiable.
-#TODO[0.5 baseline might be problematic]
+The reason $tilde(A)_t$ is not a probability is caused by the sigmoid baseline of 0.5 when $hat(O)_t - hat(O)_(t-1) = d$, not when $Pr(A_t | bold(mu)_(0:t)) = 0.5$, making it an arbitrary monotonic transformation rather than a calibrated probability.
+This is fine for deep learning because gradient-based optimization only requires differentiability and monotonicity—the model learns to make $tilde(A)_t$ a useful risk indicator through end-to-end training on actual sepsis outcomes.
 
 == Architecture <sec:arch>
 The previous subsection explained how the sepsis onset target even $S_t$ can be decomposed into the conjunction of suspected infection indication $I_t$ and organ failure event $A_t$ that itself can be calculated from two consecutive #acr("SOFA")-scores $O_(t-1:t)$.

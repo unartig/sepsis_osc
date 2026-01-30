@@ -486,12 +486,18 @@ Specifically, can the abstract parameters ($beta$, $sigma$) that govern the mode
 And if so, does incorporating this physics-inspired structure provide advantages over purely data-driven approaches?
 
 To summarize, the specific research questions include:
-#(
-  list(
-    [*Usability of the #acr("DNM")*: How and to what extent can the #acr("ML")-determined trajectories of the #acr("DNM") be used for detection and prediction, especially of critical infection states.],
-    [*Comparison with data-based approaches*: How can the model-based predictions be compared with those of purely data-based approaches in terms of predictive power.],
-  )
-)
+#quote(block: true)[
+  _*1) Usability of the #acr("DNM")*: How and to what extent can #acr("ML")-determined trajectories of the #acr("DNM") be used for detection and prediction, especially of critical infection states?_
+
+  _*2) Comparison with data-based approaches*: How can the model-based predictions be compared with those of purely data-based approaches in terms of predictive power?_
+]
+
+// #(
+//   list(
+//     [*Usability of the #acr("DNM")*: How and to what extent can the #acr("ML")-determined trajectories of the #acr("DNM") be used for detection and prediction, especially of critical infection states.],
+//     [*Comparison with data-based approaches*: How can the model-based predictions be compared with those of purely data-based approaches in terms of predictive power.],
+//   )
+// )
 
 The first question directly addresses the parameter interpretability problem.
 If $beta$ and $sigma$ cannot be reliably inferred from clinical observations, or if inferred values lack predictive power for outcomes, the models clinical relevance remains speculative.
