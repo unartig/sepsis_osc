@@ -8,12 +8,12 @@ import numpy as np
 import polars as pl
 from icu_benchmarks.constants import RunMode
 from icu_benchmarks.data.loader import PredictionPolarsDataset
-from icu_benchmarks.data.preprocessor import PolarsRegressionPreprocessor
+from icu_benchmarks.data.preprocessor import PolarsClassificationPreprocessor
 from icu_benchmarks.data.split_process_data import preprocess_data
 from tqdm import trange
 
 from sepsis_osc.ldm.gin_configs import file_names, modality_mapping, new_vars
-from sepsis_osc.utils.config import cohort_name, np_rng, sequence_files, target_name, yaib_data_dir
+from sepsis_osc.utils.config import cohort_name, np_rng, random_seed, sequence_files, target_name, yaib_data_dir
 from sepsis_osc.utils.logger import setup_logging
 
 logger = logging.getLogger(__name__)
@@ -35,18 +35,20 @@ def get_raw_data(
     """
     yaib_vars = copy.deepcopy(yaib_vars)
     yaib_vars["LABEL"][0] = target_name
+    # NOTE: this uses a forked version of YAIB,
+    # the default version does not allow to specify train_size when complete_train=True
     logger.info(f"Searching for sequence_files in {_data_dir}")
     data = preprocess_data(
         data_dir=_data_dir,
         file_names=file_names,
-        preprocessor=PolarsRegressionPreprocessor,
-        seed=666,
+        preprocessor=PolarsClassificationPreprocessor,
+        seed=random_seed,
         debug=False,
         generate_cache=True,
-        load_cache=True,
+        load_cache=False,
         cv_repetitions=2,
         repetition_index=0,
-        train_size=0.75,
+        train_size=0.8,
         cv_folds=2,
         fold_index=0,
         pretrained_imputation_model=None,
@@ -180,6 +182,7 @@ def get_data_sets_offline(
 
 def _get_all(data: PredictionPolarsDataset) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     xl, yl, ml = [], [], []
+    print(data.num_stays)
     for i in trange(data.num_stays):
         xs, ys, ms = data[i]
         xl.append(xs)
@@ -189,7 +192,11 @@ def _get_all(data: PredictionPolarsDataset) -> tuple[np.ndarray, np.ndarray, np.
 
 
 def get_data_sets_online(
-    dtype: jnp.dtype = jnp.float32, swapaxes_y: tuple[int, int, int] = (0, 1, 2), *, use_yaib_label: bool = True
+    dtype: jnp.dtype = jnp.float32,
+    swapaxes_y: tuple[int, int, int] = (0, 1, 2),
+    *,
+    use_yaib_label: bool = True,
+    path_prefix: str = "",
 ) -> tuple[np.ndarray, ...]:
     """
     Loads datasets specifically formatted for online prediction tasks.
@@ -197,9 +204,10 @@ def get_data_sets_online(
     Similar to `get_data_sets_offline`, but includes mask arrays to handle padding.
     """
     file_name = f"{'yaib_' if use_yaib_label else ''}{cohort_name}_detection"
-    if Path(sequence_files + f"{file_name}.npz").exists():
+    file_path = Path(sequence_files + f"{file_name}.npz")
+    if (Path(path_prefix) / file_path).exists():
         logger.info("Processed sequence files found. Loading data from disk...")
-        loaded = np.load(sequence_files + f"{file_name}.npz")
+        loaded = np.load((Path(path_prefix) / file_path).as_posix())
         train_x, train_y, train_m = loaded["train_x"], loaded["train_y"], loaded["train_m"]
         val_x, val_y, val_m = loaded["val_x"], loaded["val_y"], loaded["val_m"]
         test_x, test_y, test_m = loaded["test_x"], loaded["test_y"], loaded["test_m"]
@@ -209,7 +217,7 @@ def get_data_sets_online(
         detect_vars = copy.deepcopy(vars_copy)
         label = "yaib_label" if use_yaib_label else target_name
         detect_vars["LABEL"] = [label, "sofa", "susp_inf_ramp"]
-        data = get_raw_data(yaib_vars=detect_vars)
+        data = get_raw_data(yaib_vars=detect_vars, _data_dir=Path(path_prefix) / yaib_data_dir)
         (
             train_x,
             train_y,
@@ -218,21 +226,27 @@ def get_data_sets_online(
             PredictionPolarsDataset(data, split="train", vars=detect_vars, ram_cache=False, name=f"{cohort_name}_train")
         )
         (
-            val_x,
-            val_y,
-            val_m,
+            val_test_x,
+            val_test_y,
+            val_test_m,
         ) = _get_all(
             PredictionPolarsDataset(data, split="val", vars=detect_vars, ram_cache=False, name=f"{cohort_name}_val")
         )
-        (
-            test_x,
-            test_y,
-            test_m,
-        ) = _get_all(
-            PredictionPolarsDataset(data, split="test", vars=detect_vars, ram_cache=False, name=f"{cohort_name}_test")
-        )
+        # YAIB train_complete does only create train and val, so we split ourselves
+
+        labels = (val_test_y.max(axis=1) == 1.0)[:, 2]
+        idx = np_rng.permutation(len(labels))
+        sorted_idx = idx[np.argsort(labels[idx], kind="stable")]
+        val_idx = sorted_idx[::2]
+        test_idx = sorted_idx[1::2]
+
+        val_x, test_x = val_test_x[val_idx], val_test_x[test_idx]
+        val_y, test_y = val_test_y[val_idx], val_test_y[test_idx]
+        val_m, test_m = val_test_m[val_idx], val_test_m[test_idx]
+
+        print(train_x.shape, val_x.shape, test_x.shape)
         np.savez_compressed(
-            sequence_files + f"{file_name}",
+            (Path(path_prefix) / Path(sequence_files + f"{file_name}")),
             train_x=train_x,
             train_y=train_y,
             train_m=train_m,
