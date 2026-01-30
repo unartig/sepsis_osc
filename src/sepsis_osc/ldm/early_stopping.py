@@ -29,7 +29,7 @@ class EarlyStopping:
         returns True if the stopping criteria are met (bad_steps > patience), False otherwise.
         """
         if self.stopped:
-            return False
+            return True
 
         self.steps += 1
         if self.steps < self.min_steps:
