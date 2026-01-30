@@ -108,8 +108,8 @@ class LieDynamicNetworkModel(DynamicNetworkModel):
         super().__init__(**kwargs)
 
     @staticmethod
-    @jaxtyped(typechecker=typechecker)
     @eqx.filter_jit
+    @jaxtyped(typechecker=typechecker)
     def system_deriv(
         _t: ScalarLike,
         y: DNMState,
