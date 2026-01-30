@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 
 class LatentEncoder(eqx.Module):
     # Layers
-    attn_z: eqx.nn.Linear
+    gating: eqx.nn.Linear
     norm1: eqx.nn.LayerNorm
     linear1: eqx.nn.Linear
     norm2: eqx.nn.LayerNorm
@@ -44,7 +44,7 @@ class LatentEncoder(eqx.Module):
         self.latent_pred_hidden = latent_pred_hidden
 
         # Gating
-        self.attn_z = eqx.nn.Linear(input_dim // 2, input_dim // 2, key=key_attnz, dtype=dtype, use_bias=False)
+        self.gating = eqx.nn.Linear(input_dim // 2, input_dim // 2, key=key_attnz, dtype=dtype, use_bias=False)
         self.norm1 = eqx.nn.LayerNorm(input_dim, dtype=dtype)
         self.linear1 = eqx.nn.Linear(input_dim, latent_enc_hidden, key=key_linz, dtype=dtype)
         self.norm2 = eqx.nn.LayerNorm(latent_enc_hidden, dtype=dtype)
@@ -70,8 +70,8 @@ class LatentEncoder(eqx.Module):
         x_val = x[:half]
         x_mask = x[half:]
 
-        # attention only on real-valued features
-        weights = jax.nn.sigmoid(self.attn_z(x_val))
+        # gating only on real-valued features
+        weights = jax.nn.sigmoid(self.gating(x_val))
         x_gate = x_val * weights
 
         x_gated = jnp.concat([x_gate, x_mask])
@@ -109,10 +109,13 @@ class Decoder(eqx.Module):
         self.dec_hidden = dec_hidden
         self.layers = [
             eqx.nn.Linear(in_features=z_latent_dim, out_features=16, key=key1, dtype=dtype),
+            eqx.nn.LayerNorm(16),
             jax.nn.gelu,
             eqx.nn.Linear(in_features=16, out_features=32, key=key2, dtype=dtype),
+            eqx.nn.LayerNorm(32),
             jax.nn.gelu,
             eqx.nn.Linear(in_features=32, out_features=dec_hidden, key=key3, dtype=dtype),
+            eqx.nn.LayerNorm(dec_hidden),
             jax.nn.gelu,
             eqx.nn.Linear(in_features=dec_hidden, out_features=input_dim, key=key4, dtype=dtype),
         ]
@@ -125,5 +128,5 @@ class Decoder(eqx.Module):
     def __call__(self, z: Float[Array, " latent_dim"]) -> Float[Array, " input_dim"]:
         for layer in self.layers:
             z = layer(z)
-        return z
+        return jax.nn.tanh(z) * 5
 
