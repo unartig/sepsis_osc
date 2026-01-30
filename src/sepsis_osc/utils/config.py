@@ -25,28 +25,23 @@ log_file = "sepsis.log"
 
 sequence_files = "data/sequence_"
 
-# DAISY 1
-# ALPHA_SPACE = (-1.0, 1.0, 0.04)
-# BETA_SPACE = (0.2, 1.0, 0.02)
-# SIGMA_SPACE = (0.0, 1.5, 0.04)
-
-ALPHA_SPACE = (-0.28 -0.001, -0.28 + 0.001, 0.001)  # only original slice
+ALPHA_SPACE = (-0.28 - 0.001, -0.28 + 0.001, 0.001)  # only original slice
 ALPHA = -0.28
-BETA_SPACE = (0.4, 0.7, 0.01)  # only original area
-# BETA_SPACE = (0.0, 1.0, 0.01)
-# SIGMA_SPACE = (0.0, 1.5, 0.01)
+BETA_SPACE = (0.4, 0.7, 0.005)
 SIGMA_SPACE = (0.0, 1.5, 0.015)  # only original area
 
-# DAISY 2
-# ALPHA_SPACE = (-0.84, 0.84+0.28, 0.28)  # full with mirror
-# ALPHA_SPACE = (-0.84, -0.84+3*0.28, 0.28)  # only negative slice
-# BETA_SPACE = (0.0, 1.0, 0.01)
-# SIGMA_SPACE = (0.0, 1.5, 0.015)
+# PLT config
+SMALL_SIZE = 10
+MEDIUM_SIZE = 12
+BIGGER_SIZE = 14
 
-# DAISY HALF
-# BETA_SPACE = (0.4, 0.7, 0.01 * 2)
-# SIGMA_SPACE = (0.0, 1.5, 0.015 * 2)
-
-# FINAL
-# BETA_SPACE = (0.4, 0.7, 0.003)
-# SIGMA_SPACE = (0.0, 1.5, 0.015)  # only original area
+plt_params = {
+    "figure.figsize": (10, 4),  # inches
+    "font.size": SMALL_SIZE,
+    "axes.titlesize": BIGGER_SIZE,
+    "axes.labelsize": MEDIUM_SIZE,
+    "xtick.labelsize": SMALL_SIZE,
+    "ytick.labelsize": SMALL_SIZE,
+    "legend.fontsize": SMALL_SIZE,
+    "figure.dpi": 100,
+}
