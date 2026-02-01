@@ -174,19 +174,23 @@ Most patients in both groups were white (63.6% overall) and had medical admissio
   [458 (13.8)],
   [14742 (24.5)],
 ),
-caption: flex-caption(short: [Characteristics and demographics of the cohort], long: [Characteristics and demographics of the cohort. Numerical variables are summarized by _median [IQR 25 - 75]_ and numerical variables by incidence (%)])
+caption: flex-caption(short: [Characteristics and demographics of the cohort], long: [Characteristics and demographics of the cohort.
+Numerical variables are summarized by _median [IQR 25 - 75]_ and numerical variables by incidence (%)])
 ) <tab:cohort>
 
-==== Feature Choice
+==== Feature Choice and Labeling
 To enable direct result comparisons with @yaib benchmark, their feature set is adopted, which has been derived in collaboration with clinical experts and includes only widely available clinical markers.
 Each patient in the final cohort has 52 input-features, with four static variables (age, height, and weight at admission as well as sex) and 48 dynamic time-series variables.
 Dynamic variables combine seven vital signs and 39 laboratory tests, and two additional measurements (fraction of inspired oxygen and urine output).
 @tab:concepts provides a complete listing of all features with their value ranges, units of measurement and clinical descriptions.
-Target variables additionally include #acr("SOFA")-score, a #acr("SI") label, in contrast to #acr("YAIB") where only the Sepsis-3 label is used (see @sec:formal).
+
+Primary prediction target is to detect the sepsis onset time within six hours.
+This means, that the positive label for a Sepsis-3 onset is stretched for six the hours preceding and proceeding the actual onset, creating a time window of 12 hours.
+For this work, the target variables additionally include #acr("SOFA")-score, a #acr("SI") label, in contrast to #acr("YAIB") where only the Sepsis-3 label is used (see @sec:formal).
 
 ==== Preprocessing
 Data preprocessing involves three main steps: scaling, sampling, and imputation of features.
-Theses steps were again adopted from #acr("YAIB").
+These steps were again adopted from #acr("YAIB").
 All numerical features were standardized to zero mean and unit variance, while categorical and binary features remained left unchanged.
 To prevent data leakage, all normalization statistics were computed exclusively from the training split and applied to all partitions.
 
@@ -216,8 +220,8 @@ $
   "GELU"(x) = x Phi(x)
 $
 where $Phi(x)$ is the cumulative distribution function for Gaussian distribution.
-The final hidden state passes through another #acr("GELU")-activated layer before being projected into the two outputs $bold(h)_0$ and $bold(z)_0^"raw"$.
-The architecture is illustrated in panel *A* of @fig:ae, in total the encoder has $19,350$ parameter.
+Finally, the final hidden state passes through another #acr("GELU")-activated layer before being projected into the two outputs $bold(h)_0$ and $bold(z)_0^"raw"$.
+In panel *A* of @fig:ae, the architecture is illustrated, in total the encoder has $19,350$ parameter.
 The rollout module $g_(theta^r_g)$ performs latent space dynamics using a single #acr("GRU")-cell, with a hidden size of $H_g=4$, followed by the down projecting layer.
 This adds to $1,344$ parameter.
 Choosing a small hidden dimension $H_g$ simplifies post-hoc analysis of what information is carried inside hidden dimension, while still allowing for sufficient information preservation to steer the latent trajectory effectively.
@@ -231,8 +235,8 @@ Though this analysis is out of the scope for this work and is not performed in t
 ) <fig:ae>
 
 The decoder $d_theta_d$ is implemented as a four-layer feed-forward network that progressively up-samples from the latent representation back to the feature dimension, reconstructing only the features, not the imputation indicator.
-It uses #acr("GELU") activations between layers to introduce non-linearity.
-The architecture is illustrated in panel *B* of @fig:ae, in total the decoder has $3,524$ parameter.
+It uses #acr("GELU") activations between layers to introduce non-linearity, and a final $"tanh"$ activation and scaling by a factor of 5 on the output to structure it according to the normalized input data with mean zero and unit variance.
+The architecture is illustrated in panel *B* of @fig:ae, in total the decoder has $3,524$ learnable parameter.
 
 === Training Details <sec:train>
 The cohort was partitioned at the patient level using a stratified split with a 80/10/10 ratio for training, validation, and test sets respectively, yielding $N=$50,740/6,343/6,342 samples.
@@ -378,7 +382,7 @@ Starting from $0.0$, since no latent points are placed close to the edges of the
 By optimizing these losses, the model improves at predicting the sepsis label from #acr("EHR") histories.
 Quantitatively, validation #acr("AUROC") rises from near random performance (0.5) to $rocpeak$, with most gains occurring in the first third of training, followed by smaller but consistent improvements.
 Similarly, validation #acr("AUPRC") increases monotonically, which is particularly relevant given the strong class imbalance.
-Absence of any significant late-stage decline in these metrics suggests that the model continues refining clinically meaningful discrimination rather than memorizing training data, though both slightly deacrease after peaking.
+Absence of any significant late-stage decline in these metrics suggests that the model continues refining clinically meaningful discrimination rather than memorizing training data, though both slightly decrease after peaking.
 
 === Quantitative Results <sec:quant>
 

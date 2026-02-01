@@ -326,11 +326,26 @@
   // Use smallcaps for table header row.
   show table.cell.where(y: 0): smallcaps
 
+  // level 1 headings to Chapter
+  show ref: it => {
+    let el = it.element
+    if el != none and el.func() == heading and el.level == 1 {
+      link(
+        it.target, 
+        [Chapter #numbering(
+          el.numbering,
+          ..counter(heading).at(el.location())
+        )]
+      )
+    } else {
+      it
+    }
+  }
 
   // Wrap `body` in curly braces so that it has its own context. This way show/set rules
   // will only apply to body.
   // Configure heading numbering.
-  set heading(numbering: "1.1.")
+  set heading(numbering: "1.1")
   {
     show heading.where(level: 1): it => {
       // reset counter numbers
