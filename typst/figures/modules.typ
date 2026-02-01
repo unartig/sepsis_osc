@@ -1,6 +1,7 @@
 #import "@preview/cetz:0.4.2": canvas, draw, tree
 #import "helper.typ": cmbeta, cmsigma
 
+#set page(width: auto, height: auto, margin: 8pt, fill: none)
 // Infection Indicator Module
 #let inf_fig = canvas({
     import draw: *
@@ -61,7 +62,7 @@
 
     let dh = 0.3
     rect((-5, 2), (-3, 2.8), name: "ehr0", stroke: 2pt + blue)
-    content("ehr0.center", [EHR $bold(mu)_0$])
+    content("ehr0.center", [EHR $bold(mu)_1$])
     
     rect((-5.2, 0.5), (-2.8, 1.5), name: "enc", stroke: 2pt + sofa_c, fill: sofa_c.lighten(90%))
     content("enc.center", [Encoder $g^e_theta^e_g$])
@@ -69,10 +70,10 @@
     line("ehr0.south", "enc.north", mark: (end: ">"), stroke: 1pt)
     
     rect((-5, -1.75), (-3, -1.15), name: "z0", stroke: 2pt + red)
-    content("z0.center", [$hat(bold(z))^"raw"_0 in RR^2$])
+    content("z0.center", [$hat(bold(z))^"raw"_1 in RR^2$])
     
     rect((rel: (0, dh), to: (-2.1, 0.65)), (rel: (0, dh), to: (-0.25, 1.35)), name: "h0", stroke: 1pt + gray)
-    content("h0.center", [$bold(h)^g_0 in RR^(H_g)$])
+    content("h0.center", [$bold(h)^g_1 in RR^(H_g)$])
     
     line("enc.south", "z0.north", mark: (end: ">"), stroke: 1pt)
     line((rel: (0, dh), to: "enc.east"), "h0.west", mark: (end: ">"), stroke: 1pt + gray)
@@ -82,11 +83,11 @@
     line("h0.east", (rel: (0, dh), to: "rnn0.west"), stroke: 1pt +  gray, mark: (end: ">"))
     
     rect((1, 2), (3, 2.8), name: "ehr1", stroke: 2pt + blue)
-    content("ehr1.center", [EHR $bold(mu)_1$])
+    content("ehr1.center", [EHR $bold(mu)_2$])
     line("ehr1.south", "rnn0.north", mark: (end: ">"), stroke: 1pt)
     
     rect((rel: (0, dh), to: (4.2, 0.65)), (rel: (0, dh), to: (5.95, 1.35)), name: "h1", stroke: 1pt + gray)
-    content("h1.center", [$bold(h)^g_1$])
+    content("h1.center", [$bold(h)^g_2$])
     line((rel: (0, dh), to:"rnn0.east"), "h1.west", mark: (end: ">"), stroke: 1pt + gray)
 
 
@@ -94,10 +95,10 @@
     bezier((rel: (1, 0), to: "z0.east"), (rel: (0, -dh), to: "rnn0.west"), (-2, 1), mark: (end: ">"), stroke: 1pt)
     
     rect((1, -0.125), (3, -0.625), name: "dz", stroke: 2pt + orange)
-    content("dz.center", [$Delta hat(bold(z))^"raw"_t$])
+    content("dz.center", [$Delta hat(bold(z))^"raw"_2$])
     
     rect((3, -1.75), (5, -1.25), name: "z1", stroke: 2pt + red)
-    content("z1.center", [$hat(bold(z))^"raw"_1$])
+    content("z1.center", [$hat(bold(z))^"raw"_2$])
     
     line("rnn0.south", "dz.north", mark: (end: ">"), stroke: 1pt)
     
@@ -113,13 +114,13 @@
     content("rnn1.center", text(fill: gray.darken(20%))[RNN $g^r_theta^r_g$])
     
     rect((7, 2), (9, 2.8), name: "ehr2", stroke: (paint: blue.lighten(1%), dash: "dotted"), fill: blue.lighten(95%))
-    content("ehr2.center", text(fill: gray.darken(20%))[EHR $bold(mu)_2$])
+    content("ehr2.center", text(fill: gray.darken(20%))[EHR $bold(mu)_t$])
     line("ehr2.south", "rnn1.north", mark: (end: ">"), stroke: (paint: gray.lighten(1%), dash: "dotted"))
     
     line("rnn1.east", (10, 1.0), mark: (end: ">"), stroke: (paint: gray.lighten(1%), dash: "dotted"))
     
     rect((7, -0.125), (9, -0.625), name: "dz2", stroke: (paint: orange.lighten(1%), dash: "dotted"))
-    content("dz2.center", text(fill: gray.darken(20%))[$Delta hat(bold(z))^"raw"_2$])
+    content("dz2.center", text(fill: gray.darken(20%))[$Delta hat(bold(z))^"raw"_t$])
     
     line("rnn1.south", "dz2.north", mark: (end: ">"), stroke: (paint: gray.lighten(1%), dash: "dotted"))
     
@@ -221,3 +222,5 @@
     line("iout.south", (rel: (-1.25, 0), to:"risk.west"), "risk.west", mark: (end: ">"), stroke: 1pt)
     line("aout.south", (rel: (0.75, 0), to:"risk.east"), "risk.east", mark: (end: ">"), stroke: 1pt)
   })
+
+#figure(ldm_fig)
