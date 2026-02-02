@@ -15,9 +15,9 @@
 
 
 // Results
-#let auroc = 0.84
+#let auroc = 0.8469
 #let aurocp = 84.69
-#let auprc = 0.09
+#let auprc = 0.0987
 #let auprcp = 9.87
 
 #let rocpeak = 0.847

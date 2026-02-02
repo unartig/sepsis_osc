@@ -460,7 +460,7 @@ Another observation, that smaller values of $beta < 0.55$ correspond to less des
 When crossing a critical value of $beta_c approx 0.55$ for the frequency and $beta_c approx 0.6$ for the phases, the synchronization behavior suddenly changes and tends towards incoherence, clustering and pathological interpretations.
 
 For small values of $sigma < 0.5$ the frequency synchronization and $sigma < 0.25$ for the phase synchronization, the behavior significantly differs between immune and organ layer.
-The immune layer tends to fully desynchronize, instead the organ layer only the frequency desynchronizes for larger $beta > 0.7$ .
+The immune layer tends to fully desynchronize, instead the organ layer only the frequency desynchronizes for larger $beta > 0.7$.
 With larger values of $sigma > 0.5$ the dynamics more or less harmonize between layers and metrics and are mostly depend on $beta$.
 
 == Limitations and Research Direction <sec:problemdef>
@@ -480,7 +480,7 @@ The #acr("DNM") is explicitly functional, where individual oscillators do not co
 This abstraction brings the benefit of computational tractability, compared to mechanistic cell simulation, and simplified system state interpretation, but it also brings drawbacks of limited ability to identify which biological processes drive the observed dynamics.
 It boils down to the question: Does the functional description capture the essential dynamics of sepsis, or does it produce patterns that resemble physiological behavior without true correspondence?
 
-These limitations reveal a gap: while the DNM demonstrates rich theoretical behavior that can be interpreted through a physiological lens, the model has not yet been validated against real patient data.
+These limitations reveal a gap: while the #acr("DNM") demonstrates rich theoretical behavior that can be interpreted through a physiological lens, the model has not yet been validated against real patient data.
 To bridge this gap between theoretical considerations and clinical utility, this work investigates whether the #acr("DNM") can be grounded in observable patient trajectories.
 Specifically, can the abstract parameters ($beta$, $sigma$) that govern the model behavior be inferred from real-world time-series data?
 And if so, does incorporating this physics-inspired structure provide advantages over purely data-driven approaches?
@@ -491,13 +491,6 @@ To summarize, the specific research questions include:
 
   _*2) Comparison with data-based approaches*: How can the model-based predictions be compared with those of purely data-based approaches in terms of predictive power?_
 ]
-
-// #(
-//   list(
-//     [*Usability of the #acr("DNM")*: How and to what extent can the #acr("ML")-determined trajectories of the #acr("DNM") be used for detection and prediction, especially of critical infection states.],
-//     [*Comparison with data-based approaches*: How can the model-based predictions be compared with those of purely data-based approaches in terms of predictive power.],
-//   )
-// )
 
 The first question directly addresses the parameter interpretability problem.
 If $beta$ and $sigma$ cannot be reliably inferred from clinical observations, or if inferred values lack predictive power for outcomes, the models clinical relevance remains speculative.

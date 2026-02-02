@@ -23,7 +23,8 @@
 #reset-acronym("DNM")
 #reset-acronym("LDM")
 #reset-acronym("EHR")
-= Discussion
+
+= Discussion <sec:disc>
 
 This work introduced the #acr("LDM"), a novel architecture that embeds the #acr("DNM") as an interpretable latent space for short-term sepsis prediction from #acr("EHR").
 By combining physics-inspired structure with data-driven learning, this hybrid approach demonstrates competitive predictive performance while offering enhanced interpretability compared to conventional models.
@@ -33,16 +34,16 @@ This chapter discusses the key findings in relation to the research questions po
 
 This work was motivated by two central questions regarding the clinical utility of the #acr("DNM"):
 #quote(block: true)[
-  _*Usability of the #acr("DNM")*: How and to what extent can #acr("ML")-determined trajectories of the #acr("DNM") be used for detection and prediction, especially of critical infection states?_
+  _*1) Usability of the #acr("DNM")*: How and to what extent can #acr("ML")-determined trajectories of the #acr("DNM") be used for detection and prediction, especially of critical infection states?_
 
-  _*Comparison with data-based approaches*: How can the model-based predictions be compared with those of purely data-based approaches in terms of predictive power?_
+  _*2) Comparison with data-based approaches*: How can the model-based predictions be compared with those of purely data-based approaches in terms of predictive power?_
 ]
 
 Experimental results provide encouraging answers to both questions.
 Regarding usability, it was demonstrated that #acr("DNM") parameters ($beta$, $sigma$) can be inferred from clinical #acr("EHR") time-series data, and that trajectories through this parameter space capture clinically meaningful disease progression.
 Systematic correspondence between latent positions and clinical severity suggests that #acr("DNM") parameters learned from data do correlate with disease trajectory, support the physiological relevance of the model.
 
-Regarding comparison with data-driven approaches, #acr("LDM") achieved an #acr("AUROC") of $aurocp%$ and #acr("AUPRC") of $auprcp%$, slightly outperforming all baseline models from the #acr("YAIB") benchmark, including the best-performing standard #acr("GRU") ($83.6%$ #acr("AUROC"), and $9.1%$ #acr("AUPRC")).
+Regarding comparison with data-driven approaches, #acr("LDM") achieved an #acr("AUROC") of $aurocp%$ and #acr("AUPRC") of $auprcp%$, outperforming all baseline models from the #acr("YAIB") benchmark, including the best-performing standard #acr("GRU") ($83.6%$ #acr("AUROC"), and $9.1%$ #acr("AUPRC")).
 Critically, this performance was achieved while providing medically interpretable intermediate representations, whereas baseline models operated as complete black boxes.
 This suggests that embedding #acr("DNM") structure does not sacrifice predictive power and may actually provide useful inductive biases that facilitate learning clinically relevant patterns.
 
