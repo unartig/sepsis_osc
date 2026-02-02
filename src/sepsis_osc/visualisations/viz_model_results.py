@@ -144,8 +144,8 @@ def viz_plane(
             marker="x",
         )
 
-        ax.annotate(f"{i + 1}:t0", (beta_scale[0] + 1, sigma_scale[0] + 1))
-        ax.annotate(f"{i + 1}:t{beta_scale.size}", (beta_scale[-1] + 1, sigma_scale[-1] + 1))
+        ax.annotate(f"0", (beta_scale[0] + 1, sigma_scale[0] + 1), color=cs[i], weight="bold")
+        ax.annotate(f"{beta_scale.size}", (beta_scale[-1] + 1, sigma_scale[-1] + 1), color=cs[i], weight="bold")
 
     return fig, ax
 
