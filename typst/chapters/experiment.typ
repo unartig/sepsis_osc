@@ -220,7 +220,7 @@ $
   "GELU"(x) = x Phi(x)
 $
 where $Phi(x)$ is the cumulative distribution function for Gaussian distribution.
-Finally, the final hidden state passes through another #acr("GELU")-activated layer before being projected into the two outputs $bold(h)_0$ and $bold(z)_0^"raw"$.
+Finally, the last hidden state passes through another #acr("GELU")-activated layer before being projected into the two outputs $bold(h)_0$ and $bold(z)_0^"raw"$.
 In panel *A* of @fig:ae, the architecture is illustrated, in total the encoder has $19,350$ parameter.
 The rollout module $g_(theta^r_g)$ performs latent space dynamics using a single #acr("GRU")-cell, with a hidden size of $H_g=4$, followed by the down projecting layer.
 This adds to $1,344$ parameter.
@@ -479,7 +479,7 @@ Prediction densities are not shown for the sepsis label $S_t$ since the strong i
 #figure(
   image("../images/heat.svg"),
   caption: flex-caption(
-  short: [Receiver Operating Characteristic and Precision Recall Curve.],
+  short: [Density plots of ground truth vs. predicted values.],
   long: [Density plots comparing ground truth and predicted values for #acr("SOFA") score, immediate #acr("SOFA") change ($Delta$#acr("SOFA")), and #acr("SI").
   The model captures the overall #acr("SOFA") severity distribution and its temporal changes, while infection predictions show reasonable separation between low- and high-probability states.
   Color indicates log sample density.])
@@ -500,7 +500,7 @@ This is indicating that the model is able to systematically use the #acr("DNM") 
 #figure(
   image("../images/heat_space.png"),
   caption: flex-caption(
-  short: [Distribution of latent predictions.],
+  short: [Distribution and alignment of latent predictions.],
   long: [*A* shows the distribution of predicted latent points $bold(z)=(z_beta, z_sigma)$ over the latent space.
   The latent space is colored with the values of the normalized desynchronization metric $s^1_(bold(z))$, where brighter values indicate larger desynchronization.
   The point distribution is colored by density, with brighter values having greater density.
@@ -537,7 +537,7 @@ Some trajectories show better alignment with clinical progression, while others 
 #figure(
   image("../images/trajectory.svg"),
   caption: flex-caption(
-  short: [Individual patient trajectories demonstrate representations of clinical trends.],
+  short: [Patient trajectories demonstrate representations of clinical trends.],
   long: [
   Left: Three patient trajectories plotted in the latent #acr("DNM") parameter space $(beta, sigma)$, colored by ground truth #acr("SOFA") scores with timestamps marking trajectory progression.
   The background heatmap shows $s^1$ values (right colorbar), with darker regions indicating lower desynchronization (better organ function) and brighter regions higher desynchronization (worse organ function).

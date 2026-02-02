@@ -7,7 +7,7 @@
     columns: (1fr, auto, auto, auto, auto, auto),
     inset: 10pt,
     align: (left, left, center, center, center, center),
-    table.header([Category], [Indicator], [1], [2], [3], [4]),
+    table.header([*Category*], [*Indicator*], [*1*], [*2*], [*3*], [*4*]),
     [Respiration], [$"PaO"_2$/$"FiO"_2$ [mmHg]], [< 400], [< 300], [< 200], [< 100],
 
     [], [Mechanical Ventilation], [], [], [yes], [yes],
@@ -33,12 +33,16 @@
     [], [or Urine Output [$"ml"/"day"$]], [], [], [< 500], [< 200],
   ),
 
-  caption: flex-caption(short: [TODO], long: [TODO])
+  caption: flex-caption(short: [#acl("SOFA")-score component definitions.], long: [#acr("SOFA")-score component definitions @SOFAscore.])
 ) <tab:sofa>
 
 == DNM as Lie Formulation <a:lie>
 
+#pagebreak()
 == Input Concepts
+The following two tables list the static and dynamic input features used by the #acr("YAIB") framework @yaib.
+The column "ricu-name" refers to the R package `ricu` which #acr("YAIB") is built on top of @ricu.
+
 #figure(table(
   columns: (auto, auto, auto, auto, auto),
   align: (left, left, left, right, left),
@@ -52,10 +56,11 @@
   caption: [Static input features for the prediction task],
 )
 #figure(
-
 table(
   columns: (auto, auto, auto, auto, auto),
   align: (left, left, left, right, left),
+  stroke: .5pt,
+
   [*ricu - Name*], [*Unit*], [*Min*], [*Max*], [*Description*],
   
   [alb], [g/dL], [0], [6], [albumin],
@@ -112,9 +117,8 @@ table(
 
 #pagebreak()
 == Latent Dynamic Model Architecture Parameters <a:paramcount>
-#grid(
+#figure(grid(
 columns: (1fr,5pt, 1fr),
-[#figure(
   table(
     columns: 3,
     align: (left, center, right),
@@ -151,10 +155,9 @@ columns: (1fr,5pt, 1fr),
     [`detection_threshold`], [(1,)], [1],
     [`detection_sharpness`], [(1,)], [1],
     table.cell(colspan: 2, align: right, [*Total:*]), [*4*],),
-  caption: [Detailed parameter count of every module],)], [],
+    [],
 
-[#v(29pt)
-  #figure(
+ 
   table(
     columns: 3,
     align: (left, center, right),
@@ -187,6 +190,8 @@ columns: (1fr,5pt, 1fr),
     [`GRU-Cell bias`], [(12,)], [12],
     [`GRU-Cell bias_n`], [(4,)], [4],
     [`Proj weight`], [(2, 4)], [8],
-    table.cell(colspan: 2, align: right, [*Total:*]), [*1,344*],),) <tab:paramcount>]
-)
+    table.cell(colspan: 2, align: right, [*Total:*]), [*1,344*],)
+),
 
+    caption: [Detailed parameter count of the #acl("LDM") modules.]
+) <tab:paramcount>
