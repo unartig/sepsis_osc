@@ -194,16 +194,6 @@
     ]
   })
 
-  // Display the summary.
-  if summary != none {
-    pagebreak()
-    // pagebreak(to: "odd")
-    v(12.5%)
-    heading(outlined: false, [Abstract],)
-    summary
-    pagebreak(to: "odd", weak: true)
-  }
-
   // TABLE OF CONTENTS / FIGURES / TABLES
   set outline(indent: auto)
   init-acronyms(acronyms)
@@ -222,7 +212,8 @@
       it
     }
 
-    v(12.5%)
+    v(2.5%)
+    // v(12.5%)
     table-of-contents
   }
 
@@ -250,6 +241,16 @@
   }
   pagebreak(weak: true, to: "odd")
 
+
+  // Display the summary.
+  if summary != none {
+    pagebreak()
+    // pagebreak(to: "odd")
+    v(12.5%)
+    heading(outlined: false, [Summary],)
+    summary
+    pagebreak(to: "odd", weak: true)
+  }
   // PAGE
   set page(
     // FOOTER FOR FIRST PAGE IN CHAPTER
@@ -351,16 +352,17 @@
       // reset counter numbers
       counter(math.equation).update(0)
       counter(figure).update(0)
+      counter(table).update(0)
+      counter(figure.where(kind: image)).update(0)
+      counter(figure.where(kind: table)).update(0)
       //
       if chapter-pagebreak {
         pagebreak(weak: true, to: "odd")
       }
-      // v(15%)
       {
         set text(size: 90pt, font: "URW Bookman", fill:luma(150))
         counter(heading).display("1")
       }
-      // h(0.8em)
       linebreak()
       it.body
       v(2.5%)
@@ -380,12 +382,18 @@
   if appendix-file != none {
     pagebreak(to: "odd")
     counter(heading).update(0)
-    set heading(numbering: "A.1", supplement: [Appendix], )
-    let toa = outline(title: text([Appendix], font-size + 8pt, font: head-font), target: heading.where(supplement: [Appendix]))
+    counter(figure).update(0)  // Reset figure counter
+    set heading(numbering: "A.1", supplement: [Appendix])
+  
+    // Update figure numbering to use letter prefix
+    set figure(numbering: (n, ..) => {
+      let h1 = counter(heading).get().first()
+      numbering("A.1.", h1, n)
+    })
+  
+    let toa = outline(title: text([Appendix], font-size + 8pt, font: head-font), target: heading.where(supplement: [Appendix]))
     toa
     include appendix-file
-    // show: appendix(include appendix-file)
-    
   }
 
   // Display bibliography.
