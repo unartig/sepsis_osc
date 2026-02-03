@@ -297,7 +297,7 @@
    // OTHER NUMBERINGS
    set figure(numbering: (n, ..) => {
     let h1 = counter(heading).get().first()
-    numbering("1.1.", h1, n)
+    numbering("1.1", h1, n)
   })
 
   // INLINE CODE
@@ -407,6 +407,9 @@
       justify: false,
       linebreaks: auto,
     )
+    
+    show link: set text(blue)
+    show link: underline
     bibliography
   }
 

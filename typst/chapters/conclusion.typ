@@ -7,7 +7,7 @@
 Sepsis remains the leading cause of in-hospital death globally, while early predictions are notoriously difficult due to its complex, heterogeneous pathophysiology. 
 This work demonstrates that hybrid modeling, integrating biologically grounded dynamics with data-driven learning, can overcome limitations of both purely mechanistic and purely black-box approaches to sepsis prediction.
 
-The starting point was the #acr("DNM") @osc1@osc2, a functional model of coupled oscillators, representing organ and immune cell populations that can describe both healthy and pathological states related to sepsis.
+The starting point was the #acr("DNM") @Sawicki2022DNM@Berner2022Critical, a functional model of coupled oscillators, representing organ and immune cell populations that can describe both healthy and pathological states related to sepsis.
 While theoretically promising, the #acr("DNM") had never been validated against real patient data.
 This work closes that gap by developing the #acr("LDM"), a novel neural architecture that embeds the #acr("DNM") within a machine learning pipeline for online sepsis prediction.
 
