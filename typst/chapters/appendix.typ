@@ -37,6 +37,49 @@
 ) <tab:sofa>
 
 == DNM as Lie Formulation <a:lie>
+The idea from the reformulation originated from an encounter with @deaguiar2023ndkuramoto.
+Let $S O(2)$ denote the special orthogonal group of 2D rotations @lynch2017modern. Each element $R in S O(2)$ can be represented as:
+$
+R(phi) = mat(cos(phi), -sin(phi); sin(phi), cos(phi))
+$
+
+With rotation operators:
+$
+R^1_i &:= R(phi^1_i), quad R^2_i := R(phi^2_i) \
+R_alpha &:= R(alpha), quad R_beta := R(beta)
+$
+
+The inverse rotation is $R^(-1)(phi) = R(-phi)$, and the relative rotation between two phases is:
+$
+R_(i j) := (R_i)^(-1) R_j = R(phi_j - phi_i)
+$
+
+The sine of a rotation difference can be extracted as:
+$
+sin(phi_i - phi_j + gamma) =[(R(phi_i - phi_j) R(gamma))]_(2,1)= [R_(i j) R_gamma]_(2,1)
+$
+where $[dot]_(2,1)$ denotes the (2,1) matrix element.
+
+The Lie group formulation of the #acr("DNM") is:
+
+$
+  dot(phi)^1_i =& omega^1 - 1/N sum^N_(j=1) {(a^1_(i j) + kappa^1_(i j)) [(R^1_(i j) R_(alpha^(11)))]_(2,1)} - sigma [(R^1_i (R^2_i)^(-1) R_(alpha^(12)))]_(2,1) #<odep1-lie>
+$
+
+$
+  dot(kappa)^1_(i j) &= -epsilon^1 (kappa^1_(i j) + [(R^1_(i j) R^(-1)_beta)]_(2,1)) #<odek1-lie> \
+$
+
+$
+  dot(phi)^2_i =& omega^2 - dot 1/N sum^N_(j=1) {kappa^2_(i j) [(R^2_(i j) R_(alpha^(22)))]_(2,1)} - sigma [(R^2_i (R^1_i)^(-1) R_(alpha^(21)))]_(2,1) #<odep2-lie>
+$
+
+$
+  dot(kappa)^2_(i j) &= -epsilon^2 (kappa^2_(i j) + [(R^2_(i j) R^(-1)_beta)]_(2,1)) #<odek2-lie>
+$ <eq:ode-sys-lie>
+
+Implementation #footnote[available at https://github.com/unartig/sepsis_osc/blob/main/src/sepsis_osc/dnm/lie_dnm.py] is based in jaxlie @yi2021iros.
+Theoretical stability benefits are mitigated by elevated construction costs of the rotation matrices and do not translate to better integration performance.
 
 #pagebreak()
 == Input Concepts
