@@ -6,13 +6,13 @@
 #show: thesis.with(
   title: "Combining Machine-Learning and \n Dynamic Network Models \n to Improve Sepsis Prediction",
   summary: [
-  Sepsis, the dysregulated host response to infection leading to life-threatening organ dysfunction, accounts for nearly one fifth of all deaths worldwide.
-  Despite its enormous clinical burden, early prediction remains challenging due to the complex nature of sepsis pathophysiology.
+  Sepsis, the dysregulated host response to infection leading to life-threatening organ dysfunction, accounts for nearly one fifth of all yearly deaths worldwide.
+  Despite its enormous burden to global health-care, early prediction remains challenging due to the complex nature of sepsis pathophysiology.
   Current approaches face a fundamental trade-off, data-driven machine learning models achieve strong performance but lack interpretability, while mechanistic models provide biological insight but have limited clinical validation.\
   This thesis develops the _Latent Dynamics Model_, a hybrid approach that integrates a functional model of coupled oscillators representing organ- and immune-cell populations, within a deep learning architecture for online sepsis prediction.
   Rather than treating sepsis as a black-box classification task, the model decomposes prediction into two interpretable components, suspected infection likelihood and acute organ dysfunction.
-  Patient organ states are represented as trajectories through a biologically-motivated parameter space of the dynamic model, which serves as a continuous proxy for organ failure severity.\
-  Trained and evaluated retrospectively on real intensive care patients, this model achieves competitive or superior performance compared to baseline methods.
+  Patient organ state progressions are represented as trajectories through the biologically-motivated parameter space of the dynamic model, which serves as a continuous proxy for organ failure severity.\
+  Trained and evaluated retrospectively on real intensive care patients, this model achieves superior performance compared to baseline methods.
   Qualitative analysis reveals that learned trajectories exhibit clinically plausible patterns of deterioration, recovery, and stability.
   This work demonstrates that embedding biologically-grounded structure can enhance both predictive performance and interpretability in sepsis prediction.
   ],
@@ -59,7 +59,7 @@
     "TN": "True Negatives",
     "TPR": "True Positive Rate",
     "TP": "True Positives",
-    "TUHH": "Hamburg University of Technology",
+    // "TUHH": "Hamburg University of Technology",
     "YAIB": "Yet Another ICU Benchmark",
   ),
   
@@ -80,6 +80,9 @@
   #list(
     [Sources misc + link],
     [TUHH address wrong in template],
+
+    [reset acronyms?],
+    [Bold panel letters in text?],
   )
 ]
 

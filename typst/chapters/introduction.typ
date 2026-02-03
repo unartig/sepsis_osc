@@ -12,7 +12,7 @@ Data-driven methods using machine learning on electronic health records show pro
 Mechanistic models explicitly encode biological processes, providing interpretability but require detailed parameterization and high-resolution measurements rarely available in clinical practice @Relouw2024@Cockrell2022Model.
 
 This work proposes a hybrid approach that combines the strengths of both paradigms.
-The foundation is the #acr("DNM") @osc1@osc2, a functional model that describes sepsis-related organ dysfunction through coupled oscillator networks.
+The foundation is the #acr("DNM") @Sawicki2022DNM@Berner2022Critical, a functional model that describes sepsis-related organ dysfunction through coupled oscillator networks.
 The #acr("DNM") represents immune and organ systems as interacting layers of phase oscillators, where synchronization patterns correspond to physiological states.
 Two key parameters, a biological age and the strength of organ-immune linkage, govern transitions between healthy synchronized states and pathological desynchronized regimes.
 

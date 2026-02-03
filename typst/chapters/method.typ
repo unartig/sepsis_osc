@@ -328,12 +328,12 @@ Because gradients can flow backwards through the whole sequence, minimizing the 
 
 ==== Latent Lookup <sec:theory_fsq>
 Intuitively one would numerically integrate the #acr("DNM") every estimate $hat(bold(z))$ to receive the $s^1 (bold(hat(z)))$-metric for the continuous space in $(beta, sigma)$.
-This approach is taken in  Neural Differential Equations @kidger2022neuraldifferentialequations and Physics Informed Neural Networks @sophiya2025pinn where gradients are typically backpropagated through the #acr("ODE") integration to their input parameters ($beta, sigma$ in this case).
+This approach is taken in  Neural Differential Equations @kidger2022diffrax and Physics Informed Neural Networks @sophiya2025pinn where gradients are typically backpropagated through the #acr("ODE") integration to their input parameters ($beta, sigma$ in this case).
 Practically, in case of the #acr("DNM") this is hardly tractable, since the integration is computationally intensive and gradients are prone to vanish over the large integration time and ensemble setup of the #acr("DNM").
 
 To address these challenges, the #acr("LDM") uses a fully differentiable precomputing and caching methodology that still provides meaningful gradients and simultaneously reduces the computational burden.
 For that, the continuous latent space is quantized to a discrete and regular grid, with the metric $s^1$ precomputed for each coordinate pair in a predefined subspace.
-The space is limited to the intervals $beta in [0.4pi, 0.7pi]$ and $sigma in [0.0, 1.5]$ (the phase space of the original publication @osc2).
+The space is limited to the intervals $beta in [0.4pi, 0.7pi]$ and $sigma in [0.0, 1.5]$ (the phase space of the original publication @Berner2022Critical).
 To retrieve values localized soft interpolation is used to derive differentiable synchronicity approximation values.
 
 For an estimated coordinate pair $hat(bold(z))=(hat(z)_beta, hat(z)_sigma)$ in the continuous $(beta, sigma)$-space the quantized metrics are interpolated by smoothing nearby quantization points with a Gaussian-like kernel, which is illustrated in @fig:fsq.
@@ -472,13 +472,13 @@ where $bold(hat(Z)) in RR^(2 times B dot T)$ collects all predicted latent coord
 $"Cov"(dot)$ computes the sample covariance matrix.
 
 The loss is minimized when $log(det("Cov"(bold(hat(Z)))))$, also known as the _generalized variance_ @Carroll1997, of the latent dimensions $beta$ and $sigma$ is increased.
-The generalized variance roughly measures the density of distributions and increases when they become less dense, the loss $cal(L)_"spread"$ therefore encourages a larger spread inside the latent space.
+The generalized variance roughly measures the density of distributions and increases when sampled points become less dense, the loss $cal(L)_"spread"$ therefore encourages a larger spread inside the latent space and avoids the collapse into single latent-values.
 
 *Latent Space Regularization*\
 In order to keep the predicted latent points inside the predefined area, they will be discouraged to move too close to the edges:
 $
   cal(L)_"boundary" = "ReLU"(f - "sigmoid"(bold(z)^"raw"_t)) + "ReLU"("sigmoid"(bold(z)^"raw"_t - (1 - f))
-$
+$ <eq:bound>
 with $f in (0,0.5)$ sets a boundary threshold as a fraction of the space, creating a "penalty buffer" that discourages latent variables from entering the outer $f$-percent of the space near the edges.
 
 === Combined Objective
