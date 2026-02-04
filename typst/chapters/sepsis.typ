@@ -1,7 +1,6 @@
 #import "../thesis_env.typ": *
 
 = Medical Background (Sepsis) <sec:sepsis>
-As the most extreme course of an infectious disease, sepsis poses a very serious health threat, with a high mortality rate and frequent long-term consequences for survivors.
 In 2017, an estimated 48.9 million people worldwide suffered from sepsis and the same year, 11 million deaths were associated with sepsis @rudd2020global.
 This makes up 19.7% of yearly deaths, making it the most common cause of in-hospital deaths.
 Even with successful treatment, around 40% of those affected suffer long-term consequences, such as cognitive, physical or physiological problems, the so called _post-sepsis syndrome_ @vanderSlikke2020post.
