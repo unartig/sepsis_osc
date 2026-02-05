@@ -12,6 +12,7 @@ The LDM is a Deep-Learning pipeline, built on top of [equinox](https://github.co
 
 The [viz_*.py](src/sepsis_osc/visualisations) files can be used to visualize ensemble systems or single instances of the DNM initial value problems, LDM predictions.
 Some visualization (like the parameter space) need the SystemMetrics to be saved via the storage interface beforehand (see `__main__` of [code](src/sepsis_osc/dnm/dynamic_network_model.py)).
+One exemplary storage is provided with the name "DaisyFinal" storing two spaces (beta (0, 1, 0.01) and sigma (0, 1.5, 0.015) and beta (0.4, 0.7, 0.003) and sigma (0, 1.5, 0.015)).
 
 All further visualizations and statistics can be generated using the notebooks in [misc/](misc)
 
