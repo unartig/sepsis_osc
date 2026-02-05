@@ -18,6 +18,7 @@ All further visualizations and statistics can be generated using the notebooks i
 
 
 ## Project structure
+```
 sepsis_osc/
 ├── data/             # input / experimental datasets
 ├── figures/          # stored visualizations
@@ -32,7 +33,7 @@ sepsis_osc/
     ├── figures/      # typst + cetz figures
     ├── images/       # svgs and pngs
     └── chapters/     # actual text
-
+```
 
 
 ## Running the code
