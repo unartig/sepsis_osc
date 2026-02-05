@@ -1,6 +1,6 @@
 # Combining Machine-Learning and Dynamic Network Models to Improve Sepsis Predictiong
 
-In this houses both a replica implementation of the Dynamic Network Model (DNM) - a functional model of the sepsis disease, described in [Berner et al.](https://www.frontiersin.org/journals/network-physiology/articles/10.3389/fnetp.2021.730385/full) and [Sawicki et al.](https://www.frontiersin.org/journals/network-physiology/articles/10.3389/fnetp.2022.904480/full) as well as the Latent Dynamics Model, the main subject of my [thesis](main_thesis.pdf).
+In this houses both a replica implementation of the Dynamic Network Model (DNM) - a functional model of the sepsis disease, described in [Berner et al.](https://www.frontiersin.org/journals/network-physiology/articles/10.3389/fnetp.2021.730385/full) and [Sawicki et al.](https://www.frontiersin.org/journals/network-physiology/articles/10.3389/fnetp.2022.904480/full) as well as the Latent Dynamics Model (LDM), the main subject of my [thesis](main_thesis.pdf).
 
 ![DNM Illustration](typst/images/model.svg "DNM")
 
