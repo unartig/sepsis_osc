@@ -16,8 +16,27 @@ One exemplary storage is provided with the name "DaisyFinal" storing two spaces 
 
 All further visualizations and statistics can be generated using the notebooks in [misc/](misc)
 
+
+## Project structure
+sepsis_osc/
+├── data/             # input / experimental datasets
+├── figures/          # stored visualizations
+├── misc/             # cohort creation and stats / visualization notebooks
+├── src/
+│   └── sepsis_osc/
+│       ├── dnm/      # Dynamic Network Model
+│       ├── ldm/      # Latent Dynamics Model
+│       ├── utils/    # utilities and config
+│       └── viz/      # visualization functions
+└── typst/            # typst docs & drafts
+    ├── figures/      # typst + cetz figures
+    ├── images/       # svgs and pngs
+    └── chapters/     # actual text
+
+
+
 ## Running the code
-Integrating the DNM only requires to install the `requirements.txt` via:
+Integrating the DNM to install the `requirements.txt` via:
 ```
 $ pip install -r requirements.txt
 ```
