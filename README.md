@@ -1,17 +1,22 @@
 # Combining Machine-Learning and Dynamic Network Models to Improve Sepsis Predictiong
 
-In this houses both a replica implementation of the Dynamic Network Model (DNM) - a functional model of the sepsis disease, described in [Berner et al.](https://www.frontiersin.org/journals/network-physiology/articles/10.3389/fnetp.2021.730385/full) and [Sawicki et al.](https://www.frontiersin.org/journals/network-physiology/articles/10.3389/fnetp.2022.904480/full) as well as the Latent Dynamics Model (LDM), the main subject of my [thesis](main_thesis.pdf).
+This repository houses both a replica implementation of the Dynamic Network Model (DNM) - a functional model of the sepsis disease, described in [Berner et al.](https://www.frontiersin.org/journals/network-physiology/articles/10.3389/fnetp.2021.730385/full) and [Sawicki et al.](https://www.frontiersin.org/journals/network-physiology/articles/10.3389/fnetp.2022.904480/full) as well as the Latent Dynamics Model (LDM), the main subject of my [thesis](main_thesis.pdf).
+
+
+### DNM
 
 ![DNM Illustration](typst/images/model.svg "DNM")
 
 The DNM can be simulated using [JAX](https://github.com/google/jax) and [diffrax](https://github.com/patrick-kidger/diffrax), allowing for (GPU or CPU) accelerated numerical integration ([code](src/sepsis_osc/dnm)).
+
+### LDM
 
 ![LDM Illustration](typst/images/modules.svg "LDM")
 
 The LDM is a Deep-Learning pipeline, built on top of [equinox](https://github.com/patrick-kidger/equinox), embedding the DNM parameter-space to generate interpretable patient trajectories and enable online sepsis prediction ([code](src/sepsis_osc/ldm)).
 
 The [viz_*.py](src/sepsis_osc/visualisations) files can be used to visualize ensemble systems or single instances of the DNM initial value problems, LDM predictions.
-Some visualization (like the parameter space) need the SystemMetrics to be saved via the storage interface beforehand (see `__main__` of [code](src/sepsis_osc/dnm/dynamic_network_model.py)).
+Some visualization (like the parameter space) need the SystemMetrics to be saved via the storage interface beforehand (see `__main__` of the [dynamic_network_model.py](src/sepsis_osc/dnm/dynamic_network_model.py)).
 One exemplary storage is provided with the name "DaisyFinal" storing two spaces (beta (0, 1, 0.01) and sigma (0, 1.5, 0.015) and beta (0.4, 0.7, 0.003) and sigma (0, 1.5, 0.015)).
 
 All further visualizations and statistics can be generated using the notebooks in [misc/](misc)
