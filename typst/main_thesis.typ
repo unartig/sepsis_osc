@@ -64,7 +64,7 @@
   ),
   
   appendix-file: "chapters/appendix.typ",
-  bibliography: bibliography("bibliography.bib"),
+  bibliography: bibliography("bibliography.bib", style:"ieee_custom.csl"),
   // TODO what about notation?
   table-of-figures: true,
   table-of-tables: true,
