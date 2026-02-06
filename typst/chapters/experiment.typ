@@ -509,7 +509,7 @@ For the investigated model, this is not the case, but the general systematics al
 This is indicating that the model is able to systematically use the #acr("DNM") parameter space to express a patients physiological organ system state.
 
 #figure(
-  image("../images/heat_space.png"),
+  image("../images/heat_space.svg"),
   caption: flex-caption(
   short: [Distribution and alignment of latent predictions.],
   long: [*A* shows the distribution of predicted latent points $bold(hat(z))=(hat(z)_beta, hat(z)_sigma)$ over the latent space.
