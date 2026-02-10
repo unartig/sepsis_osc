@@ -53,7 +53,8 @@ Perhaps the most significant finding is that incorporating physiologically-motiv
 Compared to most baseline models which provide only a single risk-score, whereas #acr("LDM") provides multiple clinically interpretable indicators, namely infection likelihood $tilde(I)_t$, organ desynchronization $s^1_t (hat(bold(z)))$, acute deterioration risk $tilde(A)_t$, and overall sepsis risk $tilde(S)_t$.
 This richer output enables clinicians to understand _why_ a patient is flagged as high-risk, supporting more informed decision-making.
 Importantly, the #acr("LDM") interpretability is not post-hoc rationalization but structurally embedded in the model architecture.
-Furthermore, traditionally, predictive models undergo extensive hyperparameter optimization, the #acr("LDM") parameters were manually tuned with emphasis on maintaining latent space interpretability rather than maximizing performance metrics alone.
+Furthermore, traditionally, predictive models undergo extensive hyperparameter optimization.
+The #acr("LDM") parameters were manually tuned with emphasis on maintaining latent space interpretability rather than maximizing performance metrics alone.
 
 As discussed in @sec:sota, explainability in current data-driven sepsis prediction systems predominantly relies on Shapley-value analyses, deriving importance factors of single input features or feature interactions @Stylianides2025Review@Sundararajan2020SHAP.
 While valuable, such approaches explain which features influenced a prediction without revealing how those features interact dynamically to produce physiological states.
@@ -61,8 +62,10 @@ In contrast, #acr("DNM")-based trajectories show temporal evolution through a sp
 
 This interpretability operates at multiple levels.
 At the population level, density plots (@fig:heat_space) reveal that the model systematically organizes patients according to severity.
-At an individual patient level, trajectory shapes encode temporal dynamics, sharp directional changes correspond to acute clinical events, while gradual curves indicate slower progression or recovery (@fig:traj).
- This multi-scale interpretability aligns with clinician preferences identified in @EiniPorat2022, where survey participants emphasized that "the trend of a patient's trajectory itself should be the prediction target" and expressed preference for "trajectories over plain binary event predictions."
+At an individual patient level, trajectory shapes encode temporal dynamics.
+Sharp directional changes correspond to acute clinical events, while gradual curves indicate slower progression or recovery (@fig:traj).
+This multi-scale interpretability aligns with clinician preferences identified in @EiniPorat2022.
+Survey participants emphasized that "the trend of a patient's trajectory itself should be the prediction target" and expressed preference for "trajectories over plain binary event predictions."
 
 With roughly 21,000 parameters, the entire #acr("LDM") is a relatively small network.
 Additionally, due to its modularity into functional clear roles, i.e. $f_theta_f$, $g_theta_g$ and $d_theta_d$, it provides the necessary flexibility to improve on individual aspects of the system in a straight forward manner.
@@ -72,12 +75,12 @@ Additionally, due to its modularity into functional clear roles, i.e. $f_theta_f
 While the experimental results are encouraging, several important limitations need careful consideration.
 Preliminary experiments revealed notable sensitivity to random seed initialization.
 Different random seeds produced models with qualitatively different latent space organizations.
-While final predictive performance remained relatively stable ($plus.minus 2-3%$ #acr("AUROC")), the specific geometric arrangement of patients in parameter space varied considerably.
+While final predictive performance remained relatively stable ($plus.minus 1%$ #acr("AUROC")), the specific geometric arrangement of patients in parameter space varied considerably.
 This sensitivity likely stems from the multi-objective loss function, which creates a complex optimization landscape with multiple local minima, and globally not with a single optimal solution, rather a Pareto frontier of trade-offs.
 
-Additionally, there is most likely no ground truth mapping from a high dimensional patient state, represented by the #acr("EHR"), to the low dimensional parameter space of the #acr("DNM").
+Additionally, there is most likely no ground truth mapping from a high-dimensional patient state, represented by the #acr("EHR"), to the low dimensional parameter space of the #acr("DNM").
 This ambiguity offers infinitely many mappings, while some might be more plausible than others, each training run converges most likely to a different mapping depending on the random seed.
-Ultimately, when interpreting results, the variability in solutions should be acknowledged rather than treating a single trained model as definitive.
+Ultimately, when interpreting results, this variability in solutions should be acknowledged rather than treating a single trained model as definitive.
 Ensemble methods aggregating predictions from multiple initializations could improve robustness while quantifying this uncertainty.
 
 As discussed in @sec:problemdef, the #acr("DNM") faces inherent limitations.
@@ -88,10 +91,11 @@ Instead, it learns to position patients in a parameter space abstracted from the
 It is learning a projection from high-dimensional #acr("EHR") data into a two-dimensional space.
 The desynchronization metric $s^1(bold(z))$ computed from these projected positions may correlate with organ dysfunction without reflecting actual organ-level dynamics.
 Experimental results provide some reassurance, the systematic correlation between latent position and #acr("SOFA") scores, the meaningful trajectory patterns in @fig:traj, and the competitive predictive performance all suggest the model has learned clinically relevant structure.
-However, direct mechanistic interpretability cannot be claimed, a more honest characterization might be "physiologically-motivated dimensionality reduction".
+However, direct mechanistic interpretability cannot be claimed.
+A more honest characterization might be "physiologically-motivated dimensionality reduction".
 
 Right now, the #acr("LDM") produces risk-scores $tilde(S)_t$ indicating sepsis likelihood, but they have not been calibrated to represent true probabilities of sepsis onset.
-This means, the prediction has to move from plain distinction septic vs. non-septic to sensitive estimates, how critical patient states are compared to others.
+This means that the prediction has to move from plain distinction between septic and non-septic to sensitive estimates, how critical patient states are compared to others.
 For clinical deployment, well-calibrated probabilities would be essential, which could be achieved with post-training calibration, like simple Platt- or Temperature scaling or more involved calibration techniques @guo2017calibration.
 // As noted in @sec:sepwhy, traditional sepsis screening relies on reactive clinical scores like #acr("SOFA"), while automated prediction systems aim to identify patients before organ failure develops.
 // However, as highlighted by the meta-analysis in @Alshaeba2025Effect, many alert systems fail to improve patient outcomes, often due to alert fatigue from excessive false positives.
@@ -115,7 +119,7 @@ Analyzing learned gate weights could reveal, which features the model considers 
 Lastly quantitative analysis of latent trajectory curvature, velocity, and acceleration could give insights if these geometric properties correlate with clinical severity or outcomes.
 Such analyses would either strengthen confidence in the #acr("DNM")s clinical validity or reveal specific weaknesses requiring architectural modification.
 
-Current implementation uses a differential lookup methodology to retrieve the #acr("DNM") synchronization metrics.
+The current implementation uses a differential lookup methodology to retrieve the #acr("DNM") synchronization metrics.
 A more principled approach would directly integrate the #acr("DNM") system of differential equations:
 At each time step, given latent position $bold(hat(z))_t = (beta_t, sigma_t)$, solve this system numerically to obtain $s^1(bold(hat(z))_(t))$.
 Modern differentiable #acr("ODE")-solvers, such as diffrax @kidger2022diffrax, enable backpropagation through the integration process, making this approach trainable end-to-end.
@@ -127,11 +131,11 @@ Because of the #acr("LDM")s modularity, an extension to handle offline predictio
 This would test whether learned latent dynamics capture sufficient structure to extrapolate forward in time, and whether #acr("DNM")-based trajectories provide better forecasting than purely data-driven alternatives.
 Training a model on both online- and offline-prediction might offer cross-benefits for both tasks.
 
-While #acr("DNM") provides a physiologically motivated latent space, other spaces might also provide interpretable structures, as long as there are regions that could be assigned to healthy and septic patients and some interpretation behind the space dimensions.
+While the #acr("DNM") provides a physiologically motivated latent space, other spaces might also provide interpretable structures, as long as there are regions that could be assigned to healthy and septic patients and some interpretation behind the space dimensions.
 Even not biologically motivated but artificially created spaces could be used for the systematic comparison, revealing which structures best capture sepsis pathophysiology, or if its solely the model built around it that drives prediction performance.
 
 Lastly, some general concerns, not specific to the #acr("LDM").
-Current sepsis prediction implementation treat patients as passively observed systems, ignoring medical interventions. 
+Current sepsis prediction implementations treat patients as passively observed systems, ignoring medical interventions. 
 Incorporating treatment variables could improve predictions and enable counterfactual reasoning about intervention timing, though this raises its own methodological challenges.
 Furthermore, hourly resampling with forward-fill imputation may obscure rapid deterioration occurring between measurements.
 More sophisticated approaches like irregular time series methods could better capture high-frequency dynamics.
