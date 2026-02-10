@@ -8,7 +8,7 @@ Currently, automated alert systems suffer from limited clinical adoption and fur
 Yet early recognition is critical, each hour of delayed treatment increases mortality risk @seymour2017time.
 
 Given this time-critical challenge, existing computational approaches face a fundamental dilemma:
-Data-driven methods using machine learning on electronic health records show promising performance but function as black boxes, offering little mechanistic insight into why a patient is at risk @Bomrah2024Review@Moor2021Review.
+Data-driven methods that use machine learning on electronic health records show promising performance but function as black boxes, offering little mechanistic insight into why a patient is at risk @Bomrah2024Review@Moor2021Review.
 Mechanistic models explicitly encode biological processes, providing interpretability but require detailed parameterization and high-resolution measurements rarely available in clinical practice @Relouw2024@Cockrell2022Model.
 
 This work proposes a hybrid approach that combines the strengths of both paradigms.

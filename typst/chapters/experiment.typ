@@ -9,23 +9,23 @@
 = Experiment <sec:experiment>
 To evaluate whether embedding the #acr("DNM") (see @sec:dnm) improves short-term sepsis prediction, the #acr("LDM") (see @sec:ldm) was trained and evaluated using real-world medical data.
 This chapter presents the complete experimental setup and results, including data basis (data source, cohort selection, preprocessing in @sec:data), the prediction task, and implementation and training details in @sec:impl and @sec:train.
-Finally, the chapter will end with the discussion of experimental results using the previously established metrics #acr("AUROC") and #acr("AUPRC"), along with qualitative analyses of individual patient trajectories through the #acr("DNM") parameter space.
+Finally, the chapter ends with the discussion of experimental results using the previously established metrics #acr("AUROC") and #acr("AUPRC"), along with qualitative analyses of individual patient trajectories through the #acr("DNM") parameter space.
 
 == Data <sec:data>
 This study relies exclusively on the #acl("MIMIC")-IV database (version 2.3) @johnson2023mimic.
 #acr("MIMIC") database series contains #acr("EHR") information capturing day-to-day clinical routines, including patient measurements, orders, diagnoses, procedures, treatments, and free-text clinical notes.
-All included #acr("EHR")s were recorded at Beth Israel Deaconess Medical Center in Boston, America between 2008 and 2022.
+All included #acr("EHR") data were recorded at Beth Israel Deaconess Medical Center in Boston, America between 2008 and 2022.
 Every part of the data has been anonymized and is publicly available to support research in electronic healthcare applications, with special focus on intensive care.
-Due to individual particularities in data collection, applications trained on single datasets are known to have limited generalization to other datasources and real-world settings.
+Due to the individual particularities in data collection, applications trained on single datasets are known to have limited generalization to other datasources and real-world settings.
 Yet, #acr("MIMIC") databases tend to be more generalizable than others and remain the default open-data resource for developing sepsis prediction systems @Bomrah2024Review@Rockenschaub2023review.
 
 To derive a cohort from raw data and preprocess clinical features, the #acr("YAIB") framework is employed @yaib.
 #acr("YAIB") standardizes cohort definition, feature derivation and data preprocessing for retrospective #acr("ICU") studies across different publicly available databases.
 It additionally provides benchmark results for common #acr("ICU") prediction task, including the online prediction of sepsis.
-For this work, every step from the sepsis and cohort definition, feature choices to the data preprocessing, is adopted from their methodology @yaib to enable direct comparison of prediction results.
+For this work, every step from the sepsis and cohort definition and feature choices to the data preprocessing has been adopted from their methodology @yaib to enable direct comparison of prediction results.
 
 Their definition definition of sepsis closely follows the Sepsis-3 criteria @Sepsis3:
-#quote(block:true)[" The onset of sepsis was defined using the Sepsis-3 criteria (Singer et al., 2016), which defines sepsis
+#quote(block:true)["The onset of sepsis was defined using the Sepsis-3 criteria (Singer et al., 2016), which defines sepsis
 as organ dysfunction due to infection. Following guidance from the original authors of Sepsis-3
 (Seymour et al., 2016), organ dysfunction was defined as an increase in SOFA score $>=$2 points
 compared to the lowest value over the last 24 hours. Suspicion of infection was defined as the
@@ -38,17 +38,17 @@ antibiotic treatment was inferred from administration records; otherwise, we use
 To exclude prophylactic antibiotics, we required that antibiotics were administered continuously for
 $>=$3 days (Reyna et al., 2019). Antibiotic treatment was considered continuous if an antibiotic was
 administered once every 24 hours for 3 days (or until death) or was prescribed for the entire time
-spent in the ICU "]
+spent in the ICU"]
 
 === Cohort Selection
-The cohort includes all adult patients (age at admission $>=$18, $N=73,181$).
+The cohort includes all adult patients (age at admission $>=$18; $N=73,181$).
 To ensure data volume and quality, patients meeting any of the following criteria were excluded:
 #list(
 [Less than six hours spent in the #acr("ICU").],
 [Less than four separate hours across the entire stay where at least one feature was measured.],
 [Any time interval of $>=$12 consecutive hours throughout the stay during which no feature was measured.],
 [Sepsis onset before the 6th hour in the #acr("ICU").])
-Applying these criteria resulted in a final cohort size of $N=63,425$ patients.
+Applying these criteria resulted in a final cohort of $N=63,425$ patients.
 The selection process with corresponding exclusion numbers is shown in @fig:cohort.
 
 
@@ -64,7 +64,7 @@ Sepsis-positive patients exhibited notably higher disease severity, with a media
 Additionally, septic patients had significantly longer #acr("LOS") than non-septic patients (median 335.1 hours vs 150.3 hours).
 Median time to sepsis onset was 13 hours with 25th-75th percentile #acr("IQR") of 8–34 hours.
 
-Both groups were similar in terms of demographic characteristics, including age (median 65 years), sex distribution (approximately 55% male), and weight at admission (median 77.6 kg).
+Both groups were similar with respect to demographic characteristics, including age (median 65 years), sex distribution (approximately 55% male), and weight at admission (median 77.6 kg).
 The majority of patients in both groups were white (63.6% overall) and had medical admissions (71.0% overall), though sepsis-positive patients had a higher proportion of medical admissions (84.8% vs 70.2%).
 
 
@@ -183,14 +183,14 @@ Numerical variables are summarized by _median [IQR 25th - 75th percentile]_ and 
 ) <tab:cohort>
 
 === Feature Choice and Labeling
-To enable direct result comparisons with benchmark @yaib, their feature set is adopted, which has been derived in collaboration with clinical experts and includes only widely available clinical markers.
+To enable direct result comparisons with the benchmark @yaib, their feature set is adopted, which has been derived in collaboration with clinical experts and includes only widely available clinical markers.
 Each #acr("EHR") includes 52 input-features, with four static variables (age, height, and weight at admission as well as sex) and 48 dynamic time-series variables.
 Dynamic variables combine seven vital signs and 39 laboratory tests, and two additional measurements (fraction of inspired oxygen and urine output).
-@tab:concepts provides a complete listing of all features with their value ranges, units of measurement and clinical descriptions.
+@tab:concepts provides a complete list of all features with their value ranges, units of measurement and clinical descriptions.
 
 Primary prediction target is to detect the sepsis onset time within six hours.
 This means, that the positive label for a Sepsis-3 onset is stretched for six the hours preceding and proceeding the actual onset, creating a time window of 12 hours.
-For this work, the target variables additionally include #acr("SOFA")-score, a #acr("SI") label for the auxiliary modules, in contrast to #acr("YAIB") where only the Sepsis-3 label is used (see @sec:formal).
+For this work, the target variables additionally include the #acr("SOFA")-score and a #acr("SI") label for the auxiliary modules, in contrast to #acr("YAIB") where only the Sepsis-3 label is used (see @sec:formal).
 
 === Preprocessing
 Data preprocessing involved three main steps: scaling, sampling, and imputation of features.
@@ -202,13 +202,13 @@ All features were uniformly resampled to an hourly basis with every trajectory p
 Padded time-points were masked out for training and evaluation.
 Missing data points for dynamic variables were forward-filled using the last known value of the same #acr("ICU") stay.
 For missing values without any prior measurement, the training cohort mean is used as fill value instead.
-Lastly the input data is augmented by a binary indicator that distinguishes between actual measurements and imputed values, effectively doubling the number of input features.
+Lastly, the input data is augmented by a binary indicator that distinguishes between actual measurements and imputed values, effectively doubling the number of input features.
 
 == Implementation Details <sec:impl>
 Implementation of the #acr("LDM") was done in the JAX @jax2018 based Equinox framework @kidger2021equinox.
 Following sections present the implementation details for each module along with their respective parameter counts.
 
-The infection indicator module $f_theta_f$ is a single #acr("GRU")-cell with a hidden size of $H_f = 32$, followed by the down-projection layer, in total this adds up to $13,249$ parameters (component-specific parameter counts are listed in @tab:paramcount of the @a:paramcount).
+The infection indicator module $f_theta_f$ consists of a single #acr("GRU") cell with a hidden size of $H_f = 32$, followed by the down-projection layer, in total this adds up to $13,249$ parameters (component-specific parameter counts are listed in @tab:paramcount of the @a:paramcount).
 
 The latent encoder architecture $g^e_(theta^e_g)$, illustrated in @fig:ae/A, implements a gated attention mechanism with residual processing.
 Incoming samples of $bold(mu)_t$ are split into the actual features and the imputation indicator.
@@ -228,7 +228,7 @@ Finally, the last hidden state passes through another #acr("GELU")-activated lay
 In total the encoder has $19,350$ parameter.
 
 The rollout module $g^r_(theta^r_g)$ performs latent space dynamics using a single #acr("GRU")-cell, with a hidden size of $H_g=4$, followed by the down projecting layer.
-This adds to $1,344$ parameter.
+This adds up to $1,344$ parameter.
 Choosing a small hidden dimension $H_g$ simplifies post-hoc analysis of what information is carried inside hidden dimension, while still allowing for sufficient information preservation to steer the latent trajectory effectively.
 Though this analysis is out of the scope and is not performed in this work.
 
@@ -244,7 +244,7 @@ It uses #acr("GELU") activations between layers to introduce non-linearity, foll
 In total the decoder has $3,524$ learnable parameter.
 
 === Training Details <sec:train>
-The cohort was partitioned at the patient level using a stratified split with a 80/10/10 ratio for training, validation, and test sets respectively, yielding $N=$50,740/6,343/6,342 samples.
+The cohort was partitioned at the patient level using a stratified split with an 80/10/10 ratio for training, validation, and test sets respectively, yielding $N=$50,740/6,343/6,342 samples.
 Splitting was stratified by sepsis status to maintain the 5.2% prevalence ratio across all sets.
 The test set was reserved for final evaluation only and was not involved in hyperparameter tuning.
 
@@ -252,14 +252,14 @@ Hyperparameters were manually tuned rather than automatically optimized for two 
 First, the loss function jointly optimizes prediction accuracy and latent space interpretability.
 Automated hyperparameter optimization would require reducing these to a single scalar metric, which risks producing models with high predictive performance but degraded latent space interpretability, defeating a core purpose of the #acr("DNM") integration.
 Second, exhaustive search over six loss components and 12 total tunable parameters would require hundreds of training runs, which is prohibitive for a proof-of-concept study.
-The primary goal is to demonstrate feasibility and interpretability rather than achieving state-of-the-art performance.
+The primary goal was to demonstrate feasibility and interpretability rather than achieving state-of-the-art performance.
 @tab:tparams lists full hyperparameter specifications and initial values for learnable parameters.
 
 Notably, the weight for the #acr("SOFA") classification loss $cal(L)_"SOFA"$ is magnitudes larger than every other loss.
 Empirically, this has lead to the best results, and it is not uncommon for multitask optimizations that one loss outweighs others by multiple magnitudes @kendall2018uncertain.
 In the end, the magnitude of the loss-gradients matters, not the raw numerical values.
 
-All modules were jointly optimized using the AdamW-optimizer @loshchilov2019adamw with a mini-batch size of $128$.
+All modules were jointly optimized using the AdamW optimizer @loshchilov2019adamw with a mini-batch size of $128$.
 The first epoch serves as a warm-up phase where the learning rate increases linearly from $0.0$ to $5 times 10^(-5)$.
 Subsequently, a constant learning rate is maintained for all remaining epochs.
 For the optimizer configuration, a weight decay of $lambda = 1 times 10^(-1)$ is chosen, with momentum parameters $beta_1=0.9$, $beta_2=0.999$.
@@ -361,7 +361,7 @@ caption: flex-caption(
 ) <tab:tparams>
 
 == Results <sec:results>
-Following sections present the experimental results generated by training the #acr("LDM") on the #acr("MIMIC")-IV dataset.
+The ollowing sections present the experimental results generated by training the #acr("LDM") on the #acr("MIMIC")-IV dataset.
 Details on the implementation and hyperparameters are specified in the previous two sections.
 Here, the training progression is discussed in @sec:train_pro, quantitative results presented in @sec:quant followed by qualitative analyses in @sec:qual.
 
@@ -371,7 +371,7 @@ The total loss $cal(L)_"total"$ rapidly decreases in the first $10$ epochs in bo
 For the majority of training time, the curves closely align, indicating stable multitask, showing only slight signs of overfitting towards the end.
 Total training loss decreases from $totalstart$ to $totalendt$, while the total validation loss reaches a slightly higher value of $totalendv$.
 
-Analyzing component losses $cal(L)_"sofa"$ and $cal(L)_"inf"$ does not provide much further insight into the learning dynamics.
+Analyzing the component losses $cal(L)_"sofa"$ and $cal(L)_"inf"$ does not provide much further insight into the learning dynamics.
 Both validation curves decrease rapidly and stabilize afterwards, indicating the respective modules quickly learn robust representations, namely the alignment of the latent space with organ dysfunction, as well as #acr("SI").
 
 #figure(
@@ -390,13 +390,13 @@ Starting from $0.0$, since no latent points are placed close to the edges of the
 By optimizing these losses, the model improves at predicting the sepsis label from #acr("EHR") histories.
 Quantitatively, validation #acr("AUROC") rises from near random performance (0.5) to $rocpeak$, with most gains occurring in the first third of training, followed by smaller but consistent improvements.
 Similarly, validation #acr("AUPRC") increases monotonically, which is particularly relevant given the strong class imbalance.
-Absence of any significant late-stage decline in these metrics suggests that the model continues refining clinically meaningful discrimination rather than memorizing training data.
+The absence of any significant late-stage decline in these metrics suggests that the model continues refining clinically meaningful discrimination rather than memorizing training data.
 
 === Quantitative Results <sec:quant>
 
-This training run was early-stopped after $stopepo$ epochs, with $selepo$ being the selected epoch, from validation #acr("AUROC") peak at epoch $rocepo$ with value $rocpeak$ and #acr("AUPRC") peak at epoch $prcepo$ with value $prcpeak$.
+This training run was stopped early after $stopepo$ epochs, with $selepo$ being the selected epoch, from validation #acr("AUROC") peak at epoch $rocepo$ with value $rocpeak$ and #acr("AUPRC") peak at epoch $prcepo$ with value $prcpeak$.
 Evaluating the model on the held-out test set, complete curves of the ROC and precision-recall curves are shown in @fig:areas by sweeping the decision threshold $tau$ from @eq:detect.
-Here, the ROC curve exhibits an expected shape, bending toward the top-left corner and away from the chance level curve shown as the dashed line.
+Here, the ROC curve exhibits the expected shape, bending toward the top-left corner and away from the chance level curve shown as the dashed line.
 An #acr("AUROC") of $auroc$ shows that the model will assign ground truth sepsis patients a higher risk $tilde(S)_t$ than non-septic patients in $aurocp%$ of the time.
 
 In contrast, the precision-recall curve shows higher precision at lower recall values (corresponding to lower threshold values $tau$), indicating the model struggles to produce confident positive predictions without predicting many false positives.
@@ -411,7 +411,7 @@ On average, when model predicts a positive label, it is correct only $auprcp%$ o
 ) <fig:areas>
 
 To put these results into perspective, @tab:comp compares the #acr("LDM") performance to baseline models trained in #acr("YAIB") @yaib on the same task, data-source, cohort definition and train-test split.
-The baseline models include include classical #acr("ML") and #acr("DL") approaches, with hyperparameters tuned via Bayesian optimization, 30 iterations for #acr("ML") models, 50 for #acr("DL") models.
+The baseline models include classical #acr("ML") and #acr("DL") approaches, with hyperparameters tuned via Bayesian optimization, 30 iterations for #acr("ML") models, 50 for #acr("DL") models.
 Baseline #acr("DL") models, including #acr("GRU"), #acr("LSTM"), Temporal Convolutional Networks, and Transformer outperform the classical #acr("ML") baselines, including Regularized Logistic Regression and Light Gradient Boosted Machines, systematically.
 The #acr("LDM") outperforms all baselines in both metrics.
 
@@ -471,9 +471,9 @@ The #acr("LDM") outperforms all baselines in both metrics.
 ) <tab:comp>
 
 In @fig:heat sample-density plots compare predicted and ground-truth values, demonstrating that the model captures both the magnitude and temporal dynamics of organ dysfunction and infection.
-For each variable a diagonal line corresponds to optimal prediction performance.
+For each variable, a diagonal line corresponds to optimal prediction performance.
 
-Predictions for the magnitude in #acr("SOFA")-score follow the diagonal trend across the full severity range.
+Predictions for the magnitude of the #acr("SOFA")-score follow the diagonal trend across the full severity range.
 This is indicating that the model preserves the ordinal structure of organ failure rather than collapsing toward the mean, though here it distributes most of the mass.
 While high #acr("SOFA") values are slightly smoothed, the overall distribution is well reproduced, suggesting that the latent representation inside the #acr("DNM") parameter space is able to capture clinically meaningful severity information.
 
@@ -491,14 +491,14 @@ Prediction densities are not shown for the sepsis label $S_t$ since the strong i
   image("../images/heat.svg"),
   caption: flex-caption(
   short: [Density plots of ground truth vs. predicted values.],
-  long: [Density plots comparing ground truth and predicted values for #acr("SOFA") score, immediate #acr("SOFA") change ($Delta$#acr("SOFA")), and #acr("SI").
+  long: [Density plots comparing ground truth and predicted values for #acr("SOFA")-score, immediate #acr("SOFA") change ($Delta$#acr("SOFA")), and #acr("SI").
   The model captures the overall #acr("SOFA") severity distribution and its temporal changes, while infection predictions show reasonable separation between low- and high-probability states.
   Color indicates log sample density.])
 ) <fig:heat>
 
 === Qualitative Results <sec:qual>
 
-This section investigates, whether the models is able to create plausible patient trajectories inside #acr("DNM") parameter space.
+This section investigates, whether the model is able to create plausible patient trajectories inside #acr("DNM") parameter space.
 First of all, @fig:heat_space/A shows predicted sample density of $bold(hat(z))$ layered over the latent space, where both the smooth low-desynchronized between $beta$ values $0.4$ and $0.5$ and the more dynamic highly-desynchronized area between $beta$ values $0.4$ and $1.0$ are occupied.
 The lower-right part of the latent space is completely unused.
 The distribution strongly centers around the point $bold(hat(z))_"center" approx (beta=0.58, sigma=0.98)$, from there, individual trajectories spread out into all directions, mostly ending up in the low-desynchronized.
@@ -518,11 +518,11 @@ This is indicating that the model is able to systematically use the #acr("DNM") 
   *B* shows the same latent space, but the overlay points are colored by the ground truth #acr("SOFA")-score, here it is desired that the color gradients align.])
 ) <fig:heat_space>
 
-Moving from the system wide behavior to three individual patient trajectories shown in @fig:traj.
+Moving from the system-wide behavior to three individual patient trajectories, shown in @fig:traj.
 These hand-picked examples illustrate possible physiological progressions and how each is represented inside the #acr("DNM") parameter space.
 The figure included three patients, showing predicted and ground truth #acr("SOFA")-score evolution on the right side, with the left side showing corresponding latent trajectories colored by the ground truth values.
 
-Patient 1 (@fig:traj, cyan) has at #acr("ICU") admission $t=0$ a relatively high #acr("SOFA")-score of 12, and the organ system deteriorates further, the score increases to value of 18 and settles down at a final value of 17.
+Patient 1 (@fig:traj, cyan) at #acr("ICU") admission $t=0$, has a relatively high #acr("SOFA")-score of 12, and the organ system deteriorates further, the score increases to value of 18 and settles down at a final value of 17.
 In the beginning, the prediction strongly underestimates the severity of Patient 1's condition by a 10 score points, yet it picks up the trend of deterioration, but overshoots and arrives at a #acr("SOFA")-score of 20.
 This progression is mirrored in the latent space, where the points clearly move from darker background-colors (more synchronization, better organ functionality) to brighter ones (less synchronization, worse organ functionality).
 
@@ -534,9 +534,9 @@ Notably, while predicted #acr("SOFA") scores do not fully align with ground trut
 
 Similarly, Patient 3 (@fig:traj, pink) arrives with an initial #acr("SOFA")-score of 0, which increases shortly to 1 over two days and returns to the baseline value 0, after 6 days the #acr("SOFA") score peaks for a few hours.
 The prediction does not detect the slight increase and stays at its initial value of 2 for the first day before decreasing to 1 and down to 0 after two more days.
-Initially, the latent trajectory of Patient 3  moves parallel to the brighter region, followed by a turn away into the darker region, predicting a healthy progression, the small peak is not picked up anymore.
+Initially, the latent trajectory of Patient 3 moves parallel to the brighter region, followed by a turn away into the darker region, predicting a healthy progression, the small peak is not picked up anymore.
 
-Overall these three exemplary patients show that the model can capture diverse physiological trajectories within the #acr("DNM") parameter space.
+Overall, these three exemplary patients show that the model can capture diverse physiological trajectories within the #acr("DNM") parameter space.
 While the magnitude of predicted #acr("SOFA")-scores sometimes deviates from ground truth, the model consistently captures directional trends, like deterioration, recovery, and stability, through meaningful movement in latent space.
 Correspondence between trajectory direction and organ dysfunction severity suggests the model has learned clinically relevant representations that map physiological states to interpretable #acr("DNM") parameters.
 

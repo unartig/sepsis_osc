@@ -1,8 +1,8 @@
 #import "@preview/cetz:0.4.2": canvas, draw
 
 
-#set page(margin: 1cm)
-#set text(size: 2pt)
+#set page(width: auto, height: auto, margin: 8pt, fill: none)
+#set text(size: 10pt)
 
 #let cohort_fig = canvas({
   import draw: *
@@ -71,3 +71,5 @@
   flow-box((x-pos, 0), "Sepsis Cohort", [63425], "cohort")
   line("base.east", "cohort.west", mark: (end: "stealth"))
 })
+
+#figure(cohort_fig)

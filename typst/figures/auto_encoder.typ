@@ -1,6 +1,7 @@
 #import "@preview/cetz:0.4.2": canvas, draw
 
-#set text(size: 4pt)
+#set page(width: auto, height: auto, margin: 8pt, fill: none)
+#set text(size: 10pt)
 
 #let input-dim = 104
 #let half-dim = calc.quo(input-dim, 2)
@@ -175,3 +176,4 @@
       [$bold(hat(mu))_t$ (#half-dim)], fill: rgb("#fff3e0"))
   })
 
+#figure(ae_fig)
