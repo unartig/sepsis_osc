@@ -193,7 +193,7 @@
     line("sofa.south", "zout.north", mark: (end: ">"), stroke: 1pt)
 
     rect((1.5, 1.0), (5.5, 0.25), name: "oout", stroke: 1.5pt + out_c)
-    content("oout.center", [$hat(O)_t (bold(hat(z)_t))$])
+    content("oout.center", [$hat(O) (bold(hat(z))_t)$])
     line("zout.south", "oout.north", mark: (end: ">"), stroke: 1pt)
 
     rect((1.5, -0.25), (5.5, -1), name: "aout", stroke: 1.5pt + out_c)

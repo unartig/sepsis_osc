@@ -40,7 +40,7 @@ In this way, it helps to maintain a healthy and balanced tissue, the _homeostasi
 
   image("../images/cells_micro_cropped.jpg", width:60%)),
 
-  caption: flex-caption(short: [Illustration and microscopic image of Stroma and Parenchymal Cells], long:[On the left hand side, an illustration of parenchymal cells sitting on top of the basel lamina (thin light-blue section) and the stroma in very light pinkish color building the base. The illustration shows the parenchymal cells in different shapes and organization @DigitalHistology_overview. On the right hand side a microscopic image of stomach tissue, with tightly packed parenchymal cells on the top and stroma cells as connective tissue in the light-pinkish color. The basal lamina is not visible at this level of magnification @DigitalHistology_cells.])
+  caption: flex-caption(short: [Illustration and microscopic image of Stroma and Parenchymal Cells], long:[On the left hand side, an illustration of parenchymal cells sitting on top of the basel lamina (thin light-blue section) and the stroma in very light pinkish color building the base. The illustration shows the parenchymal cells in different shapes and organization @DigitalHistology_overview. On the right hand side a microscopic image of stomach tissue (400x magnification), with tightly packed parenchymal cells on the top and stroma cells as connective tissue in the light-pinkish color. The basal lamina is not visible at this level of magnification @DigitalHistology_cells.])
 ) <fig:cells>
 
 Any organism that can cause a disease is called a pathogen, this includes bacteria, fungi, algae, and parasites.
