@@ -37,7 +37,7 @@ In these cases, complex networks of coupled oscillators are often capable of bri
 
 One of the most influential system of coupled oscillators is the _Kuramoto Phase Oscillator Model_.
 This system of coupled #acr("ODE"), where each term describes an oscillator rotating around the unit circle, is often used to study how synchronization emerges from simple coupling rules.
-In the simplest form, it consists of $N in NN_(>0)$ identical, fully connected and coupled oscillators with phase $phi_i in [0, 2pi)$, for $i = 1,...N$ and an intrinsic frequency $omega_i in RR$ @kuramoto1984chemical.
+In the simplest form, it consists of $N in NN_(>0)$ identical, fully connected and coupled oscillators with phase $phi_i in [0, 2pi)$, for $i = 1,...,N$ and an intrinsic frequency $omega_i in RR$ @kuramoto1984chemical.
 The phase $phi_i$ represents the angular position on the unit circle, hence it is defined $"modulo "2pi$.
 Traditionally, two oscillators $i$ and $j$ are coupled through the sine function $sin(phi_i - phi_j)$, the dynamics are then given by the #acr("ODE") system:
 $

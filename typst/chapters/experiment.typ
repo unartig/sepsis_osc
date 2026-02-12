@@ -512,10 +512,10 @@ This is indicating that the model is able to systematically use the #acr("DNM") 
   image("../images/heat_space.svg"),
   caption: flex-caption(
   short: [Distribution and alignment of latent predictions.],
-  long: [*A* shows the distribution of predicted latent points $bold(hat(z))=(hat(z)_beta, hat(z)_sigma)$ over the latent space.
+  long: [*A* shows the distribution of patient #acr("EHR") encoded as latent points $bold(hat(z))=(hat(z)_beta, hat(z)_sigma)$.
   The latent space is colored with the values of the normalized desynchronization metric $s^1 (bold(hat(z)))$, where brighter values indicate larger desynchronization.
   The point distribution is colored by density, with brighter values having greater density.
-  *B* shows the same latent space, but the overlay points are colored by the ground truth #acr("SOFA")-score, here it is desired that the color gradients align.])
+  *B* shows the same latent space, but the overlay points are colored by the mean ground truth #acr("SOFA")-score of all points for each coordinate, here the desired outcome is that the color gradients align.])
 ) <fig:heat_space>
 
 Moving from the system-wide behavior to three individual patient trajectories, shown in @fig:traj.

@@ -81,12 +81,12 @@
   circle(zc, radius: 2pt, fill: red, stroke: none, name: "zp")
   content(
     (rel: (.15, 0.15), to: zc),
-    $hat(z)$,
+    $hat(bold(z))$,
     anchor: "west",
   )
   content(
     (rel: (.15, -0.15), to: cround(zc)),
-    $tilde(z)$,
+    $tilde(bold(z))$,
     anchor: "west",
   )
 
