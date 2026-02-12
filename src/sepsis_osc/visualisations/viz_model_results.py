@@ -68,10 +68,10 @@ def viz_starter(
 
 def viz_plane(
     true_sofa: jnp.ndarray | np.ndarray,
-    betas: jnp.ndarray,
-    sigmas: jnp.ndarray,
+    betas: jnp.ndarray | np.ndarray,
+    sigmas: jnp.ndarray | np.ndarray,
     lookup: LatentLookup,
-    mask: np.ndarray,
+    mask: jnp.ndarray | np.ndarray,
     figax: tuple[Figure, Axes] | None = None,
     *,
     window_size: int = 5,
@@ -144,7 +144,7 @@ def viz_plane(
             marker="x",
         )
 
-        ax.annotate(f"0", (beta_scale[0] + 1, sigma_scale[0] + 1), color=cs[i], weight="bold")
+        ax.annotate("0", (beta_scale[0] + 1, sigma_scale[0] + 1), color=cs[i], weight="bold")
         ax.annotate(f"{beta_scale.size}", (beta_scale[-1] + 1, sigma_scale[-1] + 1), color=cs[i], weight="bold")
 
     return fig, ax
@@ -195,22 +195,22 @@ def viz_heatmap_concepts(
             axi.imshow(
                 np.log(heatmap.T + 1),  # transpose so it matches axes orientation
                 origin="lower",
-                extent=[xedges[0], xedges[-1], yedges[0], yedges[-1]],
+                extent=(xedges[0], xedges[-1], yedges[0], yedges[-1]),
                 aspect="equal",
                 cmap="magma",
                 norm=norm,
             )
         )
         axi.set_title(name)
-        axi.set_xlabel(f"Ground Truth")
+        axi.set_xlabel("Ground Truth")
     if cmap:
         pos = ax[-1].get_position()
 
         # Create colorbar axes outside the plot
-        cax = fig.add_axes([pos.x1 + 0.02, pos.y0, 0.02, pos.height])
+        cax = fig.add_axes((pos.x1 + 0.02, pos.y0, 0.02, pos.height))
         fig.colorbar(images[-1], cax=cax, label="log(Count)")
 
-    ax[0].set_ylabel(f"Predicted")
+    ax[0].set_ylabel("Predicted")
     fig.subplots_adjust(wspace=0.2)
     return fig, ax
 
