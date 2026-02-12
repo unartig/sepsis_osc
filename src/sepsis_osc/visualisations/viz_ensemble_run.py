@@ -9,10 +9,10 @@ def plot_metric_t(
     var_2: np.ndarray,
     a: float = 1.0,
     step_size: float = 1.0,
-    ax: plt.Axes | None = None,
+    ax: tuple[plt.Axes, plt.Axes] | None = None,
     *,
     rasterized: bool = True,
-) -> plt.Axes:
+) -> tuple[plt.Axes, plt.Axes]:
     if ax is None:
         _, ax = plt.subplots(2, 1)
     t = np.arange(var_1.shape[0]) * step_size
@@ -24,8 +24,7 @@ def plot_metric_t(
 if __name__ == "__main__":
     import jax.numpy as jnp
     import jax.random as jr
-    from diffrax import Bosh3, Dopri5, Dopri8, ODETerm, PIDController, Tsit5
-    from jax import vmap
+    from diffrax import Tsit5
 
     from sepsis_osc.utils.config import jax_random_seed
 
@@ -79,8 +78,8 @@ if __name__ == "__main__":
     print(tt)
 
     ax = plot_metric_t(metrics.s_1, metrics.s_2)
-    ax[0].set_ylim([0, 1])
-    ax[1].set_ylim([0, 1])
+    ax[0].set_ylim((0, 1))
+    ax[1].set_ylim((0, 1))
     ax[0].vlines(tt, 0, 1, color="tab:red", ls=":")
     ax[1].vlines(tt, 0, 1, color="tab:red", ls=":")
     ax[0].set_title("Average Standard Deviation\nParenchymal Layer")
@@ -89,16 +88,16 @@ if __name__ == "__main__":
     ax = plot_metric_t(metrics.r_1, metrics.r_2)
     ax[0].vlines(tt, 0, 1, color="tab:red", ls=":")
     ax[1].vlines(tt, 0, 1, color="tab:red", ls=":")
-    ax[0].set_ylim([0, 1])
-    ax[1].set_ylim([0, 1])
+    ax[0].set_ylim((0, 1))
+    ax[1].set_ylim((0, 1))
     ax[0].set_title("Kuramoto Order Parameter\nParenchymal Layer")
     ax[1].set_title("Immune Layer")
 
     ax = plot_metric_t(metrics.m_1, metrics.m_2)
     ax[0].vlines(tt, 0, 1, color="tab:red", ls=":")
     ax[1].vlines(tt, 0, 1, color="tab:red", ls=":")
-    ax[0].set_ylim([0, 1])
-    ax[1].set_ylim([0, 1])
+    ax[0].set_ylim((0, 1))
+    ax[1].set_ylim((0, 1))
     ax[0].set_title("Mean Velo\nParenchymal Layer")
     ax[1].set_title("Immune Layer")
 

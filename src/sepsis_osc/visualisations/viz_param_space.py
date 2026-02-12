@@ -137,7 +137,7 @@ def pretty_plot(
 
 if __name__ == "__main__":
     # ALPHA_SPACE = (-0.52, -0.52, 1.0)
-    BETA_SPACE = (0.4, 0.7, 0.003)
+    BETA_SPACE = (0.4, 1.0,  0.01)
     SIGMA_SPACE = (0.0, 1.5, 0.015)
     xs = np.arange(*BETA_SPACE)
     ys = np.arange(*SIGMA_SPACE)
@@ -145,21 +145,22 @@ if __name__ == "__main__":
     orig_xs = np.asarray([np.argmin(np.abs(xs - x)) for x in [0.4, 0.7]])
     orig_ys = np.asarray([len(ys) - np.argmin(np.abs(ys - y)) - 1 for y in [0.0, 1.5]])
 
-    db_str = "Daisy2"  # other/Tiny"
+    db_str = "DaisyFinal"
     storage = Storage(
         key_dim=9,
         metrics_kv_name=f"data/{db_str}SepsisMetrics.db/",
         parameter_k_name=f"data/{db_str}SepsisParameters_index.bin",
         use_mem_cache=False,
     )
+    ALPHA = -0.28
     b, s = as_2d_indices(BETA_SPACE, SIGMA_SPACE)
-    a = np.ones_like(b) * -0.28
-    indices_3d = np.concatenate([a, b, s], axis=-1)
-    spacing_3d = np.array([0, BETA_SPACE[2], SIGMA_SPACE[2]])
+    a = np.ones_like(b) * ALPHA
+    indices_2d = np.concatenate([b[..., np.newaxis], s[..., np.newaxis]], axis=-1)
+    spacing_2d = np.array([BETA_SPACE[2], SIGMA_SPACE[2]])
     params = DNMConfig.batch_as_index(a, b, s, 0.2)
-    metrics_3d, _ = storage.read_multiple_results(params, DNMMetrics, np.inf)
-    print(metrics_3d.shape)
-    metrix = metrics_3d.squeeze()
+    metrics_2d, _ = storage.read_multiple_results(params, proto_metric=DNMMetrics, threshold=0.0)
+    print(metrics_2d.shape)
+    metrix = metrics_2d.squeeze()
 
     if not metrix:
         raise ValueError("Failed")
