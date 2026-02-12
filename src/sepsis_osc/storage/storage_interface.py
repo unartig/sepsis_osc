@@ -1,12 +1,10 @@
-import logging
-
 import concurrent.futures
+import logging
 from typing import Optional
 
 import faiss
 import numpy as np
 import rocksdbpy as rock
-
 
 from sepsis_osc.dnm.abstract_ode import MetricBase, MetricT
 from sepsis_osc.utils.config import db_metrics_key_value, db_parameter_keys, max_workers
@@ -27,9 +25,9 @@ class Storage:
         metrics_kv_name: str = "",
         *,
         use_mem_cache: bool = True,
-    ):
-        parameter_k_name = parameter_k_name if parameter_k_name else db_parameter_keys
-        metrics_kv_name = metrics_kv_name if metrics_kv_name else db_metrics_key_value
+    ) -> None:
+        parameter_k_name = parameter_k_name or db_parameter_keys
+        metrics_kv_name = metrics_kv_name or db_metrics_key_value
         logger.info(f"Got {parameter_k_name} and {metrics_kv_name}")
 
         # FAISS stores the Parameter vectors for fast NN retrieval
@@ -73,8 +71,8 @@ class Storage:
         return rocksdb, current_idx
 
     @timing
-    def __setup_memory_cache(self):
-        def insert_metric(kv):
+    def __setup_memory_cache(self) -> None:
+        def insert_metric(kv) -> None:
             if kv:
                 key, data_bytes = kv
                 key = str(key.decode()).lstrip("metrics_")
@@ -110,7 +108,7 @@ class Storage:
 
     def add_metric(
         self,
-        packed_data: Optional[bytes],
+        packed_data: bytes | None,
         index: str = "",
     ) -> None:
         if not index:
@@ -131,7 +129,7 @@ class Storage:
     def read_metric(
         self,
         key: str,
-    ) -> Optional[MetricBase]:
+    ) -> bytes | None:
         if self.use_mem_cache:
             logger.info(f"Reading SystemMetrics with key {key} from MemoryCache")
             if key in self.__memory_cache:
@@ -175,8 +173,8 @@ class Storage:
         self,
         params: tuple[int | float, ...] | np.ndarray,
         proto_metric: MetricT,
-        threshold: np.float32 =np.inf,
-    ) -> Optional[MetricT]:
+        threshold: np.float32 = np.float32(np.inf),
+    ) -> MetricT | None:
         logger.info(f"Getting Metrics for {pprint_key(params)}")
         np_params = np.array([params], dtype=np.float32)
         index, distance = self.find_faiss(np_params)
@@ -206,7 +204,7 @@ class Storage:
         metrics_shape = (*original_shape, 1)
         res = proto_metric.np_empty(metrics_shape)
 
-        def _get_value_or_key(ind: tuple[int, ...]):
+        def _get_value_or_key(ind: tuple[int, ...]) -> bytes:
             index = int(indices[ind] if len(ind) else indices[ind[0]])
             if self.use_mem_cache:
                 return self.__memory_cache[str(index)]
@@ -221,7 +219,7 @@ class Storage:
                 keys = [_get_value_or_key(ind) for ind in ind_chunk]
                 raw_list = self.__db_metric.multi_get(keys)
 
-            for ind, raw in zip(ind_chunk, raw_list):
+            for ind, raw in zip(ind_chunk, raw_list, strict=True):
                 if not raw:
                     logger.error(f"Failed to fetch data for index {ind}")
                     return False
@@ -268,7 +266,7 @@ class Storage:
         proto_metric: MetricT,
         *,
         overwrite: bool = False,
-    ) -> "Optional[Storage]":
+    ) -> "Storage | None":
         # Merges other into self
         if self.key_dim != other.key_dim:
             logger.error(f"Cannot merge Storages with different Key dimension (got {self.key_dim} and {other.key_dim})")
@@ -282,9 +280,9 @@ class Storage:
         added = 0
         for key in other_keys:
             logger.info(f"Checking for other parameter-set {pprint_key(key)}")
-            metrics = other.read_result(key, proto_metric, threshold=0.0)
+            metrics = other.read_result(key, proto_metric, threshold=np.float32(0.0))
             if metrics:
-                success = self.add_result(key, metrics, overwrite=overwrite)
+                success = self.add_result(key, metrics.serialise(), overwrite=overwrite)
                 added += 1 if success else 0
         logger.info(f"Added {added} keys by merging")
         return self
