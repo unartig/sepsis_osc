@@ -40,7 +40,6 @@ class ConfigArgBase(ABC, eqx.Module):
     differential equation's derivative function.
     """
 
-    pass
 
 
 class ConfigBase(ABC, eqx.Module):
@@ -69,7 +68,7 @@ class ConfigBase(ABC, eqx.Module):
 
     @staticmethod
     @abstractmethod
-    def batch_as_index() -> jnp.ndarray:
+    def batch_as_index(*args, **kwargs) -> jnp.ndarray:
         """
         Returns indices for a batch of configurations.
         """
