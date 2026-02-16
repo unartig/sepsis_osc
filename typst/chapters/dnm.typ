@@ -149,11 +149,11 @@ The dimensionless system dynamics are described with the following coupled #acr(
 $
   dot(phi)^1_i =& omega^1 - 1/N sum^N_(j=1) lr({ (a^1_(i j) + kappa^1_(i j))sin(phi^1_i - phi^1_j + alpha^(11)) }) - sigma sin(phi^1_i - phi^2_i + alpha^(12)) #<odep1> \
 $$
-  dot(kappa)^1_(i j) &= -epsilon^1 (kappa^1_(i j) + sin(phi^1_i - phi^1_j - beta)) quad quad quad quad quad quad #<odek1> \
+  dot(kappa)^1_(i j) &= -epsilon^1 (kappa^1_(i j) + sin(phi^1_i - phi^1_j - beta)) quad quad quad quad quad quad quad quad quad #<odek1> \
 $$
-  dot(phi)^2_i =& omega^2 - 1/N sum^N_(j=1) lr({kappa^2_(i j)sin(phi^2_i - phi^2_j + alpha^(22)) }) - sigma sin(phi^2_i - phi^1_i + alpha^(21)) #<odep2> \
+  dot(phi)^2_i =& omega^2 - 1/N sum^N_(j=1) lr({kappa^2_(i j)sin(phi^2_i - phi^2_j + alpha^(22)) }) - sigma sin(phi^2_i - phi^1_i + alpha^(21)) quad quad quad quad #<odep2> \
 $$
-  dot(kappa)^2_(i j) &= -epsilon^2 (kappa^2_(i j) + sin(phi^2_i - phi^2_j - beta)) quad quad quad quad quad quad #<odek2>
+  dot(kappa)^2_(i j) &= -epsilon^2 (kappa^2_(i j) + sin(phi^2_i - phi^2_j - beta)) quad quad quad quad quad quad quad quad quad #<odek2>
 $ <eq:ode-sys>
 Where the interlayer coupling, i.e. a symmetric information through the basal lamina, is modeled by the parameter $sigma in RR_(>=0)$.
 The internal oscillator frequencies are modeled by the parameters $omega^ot$ and correspond to a natural metabolic activity.
