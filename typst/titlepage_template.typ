@@ -56,8 +56,8 @@
     columns: (1fr, 1.4fr),
     gutter: 4cm,
     align: left,
-    text("Hamburg University of Technology\nInstitute for Biomedical Imaging\nLottestraße 55\n22529 Hamburg", size:0.83em),
-    text("University Medical Center Hamburg-Eppendorf\nSection for Biomedical Imaging\nMartinistraße\n20246 Hamburg", size:0.83em),
+    text("Hamburg University of Technology\nInstitute for Biomedical Imaging\nAm Schwarzenberg-Campus 3\n 21073 Hamburg", size:0.83em),
+    text("University Medical Center Hamburg-Eppendorf\nSection for Biomedical Imaging\nLottestraße 55\n22529 Hamburg", size:0.83em),
   )
   #v(1fr)
 

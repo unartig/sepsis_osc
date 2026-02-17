@@ -33,10 +33,10 @@
     [], [or Urine Output [$"ml"/"day"$]], [], [], [< 500], [< 200],
   ),
 
-  caption: flex-caption(short: [#acl("SOFA")-score component definitions.], long: [#acr("SOFA")-score component definitions @SOFAscore.])
+  caption: flex-caption(short: [Components of the #acs("SOFA")-score definition.], long: [Components of the #acr("SOFA")-score definition @SOFAscore.])
 ) <tab:sofa>
 
-== DNM as Lie Formulation <a:lie>
+== Lie formulation of the Dynamic Network Model <a:lie>
 The idea from the reformulation originated from an encounter with @deaguiar2023ndkuramoto.
 Let $S O(2)$ denote the special orthogonal group of 2D rotations @lynch2017modern. Each element $R in S O(2)$ can be represented as:
 $

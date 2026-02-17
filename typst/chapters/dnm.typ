@@ -1,13 +1,13 @@
 #import "../thesis_env.typ": *
 #import "../figures/kuramoto.typ": kuramoto_fig
 
-= Model Background \ (Dynamic Network Model) <sec:dnm>
+= Model Background <sec:dnm>
 
 Macroscopic multi-organ failure associated with sepsis is driven by a dysregulated cascade of signaling processes on a microscopic level (see @sec:sepbio).
 This cascade involves a massive amount of interconnected components, where the connections mechanics and strengths vary over time and space.
 For example, these interactions differ across tissues and evolve as sepsis progresses, with crossing biochemical thresholds the behavior of cells can be changed @Callard1999Cytokines.
 
-In essence, cell-to-cell and cell-to-organ interactions in septic conditions form a highly dynamic, nonlinear and spatio-temporal network of relationships @Schuurman2023Complex, which cannot be fully understood by a reduction to single time-point analyzes.
+In essence, cell-to-cell and cell-to-organ interactions in septic conditions form a highly dynamic, nonlinear and spatio-temporal network of relationships @Schuurman2023Complex, which cannot be fully understood by a reduction to single time-point analyses.
 Even though many individual elements of the inflammatory response are well characterized, we still fail to integrate them into a coherent system-level picture.
 
 To address this complexity, the emerging field of _Network Physiology_ provides a promising conceptual framework.
@@ -35,10 +35,11 @@ The remainder of this chapter is structured as follows: @sec:kuramoto introduces
 To mathematically describe natural or technological phenomena, _coupled oscillators_ have proven to be a useful framework, for example, to model the relative timing of neural spiking, reaction rates of chemical systems or dynamics of epidemics @pikovsky2001synchronization.
 In these cases, complex networks of coupled oscillators are often capable of bridging microscopic dynamics and macroscopic synchronization phenomena observed in biological systems.
 
-One of the most influential system of coupled oscillators is the _Kuramoto Phase Oscillator Model_.
-This system of coupled #acr("ODE"), where each term describes an oscillator rotating around the unit circle, is often used to study how synchronization emerges from simple coupling rules.
-In the simplest form, it consists of $N in NN_(>0)$ identical, fully connected and coupled oscillators with phase $phi_i in [0, 2pi)$, for $i = 1,...,N$ and an intrinsic frequency $omega_i in RR$ @kuramoto1984chemical.
-The phase $phi_i$ represents the angular position on the unit circle, hence it is defined $"modulo "2pi$.
+One of the most influential systems of coupled oscillators is the _Kuramoto Phase Oscillator Model_.
+This system of coupled #acp("ODE"), where each term describes an oscillator rotating around the unit circle, is often used to study how synchronization emerges from simple coupling rules.
+In the simplest form, it consists of $N in NN_(>0)$ identical, fully connected and coupled oscillators with phase $phi_i in RR $, for $i = 1,...,N$ and an intrinsic frequency $omega_i in RR$ @kuramoto1984chemical.
+The phase $phi_i$ represents the angular position of oscillator $i$ and evolves as a real number.
+The sine coupling ensures the dynamics are $2pi$-periodic, allowing mapping to the unit circle for visualization.
 Traditionally, two oscillators $i$ and $j$ are coupled through the sine function $sin(phi_i - phi_j)$, the dynamics are then given by the #acr("ODE") system:
 $
   dot(phi)_i = omega_i - Kappa/N sum^N_(j=1) sin(phi_i - phi_j)
@@ -48,14 +49,14 @@ Here, the $dot(phi)$ is used as shorthand notation for the time derivative of th
 An additional parameter is the global coupling strength #box($Kappa in RR_(>0)$) between oscillators $i$ and $j in 1...N$.
 The system evolution depends on the choice of initial phases $phi_i (t=0)$, which are typically drawn from a uniform random distribution over $[0, 2pi)$.
 
-When evolving this system with time, commonly by numerical integration, since analytical solutions only exist for special cases, oscillator $i$'s phase velocity depends on each other oscillator $j$.
+When the system evolves with time, commonly by numerical integration, since analytical solutions only exist for special cases, oscillator $i$'s phase velocity depends on each other oscillator $j$.
 The sine coupling $sin(phi_i - phi_j)$ implements a phase-cohesion mechanism: oscillator $i$ decelerates when it leads oscillator $j$ ($0 < phi_i - phi_j < pi$) and accelerates when it lags behind ($-pi < phi_i - phi_j < 0$), pulling the population towards synchronization. 
 
 For sufficiently large $N$, the oscillator population can converge towards system-scale states of coherence or incoherence based on the choice of $Kappa$ @acebron2005kuramoto.
 Coherent in this case means oscillators synchronize with each other, so they share the same phase and phase velocity, incoherence on the other hand is the absence of synchronization (desynchronized), see @fig:sync.
 Synchronous states can be reached if the coupling is stronger than a certain threshold $Kappa>Kappa_c$, the critical coupling strength @acebron2005kuramoto.
 In between these two regimes there is a transition-phase of partial synchronization, where some oscillators phase- and frequency-lock and others do not.
-The model captures the mechanism of self-synchronization, and a collective transition from disorder to order, that underlies many real world processes, which is the reason the model has attracted so much research @pikovsky2001synchronization.
+The model captures the mechanism of self-synchronization, and a collective transition from disorder to order, that underlies many real-world processes, which is the reason the model has attracted so much research @pikovsky2001synchronization.
 
 #figure(
   scale(kuramoto_fig, 110%),
@@ -74,21 +75,21 @@ The model captures the mechanism of self-synchronization, and a collective trans
 To increase the generalization ability of the system, various extensions of the basic Kuramoto model have been proposed and studied both numerically and analytically.
 Several extensions are directly relevant to the #acr("DNM") and their definitions and effects on synchronization will be introduced, with additional terms being indicated by the red color:
 
-*Phase Lag $alpha$*, introduced in @sakaguchi1986rotator, where $abs(alpha) < pi/2$.
+*Phase Lag* $alpha$, introduced in @sakaguchi1986rotator, where $abs(alpha) < pi/2$.
 By shifting the coupling function, values of $alpha != 0$ act as an inhibitor of synchronization, so the coupling does not vanish even when the phases align:
 $
   dot(phi)_i = omega_i - Kappa/N sum^N_(j=1) sin(phi_i - phi_j cmred(+ alpha))
 $
 As a result the critical coupling strength $K_c$ increases with $alpha$ @sakaguchi1986rotator.
 
-*Adaptive coupling $bold(Kappa) in [-1, 1]^(N times N)$* moves from a global coupling strength $Kappa$ for all oscillator pairs to an adaptive asymmetric coupling strength for each individual pair #box($bold(Kappa) = (kappa_(i j)) _((i,j)in N times N)$):
+*Adaptive coupling* $bold(Kappa) in [-1, 1]^(N times N)$ moves from a global coupling strength $Kappa$ for all oscillator pairs to an adaptive asymmetric coupling strength for each individual pair #box($bold(Kappa) = (kappa_(i j)) _((i,j)in N times N)$):
 $
   dot(phi)_i = omega_i - 1/N sum^N_(j=1) cmred(kappa_(i j)) sin(phi_i - phi_j) \
-  cmred(dot(kappa)_(i j) = - epsilon (kappa_(i j) + sin(phi_i - phi_j + beta^mu)))
+  cmred(dot(kappa)_(i j) = - epsilon (kappa_(i j) + sin(phi_i - phi_j + beta)))
 $ <eq:kurasaka>
 Here, the adaptation rate $0 < epsilon << 1$ separates the fast moving oscillator dynamics from slower moving coupling adaptivity @Berner2020Birth.
 Such adaptive couplings have been used to model neural plasticity and learning-like processes in physiological systems @Jttner2023Dynamic.
-The so called phase lag parameter $beta$ of the adaptation function (also called plasticity rule) plays an essential role in the synchronization process.
+The so-called phase lag parameter $beta$ of the adaptation function (also called plasticity rule) plays an essential role in the synchronization process.
 At a value of $beta^mu=pi/2$, the coupling, and therefore the adaptivity, is at a maximum positive feedback, strengthening the link $kappa_(i j)$ and encouraging synchronization between oscillators $i$ and $j$.
 This maximal connectivity is referred to _Hebbian Rule_ and found in synchronizing systems such as the brain  @Berner2020Birth.
 For other values $beta^mu != pi/2$, the feedback is delayed $phi^(mu)_i-phi^(nu)_j=beta^mu-pi/2$ by a phase lag, at a value of $beta^mu=-pi/2$ we get an anti-Hebbian rule which inhibits synchronization.
@@ -115,14 +116,14 @@ In splay states, all oscillators synchronize their frequencies but do not their 
 The introduction of multiplexed layers changes the system behavior once more, for example individual layers of a multiplexed system can result in the multi-clustered regime for parameters they would not in the monoplexed case.
 In multiplexed systems it is also possible connected layers end up in different stable states, for example, one in a clustered the other in a splay state.
 
-== Description <sec:dnmdesc>
-Built on top of the Kuramoto Oscillator Model, the #acr("DNM") is a *functional* model, that means it *does not try to model things accurately on any cellular, biochemical, or organ level*, it instead tries to model dynamic interactions.
-At the core, the model does differentiate between two broad classes of cells, introduced in @sec:cell, the stroma and the parenchymal cells.
+== Description of the Dynamic Network Model <sec:dnmdesc>
+Built on top of the Kuramoto Oscillator Model, the #acr("DNM") is a *functional* model, that means it *does not try to model accurately on any cellular, biochemical, or organ level*, it instead tries to model dynamic interactions.
+At the core, the model differentiates between two broad classes of cells, introduced in @sec:cell, the stroma and the parenchymal cells.
 It also includes the cell interaction through cytokine proteins and an information flow through the basal membrane.
-Importantly, the model only handles the case of already infected subjects and tries to grasp if the patients state is prone to a dysregulated host response.
+Importantly, the model only handles the case of already infected subjects and tries to grasp if the patient's state is prone to a dysregulated host response.
 
 Cells of one type are aggregated into layers, everything associated with parenchymal cells is indicated with an $dot^1$ superscript and is called the _organ layer_, stroma cells are indicated with $dot^2$ and is referred to as nonspecific _immune layer_.
-Each layer consists of $N$ phase oscillators $phi^ot_i in [0, 2pi)$.
+Each layer consists of $N$ phase oscillators $phi^ot_i in RR$.
 To emphasize again the function aspect of the model: individual oscillators do not correspond to single cells, rather the layer as a whole is associated with the overall state of all organs or immune system functionality respectively.
 An illustration of the biological and functional model is shown in @fig:dnm.
 
@@ -133,7 +134,7 @@ An illustration of the biological and functional model is shown in @fig:dnm.
   long: [Image taken from @Berner2022Critical
  in a simplified form, illustrating the #acl("DNM").
   *A* A tissue element is depicted, in which the basic processes of sepsis take place.
-  Shown are different immune and structural cells involved (colored) in the stroma (yellow area), the parenchym (grey), and the capillary blood vessel, where cytokines, #acr("PAMP")s and #acr("DAMP")s are transmitted.
+  Shown are different immune and structural cells involved (colored) in the stroma (yellow area), the parenchyma (grey), and the capillary blood vessel, where cytokines, #acr("PAMP")s and #acr("DAMP")s are transmitted.
   *B* Depicts the functional interactions within and between the two corresponding network layers in the #acr("DNM"), the parenchyma and the stroma (immune layer).
   ]),
 ) <fig:dnm>
@@ -143,7 +144,7 @@ Each layer is fully coupled via an adaptive possibly asymmetric matrix $bold(Kap
 Small absolute coupling values indicate a low communication via cytokines and grows with larger coupling strength.
 For the organ layer there is an additional non-adaptive coupling part $bold(A)^1 in [0, 1]^(N times N)$ with elements $a^1_(i j)$, representing a fixed connectivity within an organ.
 
-The dimensionless system dynamics are described with the following coupled #acr("ODE") terms, build on the classical Kuramoto model described in @sec:kuramoto and its extensions from @sec:extent:
+The dimensionless system dynamics are described with the following coupled #acr("ODE") terms, built on the classical Kuramoto model described in @sec:kuramoto and its extensions from @sec:extent:
 
 // I know this is awful, but please typst, fix your align / sub-numbering
 $
@@ -155,7 +156,7 @@ $$
 $$
   dot(kappa)^2_(i j) &= -epsilon^2 (kappa^2_(i j) + sin(phi^2_i - phi^2_j - beta)) quad quad quad quad quad quad quad quad quad #<odek2>
 $ <eq:ode-sys>
-Where the interlayer coupling, i.e. a symmetric information through the basal lamina, is modeled by the parameter $sigma in RR_(>=0)$.
+Where the interlayer coupling, i.e. a symmetric information flow through the basal lamina, is modeled by the parameter $sigma in RR_(>=0)$.
 The internal oscillator frequencies are modeled by the parameters $omega^ot$ and correspond to a natural metabolic activity.
 
 Besides the coupling weights in $bold(Kappa)^ot$ the intralayer interactions also depend on the phase lag parameters $alpha^11$ and $alpha^22$ modeling cellular reaction delay.
@@ -166,6 +167,7 @@ Lastly, the most influential parameter is $beta$ which controls the adaptivity o
 Because $beta$ has such a big influence on the model dynamics it is called the _(biological) age parameter_ and summarizes multiple physiological concepts such as age, inflammatory baselines, adiposity, pre-existing illness, physical inactivity, nutritional influences and other common risk factors @Berner2022Critical.
 
 All the systems variables and parameters are summarized in @tab:dnm together with their medical interpretation.
+#pagebreak()
 #figure(
   table(
     columns: (auto, auto, auto),
@@ -183,7 +185,7 @@ All the systems variables and parameters are summarized in @tab:dnm together wit
 
     [$beta$],
     [Plasticity rule],
-    [Combined of risk factors],
+    [Combination of risk factors],
     // [Age, inflammation, pre-existing illness, other risk factor],
 
     [$omega$],
@@ -206,7 +208,7 @@ All the systems variables and parameters are summarized in @tab:dnm together wit
     [Standard deviation of frequency \ (see @eq:std)],
     [Pathogenicity (Parenchymal Layer)],
   ),
-  caption: flex-caption(short: [#acl("DNM") Notation Table], long: [Summarization of notation used in the Dynamic Network Model. Superscripts indicating the layer are left out for readability.]),
+  caption: flex-caption(short: [#acl("DNM") Notation], long: [Summarization of notation used in the Dynamic Network Model. Superscripts indicating the layer are left out for readability.]),
 ) <tab:dnm>
 
 === Pathology in the DNM
@@ -224,7 +226,7 @@ There are two more cases, neither fully healthy nor fully pathologic, representi
 The healthy but vulnerable case corresponds to a splay state, where phases in the parenchymal layer are not synchronized, but the frequencies are, weakening the overall coherence @Berner2022Critical.
 A resilient state corresponds to cases where both the phase and frequency of the parenchymal layer are synchronized, but the immune layer exhibits both frequency and phase clustering.
 
-It is important to note, that the #acr("ODE") dynamics or system variable trajectories *do not* translate to the evolution of a patients pathological state.
+It is important to note, that the #acr("ODE") dynamics or system variable trajectories *do not* translate to the evolution of a patient's pathological state.
 Instead, the amount of desynchronization of the parenchymal layer when reaching a steady system state can be interpreted as the current state of a patients organ functionality.
 The "result" or solution of the coupled oscillator system does not provide any temporal insights, but only describe the current condition.
 Time-steps taken inside the model cannot be compared to any real-world time quantity. 
@@ -235,13 +237,13 @@ Time-steps taken inside the model cannot be compared to any real-world time quan
 This subsection describes the implementation for the numerical integration of the #acr("DNM") defined in @eq:ode-sys, the choice of initial parameter values and how (de-)synchronicity/disease severity is quantified.
 One goal of this implementation is to partly reproduce the numerical results presented in @Berner2022Critical, since they will be serving as a basis for following chapters.
 
-=== Implementation Details
-The backbone of the present numerical integration is JAX @jax2018, a Python package for high-performance array computation, similar to NumPy or MATLAB but designed for automatic differentiation, vectorization and #acr("JIT").
-#acr("JIT")-compilation and vectorization allow high-level numerical code to be translated to highly optimized accelerator-specific machine code, for example #acr("GPU").
+=== Numerical Integration
+The backbone of the present numerical integration is JAX @jax2018, a Python package for high-performance array computation, similar to NumPy or MATLAB but designed for automatic differentiation, vectorization and just-in-time compilation.
+These feature allow high-level numerical code to be translated to highly optimized accelerator-specific machine code, including graphics cards.
 This way, performance benefits of massively parallel hardware can be utilized with minimal extra programming cost.
 For the actual integration a differential equation solver from diffrax @kidger2022diffrax was used, which provides multiple solving schemes fully built on top of JAX.
 
-While @Berner2022Critical uses a fourth-order Runge-Kutta method and a fixed step-size, this implementation#footnote[The code is available at https://github.com/unartig/sepsis_osc/blob/main/src/sepsis_osc/dnm/dynamic_network_model.py], in contrast, uses the Tsitouras 5/4 Runge-Kutta method @Tsitouras2011Runge with adaptive step-sizing controlled by a #acr("PID") controller, allowing for more efficient integration while keeping similar accuracy.
+While @Berner2022Critical uses a fourth-order Runge-Kutta method and a fixed step-size, this implementation#footnote[The code is available at https://github.com/unartig/sepsis_osc/blob/main/src/sepsis_osc/dnm/dynamic_network_model.py], in contrast, uses the Tsitouras 5/4 Runge-Kutta method @Tsitouras2011Runge with adaptive step-sizing controlled by a proportional-integral-derivative controller, allowing for more efficient integration while keeping similar accuracy.
 A relative tolerance of $10^(-3)$ and an absolute tolerance $10^(-6)$ were chosen.
 All simulations were carried out in 64-bit floating point precision, necessary for accurate and stable system integration.
 
@@ -273,8 +275,8 @@ To account for the randomly initialized variables, each parameter configuration 
 This randomization of initial values is used to account for epistemic uncertainties, i.e. systemic errors introduced by modeling simplifications.
 
 In @Berner2022Critical the influence of parameter values for $beta$ and $sigma$ was investigated and not constant throughout different simulations, with $beta in [0.4pi, 0.7pi]$ and $sigma in [0, 1.5]$, in this work the interval for $beta$ was increased to $[0.0, 1.0pi]$.
-An exhaustive summary of all variable initializations and parameter choices can be found in @tab:init.
-
+A summary of all variable initializations and parameter choices can be found in @tab:init.
+#pagebreak()
 #figure(
   table(
     columns: (auto, 13em, auto, 13em),
@@ -302,7 +304,7 @@ An exhaustive summary of all variable initializations and parameter choices can 
 )<tab:init>
 
 Initial values for the system variables, i.e. the phases and coupling strengths, were not parametrized explicitly, rather sampled from probability distributions.
-The initial phases $phi(0)^ot_i$ are randomly and uniformly distributed around the unit circle for both layers, i.e. $phi(0)^ot_i ~ cal(U)[0, 2pi)$.
+The initial phases $phi(0)^ot_i$ are randomly and uniformly distributed around the unit circle for both layers, i.e. #box($phi(0)^ot_i ~ cal(U)[0, 2pi)$).
 The intralayer coupling of the parenchymal layer coupling is also chosen randomly and uniformly distributed in the interval $[-1.0, 1.0]$.
 Since there is no self-coupling, the diagonal of the intralayer coupling matrix is set to 0 $kappa^ot_(i j) = 0$.
 
@@ -352,14 +354,14 @@ for some averaging time window $T$.
 But since their choice of $T$ is not documented while having substantial influence on the calculation the instantaneous angle velocity from @eq:mean was preferred.
 While the overall systematics stay the same, deviations from their original results are expected, due to this change in definition.
 
-One can now calculate the _standard deviation of the mean phase velocities_:
+One can now calculate the _standard deviation of the phase velocity_:
 $
   sigma_chi (overline(omega)^ot, t) = sqrt(1/N sum^N_j (dot(phi)^ot_j (t) - overline(omega)^ot (t))^2)
 $ <eq:stdsingle>
 Where $sigma_chi = 0$ indicates full frequency synchronization and growing values indicate desynchronization and/or clustering.
 Nonzero values only reveal that there is some desynchronization of the frequencies, but it remains unknown if it is clustered, multi-clustered or fully desynchronized.
 
-Having multiple ensemble members $m=1,...,M$ with the same parameterization, it is expected that different initializations, meaning initial-values drawn from the parameterized distributions, exhibit dissimilar behaviors, one can also calculate the _ensemble averaged standard deviation of the mean phase velocity_:
+Having multiple ensemble members $m=1,...,M$ with the same parameterization, it is expected that different initializations, meaning initial-values drawn from the parameterized distributions, exhibit dissimilar behaviors, one can also calculate the _ensemble averaged standard deviation of the phase velocity_:
 
 $
   s^ot (t) = 1/M sum^M_m sigma_chi (overline(omega)_m^ot, t)
@@ -385,7 +387,9 @@ All the following results are for a system with $N=200$ oscillators, and snapsho
     [$beta$], [$0.5 pi$], [$0.58 pi$], [$0.7 pi$], [$0.5 pi$],
     [$sigma$], [$1.0$], [$1.0$], [$1.0$], [$0.2$],
   ),
-  caption: flex-caption(short: [Specific $beta$-$sigma$ combinations to illustrate simulation results], long:[Specific $beta$-$sigma$ combinations to illustrate simulation results.]),
+  caption: flex-caption(
+  short: [Exemplary $beta$-$sigma$ combinations],
+  long:[Exemplary $beta$-$sigma$ combinations to illustrate simulation results.]),
 )<tab:siminit>
 
 In @fig:snap, the left-most columns depicts the coupling matrices for the organ layer $bold(Kappa)^1$ followed by two columns showing the phase velocities for each oscillator $dot(phi)_i^ot$ and two columns showing the oscillator phases each layer $phi_i^ot (T_"sim")$.
@@ -448,7 +452,7 @@ Coordinates of configurations A, B, C, and D are also labeled.
   caption: flex-caption(
   short: [Phase Space of $sigma$ and $beta$],
   long: [
-    The plots show the phase space of the parameters $beta$ and $sigma$ and illustrate the broader picture their influence on the frequency and phase synchronization of the #acr("DNM").
+    The phase space of the parameters $beta$ and $sigma$ and illustrate the broader picture their influence on the frequency and phase synchronization of the #acr("DNM").
     White rectangle indicates the grid-limits of the original publication @Berner2022Critical
   .
   ]),
@@ -497,7 +501,7 @@ Conversely, if #acr("DNM") parameters learned from data correlate with disease s
 The second question tackles the functional vs. mechanistic limitation.
 Does embedding the #acr("DNM") structure as an inductive bias improve predictions compared to black-box models that ignore physiological principles? Or does the model's abstraction level sacrifice too much biological detail to be useful? This comparison will reveal whether the DNM's theoretical framework translates to practical advantages in clinical prediction tasks.
 
-== Summary of the Dynamic Network Model
+== Summary
 This chapter introduced the #acl("DNM") as a functional, mesoscopic description of coordinated physiological activity during sepsis, modeling cellular cytokine-based communication.
 Based on adaptive Kuramoto-type oscillators arranged in a two-layer parenchymal and immune architecture, the model exhibits a range of emergent regimes like synchronization, clustering, chimera-like patterns, that may be interpreted physiological states.
 Key parameters such as the biological age $beta$ and interlayer coupling $sigma$ were shown to modulate these regimes.

@@ -11,7 +11,7 @@
     content("ehr-1.center", text(fill: gray.darken(20%))[EHR $bold(mu)_(t-1)$])
     
     rect((-6, -1.5), (-4, -0.5), name: "rnn-1", stroke: (paint: inf_c.lighten(1%), dash: "dotted"), fill: inf_c.lighten(95%))
-    content("rnn-1.center", text(fill: gray.darken(20%))[RNN $f_theta_f$])
+    content("rnn-1.center", text(fill: gray.darken(20%))[GRU $f_theta_f$])
     
     rect((-6, -2.7), (-4, -2), name: "inf-1", stroke: (paint: red.lighten(1%), dash: "dotted"))
     content("inf-1.center", text(fill: gray.darken(20%))[$tilde(I)_(t-1)$])
@@ -26,7 +26,7 @@
     content("hprev.center", [$bold(h)^f_(t-1) in RR^(H_f)$])
     
     rect((-1, -1.5), (1, -0.5), name: "rnn", stroke: 2pt + inf_c, fill: inf_c.lighten(90%))
-    content("rnn.center", [RNN $f_theta_f$])
+    content("rnn.center", [GRU $f_theta_f$])
     
     line("ehr.south", "rnn.north", mark: (end: ">"), stroke: 1.5pt)
     
@@ -46,7 +46,7 @@
     content("ehr+1.center", text(fill: gray.darken(20%))[EHR $bold(mu)_(t+1)$])
     
     rect((4, -1.5), (6, -0.5), name: "rnn+1", stroke: (paint: inf_c.lighten(1%), dash: "dotted"), fill: inf_c.lighten(95%))
-    content("rnn+1.center", text(fill: gray.darken(20%))[RNN $f_theta_f$])
+    content("rnn+1.center", text(fill: gray.darken(20%))[GRU $f_theta_f$])
     
     rect((4, -2.7), (6, -2), name: "inf+1", stroke: (paint: red.lighten(1%), dash: "dotted"))
     content("inf+1.center", text(fill: gray.darken(20%))[$tilde(I)_(t+1)$])
@@ -79,7 +79,7 @@
     line((rel: (0, dh), to: "enc.east"), "h0.west", mark: (end: ">"), stroke: 1pt + gray)
     
     rect((0.75, 0.5), (3.25, 1.5), name: "rnn0", stroke: 2pt + sofa_c, fill: sofa_c.lighten(90%))
-    content("rnn0.center", [RNN $g^r_theta^r_g$])
+    content("rnn0.center", [GRU $g^r_theta^r_g$])
     line("h0.east", (rel: (0, dh), to: "rnn0.west"), stroke: 1pt +  gray, mark: (end: ">"))
     
     rect((1, 2), (3, 2.8), name: "ehr1", stroke: 2pt + blue)
@@ -111,7 +111,7 @@
     
     // t=2 step
     rect((6.75, 0.5), (9.25, 1.5), name: "rnn1", stroke: (paint: sofa_c.lighten(1%), dash: "dotted"), fill: sofa_c.lighten(95%))
-    content("rnn1.center", text(fill: gray.darken(20%))[RNN $g^r_theta^r_g$])
+    content("rnn1.center", text(fill: gray.darken(20%))[GRU $g^r_theta^r_g$])
     
     rect((7, 2), (9, 2.8), name: "ehr2", stroke: (paint: blue.lighten(1%), dash: "dotted"), fill: blue.lighten(95%))
     content("ehr2.center", text(fill: gray.darken(20%))[EHR $bold(mu)_t$])

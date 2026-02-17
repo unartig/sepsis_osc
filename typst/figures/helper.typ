@@ -1,5 +1,4 @@
 #import "@preview/cetz:0.4.2": canvas, draw
-#import "@preview/suiji:0.4.0": *
 #import draw: bezier, circle, content, line
 
 
@@ -41,6 +40,14 @@
 #let cmbeta(x) = text(fill: purple, $#x$)
 #let cmsigma(x) = text(fill: orange, $#x$)
 #let cmred(x) = text(fill: red, $#x$)
+
+#let cmw(x) = text(fill: gray, $#x$)
+#let cmb(x) = text(fill: blue, $#x$)
+#let cmg(x) = text(fill: olive, $#x$)
+#let cmp(x) = text(fill: purple, $#x$)
+#let cmpp(x) = text(fill: fuchsia, $#x$)
+#let cmo(x) = text(fill: orange, $#x$)
+#let cmr(x) = text(fill: red, $#x$)
 
 #let connect-layers(
   xoff_start,
@@ -88,49 +95,55 @@
   let dir = cnorm(csub(p2, p1))
   let p1a = cadd(p1, cscale(dir, node-radius))
   let p2a = csub(p2, cscale(dir, node-radius))
-  line(p1a, p2a, stroke: (dash: "dashed", paint: c), name: name)
+  line(p1a, p2a, stroke: (dash: "dashed", paint: c, thickness: 1.5pt), name: name)
 }
 
-
-#let curved(p1, p2, rng, node-radius: 1) = {
+#let curved(p1, p2, node-radius: 1, c: purple, r: true) = {
   let dir = cnorm(csub(p2, p1))
   let p1a = cadd(p1, cscale(dir, node-radius))
   let p2a = csub(p2, cscale(dir, node-radius))
+  
+  // Use simple pseudo-random offsets based on position
+  let seed = calc.rem(int(p1.at(0) * 100 + p1.at(1) * 100 + p2.at(0) * 100 + p2.at(1) * 100), 100)
+  let color-seed = if c == color.fuchsia {6} else {2}
+  seed = color-seed + seed
+  
+  let d-range = 0.3
+  let d1 = calc.rem(seed * 100, int(d-range * 20)) / 10.0 - d-range
+  let d2 = calc.rem(seed * 23, int(d-range * 20)) / 10.0 - d-range
+  // let (d1, d2) = (0.1, 0.1)
 
-  let mid = midp(p1a, p2a)
-  let d1 = 0.0
-  let d2 = 0.0
   let th = 0.0
-  // (irng, d1) = uniform(irng, high:1, low:-1)
-  // (irng, d2) = uniform(irng, high:1, low:-1)
-  (rng, d1) = choice(rng, (.15, -.15))
-  (rng, d2) = choice(rng, (.15, -.15))
-  // d1 = sign(p1.at(0)+p2.at(0))*0.5
-  // d2 = sign(p1.at(0)+p2.at(1))*0.5
-  let ctrl-offset = (d1, d2)
-  let ctrl = cadd(mid, ctrl-offset)
-  (rng, th) = uniform(rng, low: 0, high: 1, size: none)
-  // bezier(p1a, p2a, ctrl, stroke: (paint: black, thickness: th))
-  bezier(p1a, p2a, ctrl, ..(
-    // stroke: .5pt + black,
-    stroke: (paint: purple, thickness: th * 1pt),
+  if r {
+    let (th-min, th-max) = (0.6, 1.8)
+    th = th-min + calc.rem(seed * 31 + color-seed, int((th-max - th-min) * 10)) / 10.0
+  } else {
+    th = 0.7
+  }
+  
+  let ctrl = cadd(midp(p1a, p2a), (d1, d2))
+  let ctrl = cadd(midp(p1a, p2a), (d1, d2))
+  
+  draw.bezier(p1a, p2a, ctrl,
+    stroke: (paint: c, thickness: th * 1pt),
     mark: (
       start: "stealth",
       end: "stealth",
-      fill: purple,
+      fill: c,
       scale: .4,
       offset: 0.03,
     ),
-  ))
-  // return rng
+  )
 }
 
-#let lines-between(points, rng, node-radius: 1) = {
+
+#let lines-between(points, node-radius: 1, c: purple, r: true) = {
+  let curves = ()
+  let curve = none
   for i in range(0, points.len() - 1) {
-    let point1 = points.at(i)
     for j in range(i + 1, points.len()) {
-      let point2 = points.at(j)
-      curved(point1, point2, rng, node-radius: node-radius)
+      curved(points.at(i), points.at(j), node-radius: node-radius, c: c, r: r)
+      curves.push(curve)
     }
   }
 }
