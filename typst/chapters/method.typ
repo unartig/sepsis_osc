@@ -3,30 +3,30 @@
 #import "../figures/fsq.typ": fsq_fig
 #import "../figures/modules.typ": sofa_fig, inf_fig, ldm_fig, dec_fig
 
-#reset-acronym("DNM")
-#reset-acronym("SI")
-#reset-acronym("RNN")
-#reset-acronym("AUROC")
-#reset-acronym("AUPRC")
+// #reset-acronym("DNM")
+// #reset-acronym("SI")
+// #reset-acronym("RNN")
+// #reset-acronym("AUROC")
+// #reset-acronym("AUPRC")
 
-= Method \ (Latent Dynamics Model) <sec:ldm>
-This chapter introduces the #acr("LDM"), a novel methodological framework that embeds the #acr("DNM") (@sec:dnm)within a machine learning pipeline.
+= Latent Dynamics Model <sec:ldm>
+This chapter introduces the #acr("LDM"), a novel methodological framework that embeds the #acr("DNM") (@sec:dnm) within a machine learning pipeline.
 As established in the previous chapter, the #acr("DNM") provides a theoretical framework for understanding sepsis dynamics through coupled oscillator networks, though it has not yet been validated against real patient data.
-To address this gap, the #acr("LDM") was designed to infer interpretable and patient specific #acr("DNM") parameter from clinical observations and simultaneously generate short-term sepsis risk prediction in an online fashion.
+To address this gap, the #acr("LDM") was designed to infer interpretable and patient specific #acr("DNM") parameters from clinical observations and simultaneously generate short-term sepsis risk prediction in an online fashion.
 
 Rather than predicting sepsis directly as a single binary outcome, proposed architecture decomposes the prediction task into two clinically meaningful quantities aligned with the Sepsis-3 definition.
 Namely, the #acr("SI") and increase in #acr("SOFA") scores are predicted as proxies creating more nuanced and more interpretable prediction results.
 
 At its core, the #acr("LDM") embeds the #acr("DNM") into a learnable latent dynamical system, to provide an inductive bias in the prediction path of the #acr("SOFA")-score increase.
 A neural network learns to position patients within the $(beta, sigma)$ parameter phase space of the #acr("DNM") and a #acr("RNN") learns to predict the drift through that space based on observed clinical time series.
-Ultimately, the goal is to align the predicted trajectories in the parameter space  with real patient physiological progressions.
+Ultimately, the goal is to align the predicted trajectories in the parameter space with real patient physiological progressions.
 
 This chapter proceeds with @sec:formal, where the prediction task prediction strategy is formalized.
 Desired prediction properties, together with the justification of modeling choices are also introduced here.
 Afterwards, in @sec:arch, the architecture will be discussed, focusing on what purpose each part serves and how it is integrated into the broader system.
-The chapter will close with explaining some widely used performance metrics in @sec:metrics.
+The chapter will close with explaining some established performance metrics in @sec:metrics.
 
-== Formalizing the Prediction Strategy <sec:formal>
+== Formalizing the Prediction Problem <sec:formal>
 In automated clinical prediction systems, a patient is typically represented through their #acl("EHR") (#acr("EHR")).
 The #acr("EHR") aggregates multiple clinical variables, such as laboratory biomarker, for example from blood or urine tests, or physiological scores and, further demographic information, like age and gender.
 Using the information that is available in the #acr("EHR") until the prediction time-point $t$, the objective is to estimate the patients risk of developing sepsis at that time $t$.
@@ -36,7 +36,7 @@ Even though the presented work is a proof-of-concept study, the prediction syste
 This means, that for every prediction at time $t$ only the information available up to that time-point can be used, and no future observations.
 
 === Patient Representation
-Let $t$ denote an observation time during a patients #acr("ICU")-stay and the available #acr("EHR") at that time consisting of $D$ variables.
+Let $t in {1, 2, ... ,T }$ denote an observation time during a patient's #acr("ICU")-stay of length $T$ and the available #acr("EHR") at that time consisting of $D in NN_(>0)$ variables.
 After imputation of missing values, normalization, and encoding of non-numerical quantities, each variable $mu_j$ is mapped to a numerical value:
 $
   mu_(t,j) in RR, " " j = 1,...,D
@@ -46,19 +46,19 @@ $
   bold(mu)_t = (mu_(t,1),..., mu_(t,D))^T in RR^D
 $
 where the superscript $dot^T$ denoting a transpose operation.
-The vector $bold(mu)_t$ is fully describing the current physiological state of the #acr("ICU")-patient at observation time point $t$. 
+The vector $bold(mu)_t$ is the most complete description of the #acr("ICU")-patient's physiological state at observation time point $t$ given the available data. 
 It is used as the feature vector, meaning it does not carry information that directly translate to the sepsis definition.
 
 === Modeling the Sepsis-3 Target
-The goal is derive continuously updated estimates of sepsis risk based on newly arriving observations $bold(mu)_(t)$ over time, with equally spaced and discrete time-steps $t in {1, 2, ... ,T }$.
+The goal is to derive continuously updated estimates of sepsis risk based on newly arriving observations $bold(mu)_(t)$ over time, with equally spaced and discrete time-steps $t$.
 Following the Sepsis-3 definition, the onset of sepsis requires both suspected infection and acute multi-organ failure.
 
-Defining the instantaneous _sepsis onset event_ $S_t in {0, 1}$ as the occurrence of the Sepsis-3 criteria at time point $t$ within the patients #acr("ICU") stay as:
+Defining the instantaneous _sepsis onset event_ $S_t in {0, 1}$ as the occurrence of the Sepsis-3 criteria at time point $t$ within the patient's #acr("ICU") stay as:
 $
   S_t := A_t and I_t
 $
 
-Here $A_t={Delta O_t >= 2}$ indicates an acute worsening in organ function, measured via a change in #acr("SOFA")-score $Delta O_t=O_t-O_("base")$ with respect to some patient specific baseline #acr("SOFA")-score $O_("base")$.
+Here $A_t={Delta O_t >= 2}$ indicates an acute worsening in organ function, measured via a change in #acr("SOFA")-score $Delta O_t=O_t-O_("base")$ with respect to a patient specific baseline #acr("SOFA")-score $O_("base")$.
 The choice of $O_"base"$ has to align with the Sepsis-3 definition, for example a 24 hours running minimum, the or $O_"base" = O_(t-1)$, the acute change between two consecutive #acr("SOFA")-score assessments.
 The event $I_t$ is an indicator for a #acr("SI") at time $t$ defined according to the Sepsis-3 definition, spanning the 48 hours before and 24 hours after documented #acr("SI")-onset-time (see @sec:sep3def).
 
@@ -67,11 +67,11 @@ The predictive model only conditions on $bold(mu)_(1:t)$, i.e., information avai
 
 Conditioned on the history of observations $bold(mu)_(1:t)$ the target probability is given by:
 $
-  Pr(S_t|bold(mu)_(1:t)) = Pr(A_t inter I_t | bold(mu)_(1:t))
+  Pr(S_t|bold(mu)_(1:t)) = Pr(A_t and I_t | bold(mu)_(1:t))
 $
 
 === Heuristic Scoring and Risk Estimation <sec:heu>
-The direct estimation of the true conditional probability $Pr(S_t|bold(mu)_(1:t))$ is computationally and statistically challenging due to the temporal dependency between the binary Sepsis-3 criteria.
+The direct estimation of the true conditional probability $Pr(S_t|bold(mu)_(1:t))$ is both difficult to derive analytically and computationally expensive due to the temporal dependency between the binary Sepsis-3 criteria..
 To make the prediction of the target probability more tractable but still connect the statistical estimation to the clinical definition several assumptions and modeling choices are introduced.
 
 Importantly, all assumptions result in differentiable approximations of the real events or probabilities, enabling end-to-end learning of estimators through gradient-based methods.
@@ -132,20 +132,25 @@ The choice of the function
 $
 "sigmoid"(x)=1/(1+e^(-x))
 $
-yields a monotonic indicator (larger #acr("SOFA") increase $->$ more likely organ failure) while still being differentiable.
+yields a monotonic indicator (larger predicted #acr("SOFA")-score increase leads to more likely organ failure) while still being differentiable.
 The reason $tilde(A)_t$ is not a probability is caused by the sigmoid baseline of 0.5 when $hat(O)_t - hat(O)_(t-1) = d$, not when $Pr(A_t | bold(mu)_(1:t)) = 0.5$, making it an arbitrary monotonic transformation rather than a calibrated probability.
-This is acceptable for #acr("DL") because gradient-based optimization only requires differentiability and monotonicity. Through end-to-end training on actual sepsis outcomes, the model learns to make $tilde(A)_t$ a useful risk indicator.
+Yet, this formulation is differentiable and monotonic, therefore enables gradient-based optimization and through end-to-end training on actual sepsis outcomes, a model can to make $tilde(A)_t$ a useful risk indicator.
 
 == Architecture <sec:arch>
+// #v(-.4em)
 The previous subsection explained sepsis onset target $S_t$ can be decomposed into the conjunction of #acr("SI") indication $I_t$ and an acute organ deterioration event $A_t$, which itself can be calculated from two consecutive #acr("SOFA")-scores.
 The presented #acr("LDM") is designed to estimate the fundamental components $tilde(O)_t$ and $tilde(I)_t$ from a history of #acr("EHR") $bold(mu)_(1:t)$ to derive the heuristic sepsis risk score $tilde(S)_t approx S_t$ for individual patients.
 
 In the following subsections, two estimator-functions with learnable parameters will be introduced, generating estimations for target components $tilde(I)_t$ and $tilde(A)_t$.
 Each component is estimated by a module built around #acr("RNN"), e.g. #acr("GRU") or #acr("LSTM"), enabling continuous estimation updates based on newly arriving measurements.
 By keeping these modules fully differentiable with respect to their inputs allows for optimization via first order gradient descent methods.
-Starting with the estimator module for the suspected infection indication in @sec:minf, followed the organ failure estimation module in @sec:msofa which includes the #acr("DNM") to derive #acr("SOFA") estimates and lastly an auxiliary regularization module in @sec:mdec.
-@tab:ldmnot provides a list of symbols used throughout this chapter.
 
+This section starts with introduction of the estimator module for the suspected infection indication in @sec:minf, followed the organ failure estimation module in @sec:msofa which includes the #acr("DNM") to derive #acr("SOFA") estimates and lastly an auxiliary regularization module in @sec:mdec.
+
+@tab:ldmnot provides a list of symbols used throughout this chapter.
+Unless otherwise specified, patient indices are omitted for notational clarity.
+For example, $bold(mu)_t$ denotes the #acr("EHR") vector at time $t$, which formally corresponds to $bold(mu)_(i,t)$ for patient $i in 1,...,N$.
+Explicit patient indices are retained in contexts where summation over patients is required, such as in the loss functions.
 
 #figure(
   table(
@@ -155,36 +160,37 @@ Starting with the estimator module for the suspected infection indication in @se
     [*Symbol*], [*Description*],
     
     // Core variables
-    [$i, N$], [Patient index and total patients],
-    [$t, T_i$], [Time point index and trajectory length of patient $i$],
-    [$bold(mu)_t in RR^D$], [#acr("EHR") vector with $D$ variables at time $t$],
+    [$i in 1,..., N$], [Patient index],
+    [$t in 1,..., T_i$], [Time point index and trajectory length of patient $i$],
+    [$bold(mu)_(t) in RR^D$], [#acr("EHR") vector with $D$ variables at time $t$],
     [$bold(mu)_(1:t)$], [#acr("EHR") history from time 1 to $t$],
 
     [$S_t, A_t, I_t in {0, 1}$], [Binary sepsis onset, organ failure, and infection events],
-    [$O_t, Delta O_t in [0, ... 24]$], [#acr("SOFA") score and change from baseline],
+    [$O_t, Delta O_t in 0, ..., 24$], [#acr("SOFA")-score and change from baseline],
     [$overline(I)_t in [0,1]$], [Continuous surrogate infection indicator],
     
-    [$hat(O)_t in {0, ... 24}$], [Estimated #acr("SOFA") score],
-    [$o_(s,d)(hat(O)_(t-1:t))$], [Differentiable increase detection function],
+    [$hat(O)_t in {0, ... 24}$], [Estimated #acr("SOFA")- score],
+    [$o_(s,d)(hat(O)_(t-1:t)) in (0, 1)$], [Increase detection function],
     [$tilde(S)_t, tilde(A)_t, tilde(I)_t in (0, 1)$], [Predicted estimates for sepsis, organ failure, and infection risks],
     [$bold(z) = (z_beta, z_sigma)$], [Latent coordinates in #acr("DNM") parameter space],
     [$hat(bold(z))_t, Delta hat(bold(z))_t$], [Predicted latent position and change],
-    [$s^1 (bold(z))$], [Synchronization measure (desynchronicity) in #acr("DNM")],
-    
-    [$bold(h) in RR^(H_(f,g))$], [Hidden state vector],
-    [$f_theta_f, g^e_theta_g^e, g^r_theta_g^r, d_theta_d$], [Infection indicator, encoder recurrent, and decoder modules],
+    [$s^1 (bold(z))$], [Desynchronization in #acr("DNM")],
+
+    // [$H_(f,g) in NN_(>0)$], [Size of hidden state vector],
+    [$bold(h)_(f,g) in RR^(H_(f,g))$], [Hidden state vector],
+    [$f_theta_f, g^e_theta_g^e, g^r_theta_g^r, d_theta_d$], [Infection indicator, encoder, recurrent, and decoder modules],
     [$theta$], [Learnable parameters],
     
     table.hline(),
     [$cal(L)_"sepsis", cal(L)_"inf", cal(L)_"sofa"$], [Primary sepsis, infection, and #acr("SOFA") losses],
     [$cal(L)_({"dec","spread","boundary"})$], [Auxiliary decoder, latent-diversity, and -boundary losses],
-    [$lambda_i$], [Loss weight for component $i$],
+    [$lambda_"loss"$], [Loss weight for component "$"loss"$"],
     [$B$], [Mini-batch size],
     
   ),
   caption: flex-caption(
-    long: [Summarization of notation used in the Latent Dynamics Model methodology.],
-    short: [#acl("LDM") Notation Table]
+    long: [Summary of notation used in the Latent Dynamics Model.],
+    short: [#acl("LDM") Notation]
   ),
   kind: table
 ) <tab:ldmnot>
@@ -194,7 +200,7 @@ Starting with the estimator module for the suspected infection indication in @se
 The first module of the #acr("LDM") estimates the presence of a #acr("SI"), represented by the continuous surrogate indicator $overline(I)_t$, the module predicts a continuous surrogate infection risk $tilde(I)_t in (0, 1)$.
 Given $N$ patient trajectories with $T_i$ pairs of #acr("EHR") vectors and ground truth #acr("SI")-indicator each:
 $
-(bold(mu)_(i,t), overline(I)_(i,t)), "  " i = 1...N, " " t = 1...T_i
+(bold(mu)_(t), overline(I)_(t)),  " " t = 1...T_i",  " i = 1...N,
 $
 a parameterized nonlinear recurrent function
 $
@@ -206,16 +212,16 @@ $
   (tilde(I)_t, bold(h)^f_t)=f_theta_f (bold(mu)_(t),bold(h)^f_(t-1))
 $
 The hidden state $bold(h)_t$ propagates temporal information through time.
-For the first time-step $t=1$ a learnable initial hidden state $bold(h)^f_1$ is used.
+For the first time-step $t=1$ a learnable initial hidden state $bold(h)^f_1$ is used, shared for all patients.
 
 The model is implemented as a #acr("RNN"), illustrated in @fig:inf.
-At each timestep, a recurrent cell updates the hidden state, and a learned linear projection $bold(W)_f bold(h) ^f_t$, with $bold(W)_f in RR^(1times H_f)$, followed by sigmoid activation produces the infection risk estimate:
+At each timestep, a #acr("GRU")-cell updates the hidden state, and a learned linear projection $bold(W)_f bold(h) ^f_t$, with $bold(W)_f in RR^(1times H_f)$, followed by sigmoid activation produces the infection risk estimate:
 $
-" " bold(h)_t &= "RNN-Cell"_(theta_f^"rnn") (bold(mu)_t, bold(h)^f_(t-1))
+" " bold(h)_t &= "GRU-Cell"_(theta_f^"gru") (bold(mu)_t, bold(h)^f_(t-1))
 $$
 tilde(I)_t &= "sigmoid"(bold(W)_f bold(h)^f_t + b_f)
 $
-where the bias $b_f in RR$ is a single scalar and $theta_f={theta^"rnn"_f, bold(W)_f, b_f}$ combines all learnable parameters,.
+where the bias $b_f in RR$ is a single scalar and $theta_f={theta^"gru"_f, bold(W)_f, b_f, bold(h)_f}$ combines all learnable parameters.
 
 To fit the model, given a mini-batch if size $B$, #acr("BCE") loss which measures the distance between true label $overline(I)_t$ and the predicted label $tilde(I)_t$:
 $
@@ -225,38 +231,39 @@ is minimized and thus the estimator provides a differentiable estimate of the su
 
 #figure(inf_fig,
 caption: flex-caption(
-long: [Schematic of the Infection Indicator Module architecture and rollout. The #acr("RNN") process the #acr("EHR") sequence $bold(mu)_(1:t)$ step-by-step, maintaining $bold(h)_t$ to capture temporal dependencies, and outputs infection risk estimates $tilde(I)_t$ at each timestep.],
+long: [Schematic of the Infection Indicator Module architecture and rollout. The #acr("RNN") process the #acr("EHR") sequence $bold(mu)_(1:t)$ step-by-step, propagating $bold(h)_t$ to capture temporal dependencies, and outputs infection risk estimates $tilde(I)_t$ at each timestep.],
 short: [Infection Indicator Module Architecture])
 ) <fig:inf>
 
 === SOFA Predictor Module <sec:msofa>
 The complete #acr("SOFA") predictor module $g_theta$ is composed two submodules, an initial-encoder $g^e_theta$ and a recurrent latent predictor $g^r_theta$, each described below.
 The idea is to translate the physiological patient trajectory to a sequence of the #acr("DNM") parameters $beta$ and $sigma$, where the desynchronization of given parameter pairs should match the physiological organ failure.
-To begin with, @sec:theory_surro once more tries to strengthen the connection between organ failure and the #acr("DNM"), followed by @sec:md presents how the #acr("EHR") information is embedded evolved inside the #acr("DNM") parameter space.
-Lastly @sec:theory_fsq describes how computational cost can be significantly reduced by precomputing the #acr("DNM") parameter space.
+To begin with, @sec:theory_surro once more tries to strengthen the connection between organ failure and the #acr("DNM").
+Afterwards, @sec:md presents how the #acr("EHR") information is embedded evolved inside the #acr("DNM") parameter space.
+Lastly, @sec:theory_fsq describes how computational cost can be significantly reduced by precomputing the #acr("DNM") parameter space.
 
 ==== The DNM as SOFA Surrogate <sec:theory_surro>
-Recall that pathological organ conditions within the #acr("DNM") are characterized by frequency clustering in the parenchymal layer.
-The amount of frequency clustering is quantified by the ensemble average standard deviation of the mean phase velocity $s^1$ (see @eq:std).
+Recall that pathological organ conditions within the #acr("DNM") are characterized by frequency clustering in the parenchymal layer, the amount of frequency clustering is quantified by the ensemble average standard deviation of the mean phase velocity $s^1$ (see @eq:std).
 Since $s^1$ monotonically increases with loss of frequency synchronization, it serves as an interpretable and natural surrogate for the #acr("SOFA")-score.
 Increasing values of $s^1$ indicate a higher #acr("SOFA")-score and a worse condition of the patients organ system.
 
-Numerical integration of the #acr("DNM") equations for a given parameter pair #box($bold(z) = (z_beta, z_sigma) = (beta, sigma)$), keeping every other system parameter according to tab:init, yields the corresponding amount of desynchronization $s^1(bold(z))$.
-The value $s^1(bold(z))$ corresponds to the amount of desynchronicity at the end of the integration time $s^1 (T_"sim")$ at the coordinates of $bold(z)$, while omitting the time index for $s^1_t$ for readability.
+Numerical integration of the #acr("DNM") equations for a given parameter pair #box($bold(z) = (z_beta, z_sigma) = (beta, sigma)$), keeping every other system parameter according to @tab:init, yields the corresponding amount of desynchronization $s^1(bold(z))$.
+The value $s^1(bold(z))$ corresponds to the amount of desynchronicity at the end of the integration time $s^1 (T_"sim")$ at the coordinates of $bold(z)$.
+The time index of $s^1_t$ is omitted for readability.
 Given a desynchronization measure $s^1(bold(z))$, the #acr("SOFA") approximation $hat(O)(bold(z))$ is calculated using:
 $
   hat(O) (bold(z)) =round((24 dot  s^1 (bold(z)))/s^1_"max") = round( (24 dot s^1 (beta, sigma)) / s^1_"max") 
-$
-The space spanned by the two parameters is called the _latent space_, coordinate-pairs of that latent space are denoted $bold(z) = (z_beta,z_sigma)$.
-In this work only a predefined  subspace of the entire $(beta, sigma)$ plane is used.
-To normalize $s^1$ to a $[0, 1]$ range, and by this making it able to retrieve all 24 #acr("SOFA") levels, the values of $s^1$ are divided by the maximum value of the subspace $s^1_max$.
+$ <eq:stoo>
+The space spanned by the two parameters is called the _latent space_, coordinate-pairs in that latent space are denoted $bold(z) = (z_beta,z_sigma)$.
+In this work only a predefined subspace of the entire $(beta, sigma)$ plane is used.
+$s^1$ values are normalized to the interval $[0, 1]$ by dividing by the maximum value within the subspace $s^1_max$, which allows retrieval of all 24 #acr("SOFA") levels.
 The rounding operation is used only for interpretability and evaluation; during training the normalized continuous $s^1$ value is used.
 
 The prediction strategy involves the mapping of individual #acr("EHR") to the latent space, so that the ground truth #acr("SOFA") aligns with the desynchronization measure of the latent coordinate.
-Based off of the latent location and additional clinical information, the patient will perform a trajectory through the latent space yielding step-by-step #acr("SOFA")-score $hat(O)_(1:t) (bold(z))$ estimates needed to calculate the heuristic organ failure statistic $tilde(A)_t$.
+Based on the latent location and additional clinical information, the patient will perform a trajectory through the latent space yielding step-by-step #acr("SOFA")-score $hat(O)_(1:t) (bold(z))$ estimates needed to calculate the heuristic organ failure statistic $tilde(A)_t$.
 
 ==== Latent Parameter Dynamics <sec:md>
-Focusing on a single patient (omitting the $i$ subscript for readability), with their first observation at time $t=1$, an encoder connects the high-dimensional #acr("EHR") to the dynamical regime of the #acr("DNM"), a neural encoder:
+An neural encoder connects the initial $t=1$ and high-dimensional #acr("EHR")-vector $bold(mu)_1$ to the dynamical regime of the #acr("DNM"):
 
 $
   g^e_(theta_g^e): RR^D -> RR^2 times RR^(H_g) = RR^(2+H_g)
@@ -267,16 +274,16 @@ $
   (hat(bold(z))^"raw"_1 , bold(h)^g_1) = ((hat(z)^"raw"_(1,beta), hat(z)^"raw"_(1,sigma)), bold(h)^g_1) = g^e_(theta_g^e) (bold(mu)_1)
 $
 This encoding locates the patient within a physiologically meaningful region of the #acr("DNM") parameter space, which in context of the #acr("LDM") is called the latent space.
+In addition to the estimated latent coordinate $hat(bold(z))^"raw"_1$, the encoder outputs another vector with dimension $H_g<<D$ that is a compressed representation of patient physiology relevant for short-term evolution of $hat(bold(z))$.
+This vector $bold(h)^g_1 in RR^(H_g)$ is the initial hidden space.
+
 To keep latent coordinates in the predefined area they are ultimately transformed by:
 $
   hat(bold(z)) = "sigmoid"(hat(bold(z))^"raw") dot vec(beta_max-beta_min, sigma_max - sigma_min)^T + vec(beta_min, sigma_min)^T
 $
 Where $dot$ is the element wise matrix multiplication.
 The latent coordinate $hat(bold(z))_1$ provides the initial condition for short-term dynamical organ condition forecasting.
-As described in @sec:theory_surro the latent coordinates correspond to a #acr("DNM") synchronization behavior and can therefore be directly interpreted as #acr("SOFA")-score estimates (#box($bold(hat(z)) ->^"integrate"_"DNM" s^1 (bold(hat(z))) -> hat(O) (hat(bold(z)))$)).
-
-In addition to the estimated parameter pair $hat(bold(z))^"raw"_1$, the encoder outputs another vector with dimension $H_g<<D$ that is a compressed representation of patient physiology relevant for short-term evolution of $hat(bold(z))$.
-This vector $bold(h)^g_1 in RR^(H_g)$ is the initial hidden space.
+As described in @sec:theory_surro the latent coordinates correspond to a #acr("DNM") synchronization behavior and can therefore be directly interpreted as #acr("SOFA")-score estimates, see @eq:stoo.
 
 Since the heuristic #acr("SOFA") risk $tilde(A)$ depends on the evolution of organ function $hat(O)_(1:t)$, it is necessary to estimate not only the initial state $hat(bold(z))_1$ but also its evolution.
 For this purpose a neural recurrent function:
@@ -286,24 +293,24 @@ $
 is trained to propagate the latent #acr("DNM") parameters forward in time.
 
 This recurrent mechanism, conditioned on the hidden state $bold(h)^g_t$ and previous latent location $bold(z)^"raw"_(t-1)$, captures how the underlying physiology influences the drift of the #acr("DNM") parameters.
-From the previous hidden state and latent-position a recurrent cell updates the hidden state, followed by a linear down-projection $bold(W)_g bold(h)^g_t$, with $bold(W)_g in RR^(2times H_g)$, to receive the updated latent-position.
+From the previous hidden state and latent-position a recurrent cell updates the hidden state, followed by a linear transform $bold(W)_g bold(h)^g_t$, with $bold(W)_g in RR^(2times H_g)$, to receive the updated latent-position.
 $
-  "               " bold(h)_t &= "RNN-Cell"_(theta_g^"rnn") ((bold(mu)_(t), bold(hat(z))^"raw"_(t-1)), bold(h)^g_(t-1)), "  " t = 2,...,T  
+  "               " bold(h)_t &= "GRU-Cell"_(theta_g^"gru") ((bold(mu)_(t), bold(hat(z))^"raw"_(t-1)), bold(h)^g_(t-1)), "  " t = 2,...,T  
 $$
-  Delta hat(bold(z))^"raw"_t &= (bold(W)_g bold(h)^g_t) "                                   "
+  Delta hat(bold(z))^"raw"_t &= bold(W)_g bold(h)^g_t "                                   "
 $$
   hat(bold(z))^"raw"_t &= bold(hat(z))^"raw"_(t-1) + Delta hat(bold(z))^"raw"_t "                          "
 $
-where $theta_g^r={theta^"rnn"_g,bold(W)_g}$ combines all the learnable parameters.
+where $theta_g^r={theta^"gru"_g,bold(W)_g}$ combines all the learnable parameters.
 The down-projection does not have a bias-term so that no direction is inherently preferred.
 
-Depending on the movement in the latent space, the level of synchrony changes across the prediction horizon, which should translate to the pathological evolution of patients.
+Depending on the movement in the latent space, the level of synchrony changes and should translate to the pathological evolution of patients.
 The online-prediction rollout is shown in @fig:sofa.
 
-By predicting the movement in the latent space $Delta bold(z)_t$ instead of the raw parameters, smooth trajectories can be learned.
+The model learns incremental changes in the latent space $Delta bold(z)_t$ rather than absolute positions $bold(z)$, this naturally constraints the magnitude of changes and encourages the prediction of more gradual trajectories of the physiological state within the latent space.
 For the latent sequence this is more desirable compared to the infection indicator, where jumps in predicted values do not matter as much. 
 
-To fit the functions, here the placement of latent points $bold(z)$ is guided by a supervision signal through a #acr("MSE") loss:
+To fit the functions $g^e_theta$ and $g^r_theta$, the latent points $bold(z)$ are positioned to minimize the #acr("MSE") loss:
 $
 cal(L)_"sofa" = 1/B sum^B_(i=1) 1/(T_i) sum^(T_i)_(t=1) w_(O_(i,t)) dot (O_(i,t)/24 - (s^1_(i,t)(bold(hat(z))))/s^1_"max")^2
 $
@@ -315,8 +322,6 @@ with $f_O$ being the relative frequency of #acr("SOFA")-scores $O$.
 This inverse-frequency weighting up-weights rare high #acr("SOFA")-scores that are clinically critical but statistically underrepresented.
 Also notice that both parts, i.e. the continuous approximation (given by the desynchronicity) and ground truth are scaled to the interval $[0, 1]$.
 
-Because gradients can flow backwards through the whole sequence, minimizing the loss can jointly  train the encoder $g^e_theta$ and recurrent function $g^r_theta$.
-
 #figure(sofa_fig,
   caption: flex-caption(
   long: [Schematic of the online-prediction rollout by the #acr("SOFA") predictor module.
@@ -326,17 +331,23 @@ Because gradients can flow backwards through the whole sequence, minimizing the 
   short: [#acs("SOFA") Predictor Module Architecture])
   ) <fig:sofa>
 
+Theoretically, gradients can flow backwards through the whole sequence, jointly train the encoder $g^e_theta$ and recurrent function $g^r_theta$ by minimizing the loss $cal(L)_"sofa"$.
+Computing $s^1(bold(z))$ requires numerically integrating the coupled #acr("ODE") system of the #acr("DNM"), which is expensive for each forward pass.
+More problematically, backpropagating gradients through this integration over a long simulation time $T_"sim"$ and across an ensemble of $M$ system, each consisting of $N$ oscillators, will likely lead to vanishing gradients and numerical instability.
+This would provide uninformative learning signals to the latent coordinates $(beta, sigma)$.
+Motivated by these challenges, the next subsection introduces a quantization-based lookup strategy which precomputes the #acr("DNM") dynamics and maintains differentiability through interpolation.
+
 ==== Latent Lookup <sec:theory_fsq>
 Intuitively one would numerically integrate the #acr("DNM") every estimate $hat(bold(z))$ to receive the $s^1 (bold(hat(z)))$-metric for the continuous space in $(beta, sigma)$.
-This approach is taken in  Neural Differential Equations @kidger2022diffrax and Physics Informed Neural Networks @sophiya2025pinn where gradients are typically backpropagated through the #acr("ODE") integration to their input parameters ($beta, sigma$ in this case).
+This approach is taken in Neural Differential Equations @kidger2022diffrax and Physics Informed Neural Networks @sophiya2025pinn where gradients are typically backpropagated through the #acr("ODE") integration to their input parameters ($beta, sigma$ in this case).
 Practically, in case of the #acr("DNM") this is hardly tractable, since the integration is computationally intensive and gradients are prone to vanish over the large integration time and ensemble setup of the #acr("DNM").
 
-To address these challenges, the #acr("LDM") uses a fully differentiable precomputing and caching methodology that still provides meaningful gradients and simultaneously reduces the computational burden.
+To address these challenges, the #acr("LDM") uses a fully differentiable caching methodology that still provides meaningful gradients and simultaneously reduces the computational burden.
 For that, the continuous latent space is quantized to a discrete and regular grid, with the metric $s^1$ precomputed for each coordinate pair in a predefined subspace.
 The space is limited to the intervals $beta in [0.4pi, 0.7pi]$ and $sigma in [0.0, 1.5]$ (the phase space of the original publication @Berner2022Critical).
-To retrieve values localized soft interpolation is used to derive differentiable synchronicity approximation values.
+To retrieve values, localized soft interpolation is used to derive differentiable synchronicity approximation values.
 
-For an estimated coordinate pair $hat(bold(z))=(hat(z)_beta, hat(z)_sigma)$ in the continuous $(beta, sigma)$-space the quantized metrics are interpolated by smoothing nearby quantization points with a Gaussian-like kernel, which is illustrated in @fig:fsq.
+For an estimated coordinate pair $hat(bold(z))=(hat(z)_beta, hat(z)_sigma)$ in the continuous $(beta, sigma)$-space, the quantized metrics are interpolated by smoothing nearby quantization points with a Gaussian-like kernel, which is illustrated in @fig:fsq.
 
 // The smoothing is performed by weighting the amount of desynchronicity $s^1_bold(z)'$ of quantized nearby latent points  by the euclidean distance to the estimation $hat(bold(z))$.
 To enable gradient-based optimization, i.e. being differentiable, the lookup of nearby points $bold(z)'$ combines two mechanisms.
@@ -355,7 +366,7 @@ for $K=k^2$ neighboring points, where $k$ is an odd number $>1$.
 Here, #box($T_d in RR_(>0)$) is a learnable temperature parameter which controls the sharpness of the smoothing, with larger values producing stronger smoothing and smaller values converging to the value of the closest point $tilde(bold(z))$ exclusively.
 This allows the model to adjust the interpolation sharpness during training, potentially using broad smoothing early on for exploration and sharpening later for precision.
 
-While the squared distances $(||hat(bold(z))-bold(z)'||^2)$ receive exponentially more weight, the $"softmax"$ operation normalizes the weights to 1, creating a proper convex combination of weights.
+While the squared distances $(||hat(bold(z))-bold(z)'||^2)$ receive exponentially more weight, the $"softmax"$ operation normalizes the weights to 1, creating a convex combination of weights:
 $
  "softmax"(bold(x))_j = (e^(x_j))/(sum^K_(k=1) e^(x_k)), "  for " j=1,...,K
 $
@@ -378,7 +389,7 @@ This allows continuous interpolation the parameter space.
 ) <fig:fsq>
 
 // This quantization strategy allows for continuous space approximation from the quantized space, while also making it possible to pre-compute the quantized space and therefore drastically reducing the computational expenses.
-This quantization strategy, called _latent lookup_ #footnote[Implementation is available at https://github.com/unartig/sepsis_osc/blob/main/src/sepsis_osc/ldm/lookup.py] is closely related to #acr("FSQ") @mentzer2023fsq, used in Dreamer-V3 @hafner2024dream for example.
+This quantization strategy, called _latent lookup_ #footnote[Implementation is available at https://github.com/unartig/sepsis_osc/blob/main/src/sepsis_osc/ldm/lookup.py] is closely related to _finite scalar quantization_ @mentzer2023fsq, used in Dreamer-V3 @hafner2024dream for example.
 In contrast to this presented latent lookup, the latent coordinates in Dreamer-V3 do not have prior semantic meaning associated with them, yet both allow for differentiable quantization.
 Details on the latent lookup implementation, including grid-resolution and kernel size, can be found in @sec:impl.
 
@@ -388,36 +399,34 @@ As shown in the visualization of the #acr("DNM") phase space in @fig:phase, mult
 But when different physiological states have a common #acr("SOFA")-score, their latent representations should be different and unique to that exact physiological state.
 This should enable to distinguish different triggers of the organ failure inside the latent space, similarly to how it is possible to distinguish the different triggers from the #acr("EHR").
 
-In a classical Auto-Encoder @Bengio2012Representation setting, to encourage a semantically structured latent space, a decoder module is added as an auxiliary regularization component.
+Following the classical Auto-Encoder framework @Bengio2012Representation, a decoder module is added as an auxiliary regularization component during training to encourage a semantically structured latent space beyond #acr("SOFA")-scores.
+This latent regularization is motivated by _Representation Learning_ @Bengio2012Representation, and ensures that nearby points in the latent $(beta, sigma)$-space correspond to similar physiological states, regardless of the patient.
+Additionally, the latent encoder $g^e_theta^e_g$ and the recurrent predictor $g^r_theta^r_g$ are encouraged to map temporally consecutive observations to spatially close latent coordinates, since it is expected that consecutive #acr("EHR")s do not exhibit drastic changes, leading to smooth patient trajectories through the latent space.
 A neural decoder network:
 
 $
   d_theta_d: RR^2 -> RR^D
 $
- attempts to reconstruct the original #acr("EHR") features from the latent representation, the resulting desynchronicity of that latent coordinate and the heuristic risk measures:
+reconstructs the original #acr("EHR") features from the latent representation:
 
 $
  hat(bold(mu))_t  = d_theta_d (hat(bold(z))_(t))
 $
-In this way, the decoder learns to disentangle the latent coordinates in $hat(bold(z))_(t)$ based on ground future #acr("EHR")s $bold(mu)_t$, which is illustrated in @fig:dec.
+In this way, the decoder learns to disentangle the latent coordinates in $hat(bold(z))_(t)$ based on ground truth future #acr("EHR")s $bold(mu)_t$.
 The module is trained using a #acr("MSE") supervised loss:
 $
   cal(L)_"dec" = 1/(B) sum^B_(i=1) 1/(T_i) sum^(T_i -1)_(t=0) (bold(mu)_(i,t) - bold(hat(mu))_(i,t))^2 
 $
 This serves as regularization because the reconstruction objective forces the latent space to maintain a structured organization where physiologically distinct states are positioned into different regions, rather than allowing arbitrary latent encodings.
 
-This latent regularization is motivated by _Representation Learning_ @Bengio2012Representation and ensures that nearby points in the latent $(beta, sigma)$-space correspond to physiologically similar patient states.
-It should help the encoder $g^e_theta^e_g$ to learn a meaningful alignment between #acr("EHR")-derived latent-embeddings and the dynamical #acr("DNM") landscape.
-Using this regularization, the latent encoder $g^e_theta^e_g$ and the recurrent predictor $g^r_theta^r_g$ are encouraged to map temporally consecutive to spatially near latent coordinates, since it is expected that consecutive #acr("EHR")s do not exhibit drastic changes.
-Leading smooth patient trajectories through the latent space.
 
-#figure(dec_fig,
-  caption: flex-caption(
-  long: [Schematic of the data flow in the decoder module.
-  The decoder network $d_theta_d$ tries to reconstruct every latent coordinate pair $bold(z)_t$ to the original #acr("EHR") features $bold(mu)_t$.
-  This auxiliary component encourages semantically structured latent representations: physiologically similar patient states map to nearby points in the $(beta, sigma)$-space, while different triggers of organ failure occupy distinct regions.
-  ],
-  short: [Decoder Architecture])) <fig:dec>
+// #figure(dec_fig,
+//   caption: flex-caption(
+//   long: [Schematic of the data flow in the decoder module.
+//   The decoder network $d_theta_d$ tries to reconstruct every latent coordinate pair $bold(z)_t$ to the original #acr("EHR") features $bold(mu)_t$.
+//   This auxiliary component encourages semantically structured latent representations: physiologically similar patient states map to nearby points in the $(beta, sigma)$-space, while different triggers of organ failure occupy distinct regions.
+//   ],
+//   short: [Decoder Architecture])) <fig:dec>
 
 === Combining Infection and Acute Change Signals
 The complete #acr("LDM"), shown in @fig:ldm, is trained jointly by combining the previously introduced Infection Indicator Module $f_theta_f$ and the #acr("SOFA") prediction module $g_theta_g$.
@@ -448,11 +457,11 @@ In reality, sepsis is not only a single time-point of onset but a physiological 
   The Decoder $d_theta_d$ reconstructs EHR features $bold(mu)_t$ from latent coordinates, regularizing the latent space to maintain clinically meaningful structure.
   Final sepsis risk $S_t$ combines infection and acute change signals.
   ],
-  short: [Complete #acl("LDM") Architecture])
+  short: [Overview of the #acl("LDM") Architecture])
   ) <fig:ldm>
 
 
-== Training Objective and Auxiliary Losses <sec:training_objective>
+== Primary and Auxiliary Losses <sec:training_objective>
 Besides the losses already presented, multiple auxiliary losses are used to guide the training process and introduced in the following.
 
 *Primary Sepsis Prediction Loss*\
@@ -462,6 +471,8 @@ $
 cal(L)_"sepsis" = -1/B sum^B_(i=1) 1/T_i sum^(T_i)_(t=1) [S_(i,t)log(tilde(S)_(i,t)) + (1-S_(i,t))log(1-tilde(S)_(i,t))]
 $
 using the #acr("BCE").
+Although the heuristic risk score $tilde(S)_t$ is constructed from infection and organ dysfunction estimates, the primary sepsis loss $cal(L)_"sepsis"$ is required to align their interaction with true clinical outcomes.
+This should help to compensate for modeling approximations and measuring uncertainties, while enabling the joint end-to-end optimization of all components for the actual prediction objective.
 
 *Latent Space Regularization*\
 To prevent collapse and ensure diverse latent representations the following loss is introduced:
@@ -471,15 +482,21 @@ $
 where $bold(hat(Z)) in RR^(2 times B dot T)$ collects all predicted latent coordinates of a mini-batch.
 $"Cov"(dot)$ computes the sample covariance matrix.
 
-The loss is minimized when $log(det("Cov"(bold(hat(Z)))))$ (also known as the _generalized variance_ @Carroll1997) of the latent dimensions $beta$ and $sigma$ is increased.
-The generalized variance roughly measures the density of distributions and increases when sampled points become less dense, the loss $cal(L)_"spread"$ therefore encourages a larger spread inside the latent space and avoids the collapse into single latent-values.
+The loss is minimized when $det("Cov"(bold(hat(Z))))$ of the latent dimensions $beta$ and $sigma$ is increased.
+This quantity is known as the _generalized variance_ @Carroll1997, and roughly measures the volume occupied by the distribution, where it increases when sampled points spread more.
+Consequently, $cal(L)_"spread"$ encourages a larger spread in the latent space and prevents collapse to a narrow region.
 
 *Latent Space Regularization*\
 In order to keep the predicted latent points inside the predefined area, they will be discouraged to move too close to the edges:
 $
-  cal(L)_"boundary" = "ReLU"(f - "sigmoid"(bold(z)^"raw"_t)) + "ReLU"("sigmoid"(bold(z)^"raw"_t - (1 - f))
+  cal(L)_"boundary" = "ReLU"(f - "sigmoid"(bold(z)^"raw"_t)) + "ReLU"("sigmoid"(bold(z)^"raw"_t) - (1 - f))
 $ <eq:bound>
 with $f in (0,0.5)$ sets a boundary threshold as a fraction of the space, creating a "penalty buffer" that discourages latent variables from entering the outer $f$-percent of the space near the edges.
+The #acr("ReLU") activation function is defined as:
+$
+  "ReLU"(x) = max(x, 0)
+$
+and therefore nonzero only for positive inputs.
 
 === Combined Objective
 The complete #acr("LDM") #footnote[Implementation of the #acr("LDM") components is available at https://github.com/unartig/sepsis_osc/tree/main/src/sepsis_osc/ldm] is trained jointly by optimizing all components via the combined weighted total loss:
@@ -496,9 +513,9 @@ The loss weights $lambda$ balance the contribution of each objective during trai
 The primary sepsis prediction loss $cal(L)_"sepsis"$ provides the main learning objective aligned with the clinical task, while component losses $cal(L)_"inf"$ and $cal(L)_"sofa"$ ensure accurate estimation of the underlying infection and organ failure indicators.
 The auxiliary losses ($cal(L)_"dec"$, $cal(L)_"spread"$) regularize the latent space structure to improve generalization and interpretability.
 Specific values for the loss weights $lambda$ and other hyperparameters are reported in @sec:impl.
-
 @tab:losses provides an overview of all loss components, their purpose, and the modules they supervise.
 
+#pagebreak()
 #figure(
   table(
     columns: 4,
@@ -541,8 +558,8 @@ These outputs allow clinicians to not only assess overall sepsis risk but also t
 Additionally, the latent trajectory $s^1 (hat(bold(z))_(1:t))$ through the #acr("DNM") parameter space provides interpretable visualization of the patients physiological evolution over time.
 
 == Assessing the Prediction Performance <sec:metrics>
-In order to quantitatively assess the prediction performance of sepsis prediction models two theoretically grounded metrics will be introduced. 
-The prediction of a patient developing sepsis vs. no sepsis is a binary decision problem based off of the continuous estimated heuristic sepsis risk $tilde(S)_t$.
+In order to quantitatively assess the sepsis prediction performance theoretically grounded metrics will be introduced. 
+Predicting whether a patient will develop sepsis is a binary classification problem based on the continuous estimated sepsis risk $tilde(S)_t$.
 Given an estimated risk $tilde(S)_t$ and a decision threshold $tau in [0, 1]$, the decision if a prediction value counts as septic is given by the rule:
 $
   delta(tilde(S)_t) = II (tilde(S)_t > tau)
@@ -565,9 +582,9 @@ $
   "FPR" = "FP"/("TP" + "FN")
 $
 Sweeping the decision boundary $tau$ from 0 to 1 and plotting the corresponding implicit function #acr("TPR") vs #acr("FPR") creates the _receiver operating characteristic_ or _ROC_ curve.
-A prediction system operating at chance will have exhibit a diagonal line from (0 #acr("FPR"), 0 #acr("TPR")) to (1 #acr("FPR"), 1 #acr("TPR")).
+A prediction system operating at chance will exhibit a diagonal line from (0 #acr("FPR"), 0 #acr("TPR")) to (1 #acr("FPR"), 1 #acr("TPR")).
 Everything above that diagonal indicates better predictions than chance, with an optimal predictor "hugging" the left axis until the point (0 #acr("FPR"), 1 #acr("TPR")) followed by hugging the top axis.
-The quality of the whole curve can be summarized to a single number, the area under the curve, called #acr("AUROC"), where larger values $<=1$ indicate better prediction performance.
+The quality of the whole curve can be summarized as a single number, the area under the curve, called #acr("AUROC"), where larger values $<=1$ indicate better prediction performance.
 
 When trying to predict rare events, meaning sparse positive labels against lots of negatives, the #acr("FPR") can become small and thus little informative.
 In these cases one commonly plots the _precision_:
@@ -578,15 +595,13 @@ against the _recall_:
 $
   R = "TP" / ("TP" + "FN")
 $
+creating the _precision-recall curve_ or PRC, where an optimal predictor hugs the top right.
+This curve can also be summarized by its area to the #acr("AUPRC") metric, where larger values indicate better performance @murphy2012machine.
 
-creating the _precision recall curve_ or PRC, where an optimal predictor hugs the top right.
-Also this curve can be summarized by its area to the #acr("AUPRC") metric, where larger values indicate better performance @murphy2012machine.
-
-Traditionally, the #acr("AUPRC") as been referred to as the more appropriate metric for imbalanced prediction tasks.
-Though, recent research suggests the #acr("AUROC") as a more reliable metric for use cases with elevated #acr("FN") costs, such as the increased mortality risk in false or delayed sepsis diagnoses @mcdermott2025metrics.
+Traditionally, the #acr("AUPRC") as been referred to as the more appropriate metric for imbalanced prediction tasks, though, recent research suggests the #acr("AUROC") as a more reliable metric for use cases with elevated #acr("FN") costs, such as the increased mortality risk in false or delayed sepsis diagnoses @mcdermott2025metrics.
 Together the #acr("AUROC") and #acr("AUPRC") are the commonly reported performance metrics used in the sepsis prediction literature @Moor2021Review and will be used to compare the performance between the #acr("LDM") and a baseline approach.
 
-== Summary of Methods
+== Summary
 This chapter introduced the proposed model for short-term and interpretable online risk prediction of developing sepsis for #acr("ICU") patients, referred to as #acl("LDM").
 Starting from the formal task definition, the full processing pipeline and detailed the architecture of the encoder, recurrent latent dynamics module, decoder, and the infection-indicator classifier have been presented.
 A key component of the approach is the integration of the functional #acr("DNM") into the latent dynamics, enabling physiologically meaningful and interpretable temporal modeling.

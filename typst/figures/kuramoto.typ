@@ -173,7 +173,7 @@
     mark: (end: "stealth", fill: black),
     name: "x-axis",
   )
-  content((x-sep, -1.6), text("Incresasing " + $Kappa$, size: text-size), anchor: "north")
+  content((x-sep, -1.6), text("Increasing " + $Kappa$, size: text-size), anchor: "north")
 })
 
 #figure(kuramoto_fig)

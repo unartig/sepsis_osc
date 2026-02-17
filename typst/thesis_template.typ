@@ -86,6 +86,7 @@
   raw-font: "Bitstream Vera Sans Mono",
   // The content of your work.
   body,
+  acknowledgements: none,
 ) = {
   // Set the document's metadata.
   set document(title: title, author: author)
@@ -95,7 +96,10 @@
   thesis-type: thesis-type,
   subtitle: none,
   date: date,
-  logo: scale(institute-logo, 100%)
+  logo: scale(institute-logo, 100%),
+  first-supervisor: first-supervisor,
+  second-supervisor: second-supervisor,
+  author: author
   )
 
   // Set the body font.
@@ -178,21 +182,30 @@
   page(footer: none)[]
   pagebreak(to: "odd")
   page({
-    v(12.5%)
+    v(22.5%)
     [
-      // = Eigenständigkeitserklärung
-      #v(3cm)
-      Hiermit erkläre ich, #author, an Eides statt, dass ich die vorliegende #{ thesis-type + "arbeit" } im Studiengang #{program-name} selbstständig verfasst und keine anderen als die angegebenen Hilfsmittel #sym.dash.en insbesondere keine im Quellenverzeichnis nicht benannten Internet-Quellen #sym.dash.en benutzt habe.
+      #heading([Eigenständigkeitserklärung], outlined: false)
+      // #v(3cm)
+      Hiermit erkläre ich, #author, an Eides statt, dass ich die vorliegende #{ thesis-type + "arbeit" } im Studiengang "#{program-name}" selbstständig verfasst und keine anderen als die angegebenen Hilfsmittel #sym.dash.en insbesondere keine im Quellenverzeichnis nicht benannten Internet-Quellen #sym.dash.en benutzt habe.
       Alle Stellen, die wörtlich oder sinngemäß aus Veröffentlichungen entnommen wurden, sind als solche kenntlich gemacht.
       Ich versichere weiterhin,  dass ich die Arbeit vorher nicht in einem anderen Prüfungsverfahren eingereicht habe.
-      Sofern im Zuge der Erstellung der vorliegenden Abschlussarbeit gKI-basierte elektronische Hilfsmittel verwendet wurden, versichere ich, dass meine eigene Leistung im Vordergrund stand und dass eine vollständige Dokumentation aller verwendeten Hilfsmittel gemäß der Guten Wissenschaftlichen Praxis vorliegt.
+      Sofern im Zuge der Erstellung der vorliegenden Abschlussarbeit generative Künstliche Intelligenz (gKI)-basierte elektronische Hilfsmittel verwendet wurden, versichere ich, dass meine eigene Leistung im Vordergrund stand und dass eine vollständige Dokumentation aller verwendeten Hilfsmittel gemäß der Guten Wissenschaftlichen Praxis vorliegt.
       Ich trage die Verantwortung für eventuell durch die gKI generierte fehlerhafte oder verzerrte Inhalte, fehlerhafte Referenzen, Verstöße gegen das Datenschutz- und Urheberrecht oder Plagiate.
-      #v(3cm)
-      Hamburg, den #date.display(date-format)
+      #v(1cm)
+
+      Berlin, den #date.display(date-format)
       #v(2cm)
       (#author)
     ]
   })
+
+
+  if acknowledgements != none {
+    v(22.5%)
+    heading([Acknowledgements], outlined: false)
+    acknowledgements
+    pagebreak()
+  }
 
   // TABLE OF CONTENTS / FIGURES / TABLES
   set outline(indent: auto)

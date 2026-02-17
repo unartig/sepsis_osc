@@ -4,11 +4,11 @@
 Nearly 20% of all deaths worldwide and approximately 11 million deaths annually stem from sepsis, a dysregulated response to infection @rudd2020global.
 Despite its enormous clinical and economic burden, sepsis remains notoriously difficult to diagnose in time or even predict in advance due to its inherent complexity.
 Sepsis is not a single disease but a heterogeneous syndrome involving infection, immune dysregulation, and multi-organ dysfunction across multiple biological scales.
-Currently, automated alert systems suffer from limited clinical adoption and further research for improving performance is necessary @Alshaeba2025Effect.
+Currently, automated early detection systems suffer from limited clinical adoption and further research for improving performance is necessary @Alshaeba2025Effect.
 Yet early recognition is critical, each hour of delayed treatment increases mortality risk @seymour2017time.
 
-Given this time-critical challenge, existing computational approaches face a fundamental dilemma:
-Data-driven methods that use machine learning on electronic health records show promising performance but function as black boxes, offering little mechanistic insight into why a patient is at risk @Bomrah2024Review@Moor2021Review.
+Given this time-critical challenge, existing computational approaches face a fundamental trade-off:
+Data-driven methods that use machine learning on electronic health records show promising performance but function as black boxes, offering little mechanistic insight into why a patient is at risk @Bomrah2024Review@Moor2021Review;
 Mechanistic models explicitly encode biological processes, providing interpretability but require detailed parameterization and high-resolution measurements rarely available in clinical practice @Relouw2024@Cockrell2022Model.
 
 This work proposes a hybrid approach that combines the strengths of both paradigms.
@@ -21,7 +21,7 @@ This thesis addresses that gap by developing the #acr("LDM"), a novel neural arc
 
 The #acr("LDM") learns to map electronic health record time series to interpretable components aligned with the technical sepsis definition.
 Rather than treating sepsis as a black-box classification problem, the model represents patient organ states as trajectories through the #acr("DNM")s parameter space, where desynchronization serves as a continuous proxy for acute organ failure.
-This design provides both competitive predictive performance, evaluated on real world data and compared to existing baseline methods, and interpretable intermediate outputs that align with clinical reasoning.
+This design provides both competitive predictive performance, evaluated on real-world data and compared to existing baseline methods, and interpretable intermediate outputs that align with clinical reasoning.
 
 The thesis proceeds as follows, building from clinical foundations to methodological innovation:
 @sec:sepsis provides medical background on sepsis, from cellular immune response and its systemic consequences to the Sepsis-3 clinical definition, and closing by establishing the clinical need for better prediction systems.
