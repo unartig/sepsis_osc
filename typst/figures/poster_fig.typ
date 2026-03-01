@@ -472,40 +472,7 @@
   })
 }
 
-// ============================================================
-// USAGE EXAMPLES
-// ============================================================
-
-// Full poster with all components
 #let poster_fig = create-poster-figure()
-
-// Poster without SOFA trajectory
-#let poster_fig_no_sofa = create-poster-figure(
-  show-sofa: false,
-)
-
-// Poster with only encoder and predictor
-#let poster_fig_encoder_predictor = create-poster-figure(
-  show-dnm: false,
-  show-sofa: false,
-)
-
-// Poster without labels (cleaner look)
-#let poster_fig_no_labels = create-poster-figure(
-  show-labels: false,
-)
-
-// Poster without annotations (mathematical symbols)
-#let poster_fig_no_annotations = create-poster-figure(
-  show-annotations: false,
-)
-
-// Minimal poster (only structure, no labels or annotations)
-#let poster_fig_minimal = create-poster-figure(
-  show-labels: false,
-  show-annotations: false,
-)
-
 // ============================================================
 // DEFAULT FIGURE
 // ============================================================

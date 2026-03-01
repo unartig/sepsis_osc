@@ -24,9 +24,10 @@
       // aqua,
       // white,
       // TODO maybe after 0.13.1 update we can do this
-      yellow,
-      lime,
-      aqua.transparentize(100%),
+      // yellow,
+      // lime,
+      orange.transparentize(0%),
+      orange.transparentize(100%),
     ),
     fill-opacity: 1%,
     name: "kernel",
@@ -54,7 +55,7 @@
         radius: 2pt,
         fill: gradient
           .linear(..color.map.viridis)
-          .sample(calc.sin(x) * 50% + calc.sin(y) * 50%),
+          .sample(calc.sin(x - 1.5) * 50% + calc.sin(y - 1.5) * 50%),
         stroke: none,// .5pt + black,
       )
       
@@ -67,10 +68,8 @@
         cadd(cround(zc), (x, ratio * y)),
         radius: 2pt,
         fill: none,
-        // fill: gradient
-        // .linear(..color.map.plasma)
-        // .sample(calc.cos(x) * 30% + calc.sin(y) * 50%),
-        stroke: 1.2pt + red,
+        // stroke: none,
+        stroke: .5pt + red,
       )
     }
   }
