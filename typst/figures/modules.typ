@@ -223,4 +223,61 @@
     line("aout.south", (rel: (0.75, 0), to:"risk.east"), "risk.east", mark: (end: ">"), stroke: 1pt)
   })
 
+#let draw_simple_ldm_fig(inf: true, sofa: true) = {
+    import draw: *
+
+    let out_c = maroon
+    
+    // Input
+    rect((0, 5), (2, 5.75), name: "ehr", stroke: 2pt + blue, fill: blue.lighten(95%))
+    content("ehr.center", [$bold(mu)_t$])
+    // Output
+    rect((-0.25, -1), (2.75, -2.25), name: "risk", stroke: 3pt + red, fill: red.lighten(90%))
+    content("risk.center", align(center, text(weight: "bold")[Sepsis Risk \ $tilde(S)_t = tilde(A)_t tilde(I)_t$]))
+    
+    if inf {
+        // Infection module
+        let inf_c = olive
+        rect((-3.5, 3.0), (0.5, 4), name: "inf", stroke: 2pt + inf_c.lighten(20%), fill: inf_c.lighten(95%))
+        content("inf.center", align(center, [Infection Module $f_theta_f$]))
+
+        line((rel:(-1, 0.0), to:"inf.south"), (rel:(-1, -0.5), to:"inf.south"), (rel:(-2.5, -0.5), to:"inf.south"), (rel:(-2.5, 1.5), to:"inf.south"), (rel:(-1, 1.5), to:"inf.south"), (rel:(-1, 0), to:"inf.north"), mark: (end: ">"))
+        content((rel: (-1.5, 0.9), to:"inf.north"), align(center, text(size: 10pt)[hidden state $bold(h)^f_(t-1)$]))
+    
+        line("ehr.south", (rel: (0, .5), to: "inf.north"), "inf.north", mark: (end: ">"), stroke: 1pt)
+    
+        rect((-3.5, 2.25), (0.5, 1.5), name: "iout", stroke: 1.5pt + out_c)
+        content("iout.center", [$tilde(I)_t$])
+        line("inf.south", "iout.north", mark: (end: ">"), stroke: 1pt)
+        line("iout.south", (rel: (-1.25, 0), to:"risk.west"), "risk.west", mark: (end: ">"), stroke: 1pt)
+    }
+
+    if sofa {
+        // SOFA module
+        let sofa_c = olive
+        rect((1.5, 3.0), (5.5, 4), name: "sofa", stroke: 2pt + sofa_c.lighten(20%), fill: sofa_c.lighten(95%))
+        line((rel:(1, 0.0), to:"sofa.south"), (rel:(1, -0.5), to:"sofa.south"), (rel:(2.5, -0.5), to:"sofa.south"), (rel:(2.5, 1.5), to:"sofa.south"), (rel:(1, 1.5), to:"sofa.south"), (rel:(1, 0), to:"sofa.north"), mark: (end: ">"))
+        content((rel: (2.5, 1.1), to:"sofa.north"), align(left, text(size: 10pt)[hidden state $bold(h)^g_(t-1)$\ and previous position $bold(z)^"raw"_(t-1)$]))
+    
+        content("sofa.center", align(center, [SOFA Module $g_theta_g$]))
+        line("ehr.south", (rel: (0, .5), to: "sofa.north"), "sofa.north", mark: (end: ">"), stroke: 1pt)
+    
+        rect((1.5, 2.25), (5.5, 1.5), name: "zout", stroke: 1.5pt + out_c)
+        content("zout.center", [$hat(bold(z))_t = (beta, sigma)$])
+
+        rect((.5, 1), (6.5, -0.2), name: "aout", stroke: 1.5pt + out_c)
+        content("aout.center", align(center, text(size: 10pt, weight: "bold")[Organ Failure Risk] + text[\ $tilde(A)_t =$ positive change in $s^1(hat(bold(z)_t))$]))
+        line("zout.south", "aout.north", mark: (end: ">"), stroke: 1pt)
+        line("sofa.south", "zout.north", mark: (end: ">"), stroke: 1pt)
+        line("aout.south", (rel: (0.75, 0), to:"risk.east"), "risk.east", mark: (end: ">"), stroke: 1pt)
+
+  }
+}
+
 #figure(ldm_fig)
+
+#let create-simple-ldm-figure(inf: true, sofa: true) = {
+  canvas({draw_simple_ldm_fig(inf: inf, sofa: sofa)})
+}
+#let simple_ldm_fig = create-simple-ldm-figure()
+
