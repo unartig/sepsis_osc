@@ -59,18 +59,18 @@ def space_plot(
     else:
         fig, ax = figax
 
-    im = ax.imshow(metric.T[::-1, :], cmap="viridis", aspect="auto")
-
+    im = ax.imshow(metric.T[::-1, :], cmap="viridis", aspect="auto", extent=(xs[0], xs[-1], ys[0], ys[-1]))
     ax.set_title(title, fontsize=14)
     ax.set_ylabel(r"$\sigma$", fontsize=12)
     ax.set_xlabel(r"$\beta / \pi$", fontsize=12)
 
-    xtick_positions = np.linspace(0, len(xs) - 1, num_ticks, dtype=int)
-    ytick_positions = np.linspace(0, len(ys) - 1, num_ticks, dtype=int)
-    ax.set_xticks(xtick_positions)
-    ax.set_xticklabels([f"{val:.2f}" for val in xs[xtick_positions]], rotation=45)
-    ax.set_yticks(ytick_positions)
-    ax.set_yticklabels([f"{val:.2f}" for val in ys[ytick_positions]][::-1])
+    xtick_vals = xs[np.linspace(0, len(xs) - 1, num_ticks, dtype=int)]
+    ytick_vals = ys[np.linspace(0, len(ys) - 1, num_ticks, dtype=int)]
+    ax.set_xticks(xtick_vals)
+    ax.set_xticklabels([f"{v:.2f}" for v in xtick_vals], rotation=45)
+    ax.set_yticks(ytick_vals)
+    ax.set_yticklabels([f"{v:.2f}" for v in ytick_vals])
+
     if cmap:
         cbar = fig.colorbar(im, ax=ax, location="right", shrink=0.8)
         cbar.set_label(r"$s^{1}$")
@@ -125,8 +125,16 @@ def pretty_plot(
         a.plot([orig_xs[1], orig_xs[1]], [orig_ys[0], orig_ys[1]], color="white", linewidth=0.5)
 
     # Add a colorbar to each subplot
-    fig.colorbar(im0, ax=axes[0], location="right",)
-    fig.colorbar(im1, ax=axes[1], location="right",)
+    fig.colorbar(
+        im0,
+        ax=axes[0],
+        location="right",
+    )
+    fig.colorbar(
+        im1,
+        ax=axes[1],
+        location="right",
+    )
 
     plt.tight_layout()
     if filename and figure_dir:
@@ -137,7 +145,7 @@ def pretty_plot(
 
 if __name__ == "__main__":
     # ALPHA_SPACE = (-0.52, -0.52, 1.0)
-    BETA_SPACE = (0.4, 1.0,  0.01)
+    BETA_SPACE = (0.4, 1.0, 0.01)
     SIGMA_SPACE = (0.0, 1.5, 0.015)
     xs = np.arange(*BETA_SPACE)
     ys = np.arange(*SIGMA_SPACE)

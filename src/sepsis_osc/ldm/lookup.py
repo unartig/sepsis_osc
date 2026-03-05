@@ -237,3 +237,25 @@ def get_aligned_subgrid(
     param_grid = np.stack([beta_grid.ravel(), sigma_grid.ravel()], axis=1)
 
     return param_grid, betas_subspace, sigmas_subspace
+
+
+def compute_window_bounds(
+    betas: np.ndarray | Array,
+    sigmas: np.ndarray | Array,
+    betas_space:  np.ndarray | Array,
+    sigmas_space:  np.ndarray | Array,
+    window_size: int = 5,
+) -> tuple[int, int, int, int]:
+    betas_space_np = np.asarray(betas_space)
+    sigmas_space_np = np.asarray(sigmas_space)
+
+    betas, sigmas = betas.flatten(), sigmas.flatten()
+    beta_idx = np.argmin(np.abs(betas_space_np[:, None] - betas[None, :]), axis=0)
+    sigma_idx = np.argmin(np.abs(sigmas_space_np[:, None] - sigmas[None, :]), axis=0)
+
+    beta_min = max(0, beta_idx.min() - window_size)
+    beta_max = min(len(betas_space_np), beta_idx.max() + window_size)
+    sigma_min = max(0, sigma_idx.min() - window_size)
+    sigma_max = min(len(sigmas_space_np), sigma_idx.max() + window_size)
+
+    return beta_min, beta_max, sigma_min, sigma_max
