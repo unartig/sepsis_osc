@@ -1,6 +1,8 @@
-from dataclasses import dataclass, fields
+from dataclasses import dataclass, field, fields
 
 import jax.numpy as jnp
+import numpy as np
+from jax import tree as jtree
 from jax.tree_util import register_dataclass
 from jaxtyping import Array
 
@@ -33,6 +35,13 @@ class AuxLosses:
     sofa_d2_risk: Array
     susp_inf_p: Array
     sep3_risk: Array
+
+
+    def to_np(self) -> "AuxLosses":
+        """
+        Recursively converts all leaves to numpy arrays.
+        """
+        return jtree.map(lambda x: np.asarray(x) if x is not None else None, self)
 
     @staticmethod
     def empty() -> "AuxLosses":
@@ -131,4 +140,5 @@ class LossesConfig:
     lambda_recon: float
 
     steps_per_epoch: int = 0
+    sofa_dist: Array= field(default_factory=lambda: jnp.ones(24))
 

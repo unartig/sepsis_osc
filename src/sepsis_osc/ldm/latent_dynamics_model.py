@@ -9,31 +9,28 @@ from sepsis_osc.ldm.ae import Decoder, LatentEncoder
 from sepsis_osc.ldm.commons import qr_init
 from sepsis_osc.utils.jax_config import typechecker
 
-ones_24 = jnp.ones(24)
-
 
 class LatentDynamicsModel(eqx.Module):
     latent_pre_encoder: LatentEncoder
     latent_encoder: eqx.nn.GRUCell
     latent_rollout: eqx.nn.GRUCell
     latent_proj_out: eqx.nn.Linear
-    latent_enc_hidden_dim: int = eqx.field(static=True)
-    latent_hidden_dim: int = eqx.field(static=True)
+    latent_enc_hidden_dim: int
+    latent_hidden_dim: int
 
     inf_encoder: eqx.nn.GRUCell
     inf_rollout: eqx.nn.GRUCell
     inf_proj_out: eqx.nn.Linear
-    inf_hidden_dim: int = eqx.field(static=True)
+    inf_hidden_dim: int
     inf_h0: Array
 
-    dec_hidden_dim: int = eqx.field(static=True)
+    dec_hidden_dim: int
     decoder: Decoder
 
-    input_dim: int = eqx.field(static=True)
-    latent_dim: int = eqx.field(static=True)
-    inf_dim: int = eqx.field(static=True)
+    input_dim: int
+    latent_dim: int
+    inf_dim: int
 
-    sofa_dist: Float[Array, "24"] = eqx.field(static=True)
     lookup_kernel_size: int
 
     _lookup_temperature: Float[Array, "1"]
@@ -54,13 +51,11 @@ class LatentDynamicsModel(eqx.Module):
         inf_hidden_dim: int,
         dec_hidden_dim: int,
         lookup_kernel_size: int = 3,
-        sofa_dist: Float[Array, "24"] = ones_24,
         dtype: DTypeLike = jnp.float32,
     ) -> None:
         key_dec, key_enc, keyz, keyinf = jr.split(key, 4)
 
         self.lookup_kernel_size = lookup_kernel_size
-        self.sofa_dist = sofa_dist
         self.input_dim = input_dim
         self.latent_dim = latent_dim
         self.inf_dim = inf_dim
