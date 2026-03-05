@@ -10,10 +10,10 @@ from tensorboardX import SummaryWriter
 from sepsis_osc.ldm.lookup import LatentLookup
 from sepsis_osc.ldm.model_structs import AuxLosses
 from sepsis_osc.visualisations.viz_model_results import (
+    viz_concept_densities,
     viz_curves,
-    viz_heatmap_concepts,
-    viz_plane,
-    viz_starter,
+    viz_patients_latent,
+    viz_trajectories_over_time,
 )
 
 
@@ -86,7 +86,7 @@ def log_val_metrics(
         pred_sofa_score = np.asarray(metrics["hists"]["sofa_score"])[mask]
 
     fig, ax = plt.subplots(1, 1)
-    ax = viz_starter(
+    ax = viz_trajectories_over_time(
         metrics["latents"]["beta"][0],
         metrics["latents"]["sigma"][0],
         lookup=lookup,
@@ -98,7 +98,7 @@ def log_val_metrics(
 
     fig, ax = plt.subplots(1, 1)
     seq_idx = np.argmax(y[0, :, :, 0].var(axis=-1))  # highest sofa std in first batch
-    ax = viz_plane(
+    ax = viz_patients_latent(
         true_sofa=y[0, seq_idx, :, 0],
         betas=metrics["latents"]["beta"][0, seq_idx],
         sigmas=metrics["latents"]["sigma"][0, seq_idx],
@@ -109,7 +109,7 @@ def log_val_metrics(
     )
     writer.add_figure("SingleLatent", fig, epoch, close=True)
 
-    fig, ax = viz_heatmap_concepts(
+    fig, ax = viz_concept_densities(
         true_sofa,
         true_inf,
         pred_sofa_score,

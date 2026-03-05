@@ -24,7 +24,13 @@ vars_copy = new_vars.copy()
 
 
 def get_raw_data(
-    _data_dir: Path = data_dir, yaib_vars: dict[str, str | list[str]] = vars_copy
+    _data_dir: Path = data_dir,
+    yaib_vars: dict[str, str | list[str]] = vars_copy,
+    *,
+    cv_repetitions: int = 5,
+    repetition_index: int = 0,
+    cv_folds: int = 5,
+    fold_index: int = 0,
 ) -> dict[str, pl.DataFrame]:
     """
     Fetches and preprocesses raw tabular data into a structured format.
@@ -46,11 +52,11 @@ def get_raw_data(
         debug=False,
         generate_cache=True,
         load_cache=False,
-        cv_repetitions=2,
-        repetition_index=0,
+        cv_repetitions=cv_repetitions,
+        repetition_index=repetition_index,
         train_size=0.8,
-        cv_folds=2,
-        fold_index=0,
+        cv_folds=cv_folds,
+        fold_index=fold_index,
         pretrained_imputation_model=None,
         runmode=RunMode.classification,
         vars=yaib_vars,
@@ -197,13 +203,19 @@ def get_data_sets_online(
     *,
     use_yaib_label: bool = True,
     path_prefix: str = "",
+    cv_repetitions: int = 5,
+    repetition_index: int = 0,
+    cv_folds: int = 5,
+    fold_index: int = 0,
+    sequence_files: str = sequence_files,
 ) -> tuple[np.ndarray, ...]:
     """
     Loads datasets specifically formatted for online prediction tasks.
 
     Similar to `get_data_sets_offline`, but includes mask arrays to handle padding.
     """
-    file_name = f"{'yaib_' if use_yaib_label else ''}{cohort_name}_detection"
+    cv_str = f"cvrep{cv_repetitions:002}x{repetition_index:002}cvfold{cv_folds:002}x{fold_index:002}"
+    file_name = f"{'yaib_' if use_yaib_label else ''}{cohort_name}_detection_{cv_str}"
     file_path = Path(sequence_files + f"{file_name}.npz")
     if (Path(path_prefix) / file_path).exists():
         logger.info("Processed sequence files found. Loading data from disk...")
@@ -217,7 +229,14 @@ def get_data_sets_online(
         detect_vars = copy.deepcopy(vars_copy)
         label = "yaib_label" if use_yaib_label else target_name
         detect_vars["LABEL"] = [label, "sofa", "susp_inf_ramp"]
-        data = get_raw_data(yaib_vars=detect_vars, _data_dir=Path(path_prefix) / yaib_data_dir)
+        data = get_raw_data(
+            yaib_vars=detect_vars,
+            _data_dir=Path(path_prefix) / yaib_data_dir,
+            cv_repetitions=cv_repetitions,
+            repetition_index=repetition_index,
+            cv_folds=cv_folds,
+            fold_index=fold_index,
+        )
         (
             train_x,
             train_y,

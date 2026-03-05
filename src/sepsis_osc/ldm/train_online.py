@@ -46,6 +46,8 @@ def prob_increase_steps(
     thresholding mechanism to detect 'jumps'.
     """
     # return jnp.concat([jnp.array([0.0]), jnp.tanh((jax.nn.relu(jnp.diff(preds, axis=-1) - threshold)) * scale)])
+    # return jnp.concat([jnp.array([0.0]), jax.nn.sigmoid((jax.nn.leaky_relu(jnp.diff(preds, axis=-1), negative_slope=1e2) - threshold) * scale)])
+
     return jnp.concat([jnp.array([0.0]), jax.nn.sigmoid((jnp.diff(preds, axis=-1) - threshold) * scale)])
 
 
@@ -91,10 +93,11 @@ def masked_cov(
     return cov
 
 
+@jaxtyped(typechecker=typechecker)
 def boundary_loss(
     z_sigmoid: Float[Array, "batch time zlatent_dim"],
     margin_fraction: float = 0.1,
-) -> Float[Array, ""]:
+) -> Float[Array, "batch time"]:
     """
     Computes a hinge loss to penalize latent values that approach the edges of the sigmoid activation range.
     Ensuring they stay within a specified margin.
@@ -105,6 +108,7 @@ def boundary_loss(
     return (lower_violation + upper_violation).mean(axis=-1)
 
 
+@jaxtyped(typechecker=typechecker)
 def constrain_z(z: Float[Array, "batch time zlatent_dim"]) -> Float[Array, "batch time zlatent_dim"]:
     """
     Linearly scales raw latent outputs from the unit interval to the predefined physical ranges for the parameters.
@@ -115,6 +119,7 @@ def constrain_z(z: Float[Array, "batch time zlatent_dim"]) -> Float[Array, "batc
     return jnp.concatenate([beta, sigma], axis=-1)
 
 
+@jaxtyped(typechecker=typechecker)
 def constrain_z_margin(
     z: Float[Array, "batch time zlatent_dim"], margin: int = 1
 ) -> Float[Array, "batch time zlatent_dim"]:
@@ -134,6 +139,7 @@ def constrain_z_margin(
     return jnp.concatenate([beta, sigma], axis=-1)
 
 
+@jaxtyped(typechecker=typechecker)
 def bound_z(z: Float[Array, "batch time zlatent_dim"]) -> Float[Array, "batch time zlatent_dim"]:
     """
     Applies a hard clip to latent values to ensure they do not exceed the defined boundaries of the parameter space.
@@ -144,6 +150,7 @@ def bound_z(z: Float[Array, "batch time zlatent_dim"]) -> Float[Array, "batch ti
     return jnp.concatenate([beta, sigma], axis=-1)
 
 
+@jaxtyped(typechecker=typechecker)
 def cosine_annealing(base_val: float, num_steps: int, num_dead_steps: int, current_step: jnp.int32) -> Float[Array, ""]:
     """
     Computes a cosine-based decay factor for a value over a set number of steps (for temperature or loss scheduling).
@@ -153,7 +160,8 @@ def cosine_annealing(base_val: float, num_steps: int, num_dead_steps: int, curre
     return base_val + (1.0 - base_val) * (1.0 - cosine)
 
 
-def mask_padding(loss: Float[Array, "*"], mask: Float[Array, "*"] | None = None) -> Float[Array, "*"]:
+@jaxtyped(typechecker=typechecker)
+def mask_padding(loss: Float[Array, "batch time"] | Float[Array, "*"], mask: Bool[Array, "batch time"] | None = None) -> Float[Array, ""]:
     """
     Computes the mean of a loss tensor while ignoring padded indices as defined by a boolean mask.
     """
@@ -190,8 +198,6 @@ def loss(
     z_seq_sigm, inf_seq_raw = jax.vmap(model.online_sequence)(x, batch_keys)
     z_seq = constrain_z_margin(z_seq_sigm, model.lookup_kernel_size // 2)
 
-    fine = cosine_annealing(0.01, 200 * params.steps_per_epoch, 100 * params.steps_per_epoch, step)
-
     aux.boundary_loss = boundary_loss(z_seq_sigm, margin_fraction=0.1)
 
     aux.beta, aux.sigma = z_seq[..., 0], z_seq[..., 1]
@@ -205,7 +211,7 @@ def loss(
     aux.recon_loss = jnp.mean((x_vals - x_recon) ** 2, axis=-1)
 
     # --------- Concept losses
-    class_weights = jnp.log(1.0 + 1.0 / (model.sofa_dist + EPS))
+    class_weights = jnp.log(1.0 + 1.0 / (params.sofa_dist + EPS))
     weights_per_sample = class_weights[sofa_true.astype(jnp.int32)]
     aux.sofa_loss_t = (sofa_pred - (sofa_true / 23.0)) ** 2 * (weights_per_sample)
 
@@ -313,8 +319,8 @@ def process_train_epoch(
     )
 
 
-@timing
 @eqx.filter_jit
+@timing
 def process_val_epoch(
     model: LatentDynamicsModel,
     x_data: Float[Array, "nvbatches batch t input_dim"],
@@ -395,6 +401,22 @@ if __name__ == "__main__":
     load_conf = LoadingConfig(from_dir="", epoch=0)
     save_conf = SaveConfig(save_every=1, perform=True)
 
+    key = jr.PRNGKey(jax_random_seed)
+    key_model, key_weights = jr.split(key, 2)
+    model = LatentDynamicsModel(
+        key=key_model,
+        input_dim=52,
+        latent_enc_hidden_dim=64,
+        latent_hidden_dim=4,
+        latent_dim=2,
+        inf_hidden_dim=32,
+        inf_dim=1,
+        dec_hidden_dim=32,
+        lookup_kernel_size=3,
+    )
+    model = init_ldm_weights(model, key_weights, scale=1e-4)
+    hyper_ldm = model.hypers_dict()
+
     # === Data ===
     (
         train_x,
@@ -406,7 +428,9 @@ if __name__ == "__main__":
         _x,
         _y,
         _m,
-    ) = get_data_sets_online(swapaxes_y=(1, 2, 0), dtype=jnp.float32)
+    ) = get_data_sets_online(
+        swapaxes_y=(1, 2, 0), dtype=jnp.float32, cv_repetitions=2, repetition_index=0, cv_folds=2, fold_index=0
+    )
     train_m, val_m = train_m.astype(np.bool), val_m.astype(np.bool)
     logger.error(f"{jnp.unique(train_y[..., 0])}")
     logger.error(f"{jnp.unique(train_y[..., 1])}")
@@ -416,19 +440,28 @@ if __name__ == "__main__":
     logger.info(f"Frac Pos labels in Test {train_y[train_m, 2].sum() / train_m.sum() * 100:.2f}%")
     for y, m, s in ((train_y, train_m, "Train"), (val_y, val_m, "Val"), (_y, _m, "Test")):
         logger.info(
-           f"Patient Prevalence {s:5}   {((y * m[..., None]).max(axis=1) == 1.0).mean(axis=0).round(4)[[1, 2]] * 100}%"
+            f"Patient Prevalence {s:5}   {((y * m[..., None]).max(axis=1) == 1.0).mean(axis=0).round(4)[[1, 2]] * 100}%"
         )
     logger.info("")
     for y, m, s in ((train_y, train_m, "Train"), (val_y, val_m, "Val"), (_y, _m, "Test")):
-        logger.info(f"Time Prevalence {s:5}      {((y * m[..., None]) > 0.0).mean(axis=(0, 1)).round(4)[[1, 2]] * 100}%")
+        logger.info(
+            f"Time Prevalence {s:5}      {((y * m[..., None]) > 0.0).mean(axis=(0, 1)).round(4)[[1, 2]] * 100}%"
+        )
     for y, m, s in ((train_y, train_m, "Train"), (val_y, val_m, "Val"), (_y, _m, "Test")):
         logger.info(f"Mean sequence length {s:5} {m.sum(axis=-1).mean().round(2)}h")
     for y, m, s in ((train_y, train_m, "Train"), (val_y, val_m, "Val"), (_y, _m, "Test")):
-        logger.info(f"Max values {s:5}           {(y * m[..., None]).max(axis=((0,1)))}")
+        logger.info(f"Max values {s:5}           {(y * m[..., None]).max(axis=((0, 1)))}")
 
     logger.info(f"First septic patient labels {train_y[1, train_m[1], 2]}")
     del _x, _y, _m
 
+    counts = np.bincount(train_y[train_m][..., 0].astype(int), minlength=24)
+    sofa_dist = counts / counts.sum()
+    loss_conf.sofa_dist = sofa_dist
+
+    logger.info(f"SOFA class weights {jnp.log(1.0 + 1.0 / (sofa_dist + EPS))}")
+
+    # === Lookup ===
     db_str = "DaisyFinal"
     sim_storage = Storage(
         key_dim=9,
@@ -454,6 +487,7 @@ if __name__ == "__main__":
         dtype=jnp.float32,
     )
 
+    # === Schedule ===
     steps_per_epoch = (train_x.shape[0] // train_conf.batch_size) * train_conf.batch_size
     schedule = custom_warmup_cosine(
         init_value=lr_conf.init,
@@ -465,30 +499,6 @@ if __name__ == "__main__":
     )
 
     # === Initialization ===
-    key = jr.PRNGKey(jax_random_seed)
-    metrics = jnp.sort(lookup_table.relevant_metrics)
-    _sofas, counts = np.unique(train_y[train_m][..., 0], return_counts=True, sorted=True)
-    counts = np.pad(counts, 24 - counts.size, constant_values=0)
-    sofa_dist = counts / counts.sum()
-
-    logger.info(f"SOFA class weights {jnp.log(1.0 + 1.0 / (sofa_dist + EPS))}")
-
-    key_model, key_weights = jr.split(key, 2)
-    model = LatentDynamicsModel(
-        key=key_model,
-        input_dim=52,
-        latent_enc_hidden_dim=64,
-        latent_hidden_dim=4,
-        latent_dim=2,
-        inf_hidden_dim=32,
-        inf_dim=1,
-        dec_hidden_dim=32,
-        sofa_dist=jnp.asarray(sofa_dist),
-        lookup_kernel_size=3,
-    )
-    model = init_ldm_weights(model, key_weights, scale=1e-4)
-
-    hyper_ldm = model.hypers_dict()
     optimizer = optax.chain(
         optax.clip_by_global_norm(1.0),
         optax.adamw(learning_rate=schedule, weight_decay=lr_conf.enc_wd),
@@ -534,7 +544,6 @@ if __name__ == "__main__":
     for epoch in range(load_conf.epoch if load_conf.from_dir else 0, train_conf.epochs):
         if epoch > 0:
             shuffle_key = jr.fold_in(key, epoch)
-            train_key = jr.fold_in(key, epoch + 1)
             x_shuffled, y_shuffled, m_shuffled, ntrain_batches = prepare_batches_mask(
                 train_x,
                 train_y,
@@ -609,8 +618,6 @@ if __name__ == "__main__":
                 )
 
             log_msg = log_val_metrics(val_metrics, val_y[None], lookup_table, epoch, writer, mask=val_m[None])
-            pred_sep = np.asarray(val_metrics.sep3_risk)[val_m[None]]
-            true_sep = val_y[..., 2][val_m]
             logger.warning(log_msg)
 
             model = eqx.nn.inference_mode(val_model, value=False)

@@ -3,9 +3,12 @@ from collections.abc import Callable
 import equinox as eqx
 import jax
 import jax.numpy as jnp
-from jax import vmap
+import numpy as np
 from jaxtyping import Array, Float, Int, PyTree, jaxtyped
 
+from sepsis_osc.dnm.dynamic_network_model import DNMConfig, DNMMetrics
+from sepsis_osc.ldm.lookup import LatentLookup, as_2d_indices
+from sepsis_osc.storage.storage_interface import Storage
 from sepsis_osc.utils.jax_config import EPS, typechecker
 
 
@@ -114,6 +117,7 @@ def custom_warmup_cosine(
     cycle_peak_decays = jnp.array(peak_decays)
     num_cycles = len(cycles)
 
+    @eqx.filter_jit
     def schedule(step: Int[Array, ""]) -> Float[Array, ""]:
         step = jnp.asarray(step)
 
@@ -151,3 +155,27 @@ def custom_warmup_cosine(
 def binary_logits(probs: Float[Array, "*"]) -> Float[Array, "*"]:
     probs = jnp.clip(probs, EPS, 1 - EPS)
     return jnp.log(probs) - jnp.log1p(-probs)
+
+
+def build_lookup_table(
+    storage: Storage, alpha: float, beta_space: tuple[float, float, float], sigma_space: tuple[float, float, float]
+) -> LatentLookup:
+    b, s = as_2d_indices(beta_space, sigma_space)
+    a = np.ones_like(b) * alpha
+
+    indices_2d = jnp.concatenate([b[..., None], s[..., None]], axis=-1)
+    spacing_2d = jnp.array([beta_space[2], sigma_space[2]])
+
+    params = DNMConfig.batch_as_index(a, b, s, 0.2)
+    metrics_2d, _ = storage.read_multiple_results(params, proto_metric=DNMMetrics, threshold=0.0)
+
+    metrics_2d = metrics_2d.to_jax()
+
+    return LatentLookup(
+        metrics=metrics_2d.reshape((-1, 1)),
+        indices=indices_2d.reshape((-1, 2)),
+        metrics_2d=metrics_2d,
+        indices_2d=indices_2d,
+        grid_spacing=spacing_2d,
+        dtype=jnp.float32,
+    )
