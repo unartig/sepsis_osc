@@ -9,3 +9,13 @@ version = "0.0.1"
 [tool.setuptools]
 package-dir = {"" = "src"}
 packages = ["sepsis_osc"]
+
+[tool.ty.environment]
+python = "./venv-seps"
+
+# [tool.ty.overrides.settings.experimental]
+# rename = true
+
+
+[tool.marimo.language_servers.ty]
+enabled = true

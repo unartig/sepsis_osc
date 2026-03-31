@@ -91,7 +91,7 @@ Here, the adaptation rate $0 < epsilon << 1$ separates the fast moving oscillato
 Such adaptive couplings have been used to model neural plasticity and learning-like processes in physiological systems @Jttner2023Dynamic.
 The so-called phase lag parameter $beta$ of the adaptation function (also called plasticity rule) plays an essential role in the synchronization process.
 At a value of $beta^mu=pi/2$, the coupling, and therefore the adaptivity, is at a maximum positive feedback, strengthening the link $kappa_(i j)$ and encouraging synchronization between oscillators $i$ and $j$.
-This maximal connectivity is referred to _Hebbian Rule_ and found in synchronizing systems such as the brain  @Berner2020Birth.
+This maximal connectivity is referred to _Hebbian Rule_ and found in synchronizing systems such as the brain @Berner2020Birth.
 For other values $beta^mu != pi/2$, the feedback is delayed $phi^(mu)_i-phi^(nu)_j=beta^mu-pi/2$ by a phase lag, at a value of $beta^mu=-pi/2$ we get an anti-Hebbian rule which inhibits synchronization.
 
 *Multiplex Networks* represent systems with multiple interacting layers.
@@ -134,7 +134,7 @@ An illustration of the biological and functional model is shown in @fig:dnm.
   long: [Image taken from @Berner2022Critical
  in a simplified form, illustrating the #acl("DNM").
   *A* A tissue element is depicted, in which the basic processes of sepsis take place.
-  Shown are different immune and structural cells involved (colored) in the stroma (yellow area), the parenchyma (grey), and the capillary blood vessel, where cytokines, #acr("PAMP")s and #acr("DAMP")s are transmitted.
+  Shown are different immune and structural cells involved (colored) in the stroma (yellow area), the parenchyma (grey), and the capillary blood vessel, where cytokines, #acp("PAMP") and #acp("DAMP")s are transmitted.
   *B* Depicts the functional interactions within and between the two corresponding network layers in the #acr("DNM"), the parenchyma and the stroma (immune layer).
   ]),
 ) <fig:dnm>
@@ -164,7 +164,7 @@ To separate the fast moving oscillator dynamics from the slower moving coupling 
 Since the adaptation of parenchymal cytokine communication is assumed to be slower than the immune counterpart @Sawicki2022DNM, it is chosen $epsilon^1 << epsilon^2 << 1$, which introduces dynamics on multiple timescales.
 
 Lastly, the most influential parameter is $beta$ which controls the adaptivity of the cytokines.
-Because $beta$ has such a big influence on the model dynamics it is called the _(biological) age parameter_ and summarizes multiple physiological concepts such as age, inflammatory baselines, adiposity, pre-existing illness, physical inactivity, nutritional influences and other common risk factors @Berner2022Critical.
+Because $beta$ has such a big influence on the model dynamics it is called the _(biological) age parameter_ and summarizes multiple physiological concepts such as age, inflammatory baselines, adiposity, preexisting illness, physical inactivity, nutritional influences and other common risk factors @Berner2022Critical.
 
 All the systems variables and parameters are summarized in @tab:dnm together with their medical interpretation.
 #pagebreak()
@@ -229,7 +229,7 @@ A resilient state corresponds to cases where both the phase and frequency of the
 It is important to note, that the #acr("ODE") dynamics or system variable trajectories *do not* translate to the evolution of a patient's pathological state.
 Instead, the amount of desynchronization of the parenchymal layer when reaching a steady system state can be interpreted as the current state of a patients organ functionality.
 The "result" or solution of the coupled oscillator system does not provide any temporal insights, but only describe the current condition.
-Time-steps taken inside the model cannot be compared to any real-world time quantity. 
+Timesteps taken inside the model cannot be compared to any real-world time quantity. 
 
 // #figure(tree_fig)
 
@@ -266,7 +266,7 @@ For the present implementation the parameterization is adopted from the original
 
 The majority of their parameter choices heavily simplify the model.
 First of all, the different natural frequencies are treated as equal and are set to $0$, giving $omega^1 = omega^2 = omega = 0$, any other choice of $omega$ just changes the frame of reference (co-rotating frame), the dynamics stay unchanged @Berner2022Critical.
-The phase lag parameters for the inter layer coupling are both set to $alpha^(1 2) = alpha^(2 1) = 0$, yielding instantaneous interactions, the intralayer phase lags are set to $alpha^11 = alpha^22 = -0.28pi$, which was the prominently used configuration in @Berner2022Critical yielding the desired dynamical properties.
+The phase lag parameters for the interlayer coupling are both set to $alpha^(1 2) = alpha^(2 1) = 0$, yielding instantaneous interactions, the intralayer phase lags are set to $alpha^11 = alpha^22 = -0.28pi$, which was the prominently used configuration in @Berner2022Critical yielding the desired dynamical properties.
 The constant intralayer coupling in the parenchymal layer is chosen as global coupling $a_(i j) = 1 " if " i!=j " else " 0$.
 
 The adaptation rates are chosen as $epsilon^1=0.03$ and $epsilon^2=0.3$, creating the two dynamical timescales for slow parenchymal and faster immune cells.

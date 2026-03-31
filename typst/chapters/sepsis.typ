@@ -2,10 +2,10 @@
 
 = Medical Background <sec:sepsis>
 In 2017, an estimated 48.9 million people worldwide suffered from sepsis and the same year, 11 million deaths were associated with sepsis @rudd2020global.
-This makes up 19.7% of yearly deaths, making it the most common cause of in-hospital deaths.
+This makes up 19.7% of yearly deaths, making it the leading cause of in-hospital deaths.
 Even with successful treatment, around 40% of those affected suffer long-term consequences, such as cognitive, physical or physiological problems, the so-called _post-sepsis syndrome_ @vanderSlikke2020post.
 The observed risk of mortality significantly differs between lower to middle income countries with $>50%$ and high income countries with $<25%$.
-Overall, septic diseases represent an enormous burden on  the global healthcare system.
+Overall, septic diseases represent an enormous burden on the global healthcare system.
 
 Quantitatively, almost half of all sepsis-related deaths occur as a secondary complication of an underlying injury or a non-communicable, also known as a chronic disease @fleischmann2022sepsis.
 But the underlying biological triggers for sepsis as well as individual patient progressions are highly diverse and heterogeneous.
@@ -130,7 +130,6 @@ According to the Sepsis-3 definition, a patient is in a septic condition if the 
   )
 )
 The combination of the two criteria represents an exaggerated immune reaction that results in organ dysfunction, when infection is first suspected, even modest organ dysfunction is linked to a 10% increase of in-hospital mortality.
-
 
 === Sepsis Classification
 The Sepsis-3 definition not only provides the clinical criteria of septic conditions, but also introduces the necessary time windows for sepsis classification.

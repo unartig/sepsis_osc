@@ -25,11 +25,11 @@
   // config-common(handout: true),
   // config-common(frozen-counters: (theorem-counter,)),  // freeze theorem counter for animation
   config-info(
-    title: text(size: 36pt)[\ \ Combining Machine-Learning and Dynamic Network Models to Improve Sepsis Prediction],
-    subtitle: [],
-    author: [Juri Backes / 597605],
+    title: text(size: 36pt)[\ \ Combining Machine-Learning and Dynamic Network Models for Sepsis Prediction],
+    subtitle: text(size: 20pt)[Juri Backes$""^(1,3)$, Artyom Tsanda$""^(1,2)$, Tobias Knopp$""^(1,2)$, Wolfgang Renz$""^(3)$, and Eckehard Schöll$""^(4)$],
+    author: [#v(-2em)],
     date: datetime.today(),
-    institution: [Supervisors: Prof. Dr. Tobias Knopp and M. Sc. Artyom Tsanda],
+    institution: [$""^1$TU Hamburg, $""^2$UKE Hamburg, $""^3$HAW Hamburg, $""^4$TU Berlin],
     logo: scale(55%, [#v(-1.5em)#image("images/logo_tuhh_uke.svg")]),
 
   ),
@@ -70,176 +70,48 @@
 
 // #show heading: set text(30pt)
 
-== Contents
-#v(7em)
-#box(inset: (x:5em))[
-#text(size:20pt)[
-+ Sepsis
-+ Dynamic Network Model
-+ Latent Dynamics Model
-+ Experimental Results
-+ Conclusion
-]]
-= Sepsis
-#let overview = [
-  *High mortality and rapid progression*
-    - \~50 million yearly patients
-    - \~11 million yearly deaths
-  #v(-.5em)
-  *System-wide damage*\
-  *Long-term consequences*\
-  // *Difficult diagnostic*
-]
-#let multi-scale = [
-  #v(-4.5em)
-  *Multi-Scale*
-    - Innate immune activation
-    - Cytokine-Storms
-    - Metabolic Failure
-    - Organ Dysfunction
-]
-#let sep-def = [
-  *Sepsis Definition*
-    + Suspected Infection
-    + Dysregulated Host Response
-      - SOFA-score increase $>=$ 2
-]
-
-
-// TODO
-// MULTISCALE ANSCHAUEN
-//
-//
-// BLACKBOX MODELS
-// BASAL LAMINA
-// ANOXYGEN BASED
-//
-// FUNCTIONAL KURAMOTO ODE
-// CYTOKINES -> KAPPAS
-//
-// FPR TPR in Backup AU curves
-//
-//
-// Lookup colors of grid
-// 
-// Results
-// What we see is more important is than interpretation
-// focus patient mappings and ode space
-// only mean of ground truth, no density
-//
-// heats:
-// only left and right, with notation I and O?
-// to column and on the right bullet points
-//
-// Brief slide with performance metrics
-// 
-//
-//
-// Conclusion
-
-#let sepsis_cols = (0.5fr, 1.5fr, 0.1fr, 2fr)
-#let bio_fig_size = 50%
-#let bio_fig = text(size:14pt)[#figure(image("images/presentation/cells_micro_cropped.jpg", width:bio_fig_size),
-caption: [Stomach tissue (400x magnification), \ parenchymal cells on top and \ stroma cells in light-pink. \
- (taken from @DigitalHistology_cells)])]
-#pagebreak()
-#v(5em)
-#grid(
-columns: sepsis_cols,
-[],
-[
-  #multi-scale
-  #v(.3em)
-],
-[],
-bio_fig,
-)
-
-#pagebreak()
-#v(5em)
-#grid(
-columns: sepsis_cols,
-[],
-[
-  #multi-scale
-  #v(.3em)
-  #sep-def
-  #v(.3em)
-],
-[],
-bio_fig,
-)
-
-#pagebreak()
-#v(5em)
-#grid(
-columns: sepsis_cols,
-[],
-[
-  #multi-scale
-  #v(.3em)
-  #sep-def
-  #v(.3em)
-  #overview
-],
-[],
-bio_fig,
-)
-#pagebreak()
-#v(5em)
-#grid(
-columns: sepsis_cols,
-[],
-[
-  #multi-scale
-  #v(.3em)
-  #sep-def
-  #v(.3em)
-  #overview
-  
-],
-[],
-[
-#v(4em)
-*Difficult to diagnose*
- #v(.3em)
-*Typical Deep Learning Problem*],
-)
-
-
-= Dynamic Network Model
+#let dnm-short = text()[*Functional modeling* (adaptive cell communication)
+  - Interaction of parenchymal (organ) and immune cells via cytokines\
+  *Two-layer dynamic network model*
+  - Adaptive phase oscillators]
+= Sepsis and the Dynamic Network Model
 #pagebreak()
 #text()[]
 #pagebreak()
 
-#grid(
-columns: 2,
-{
-v(90pt)
-scale(80%, create-poster-figure(
-  show-encoder: false,
-  show-predictor:false,
-  show-sofa: false,
-  show-connections: false,
-  show-pkappa: false,
-  show-ikappa: false,
-  show-immune: false,
-  show-sigma: false,
-))},
-{
-v(100pt)
-$
-  cmb(dot(phi)^1_i) =& -1/N sum^N_(j=1) lr({ cmw((1 + kappa^1_(i j)))sin(cmb(phi^1_i) - cmb(phi^1_j) -0.28pi) }) cmw(- sigma sin(phi^1_i - phi^2_i)) \
-  cmw(dot(kappa)^1_(i j) &= -0.03 (kappa^1_(i j) + sin(phi^1_i - phi^1_j - beta)) \
-  dot(phi)^2_i =& - 1/N sum^N_(j=1) lr({kappa^2_(i j)sin(phi^2_i - phi^2_j -0.28pi) }) - sigma sin(phi^2_i - phi^1_i) \
-  dot(kappa)^2_(i j) &= -0.3 (kappa^2_(i j) + sin(phi^2_i - phi^2_j - beta)))  
-$}
-)
+// #v(3em)
+// #dnm-short
+// #grid(
+// columns: 2,
+// {
+
+// v(20pt)
+// scale(80%, create-poster-figure(
+//   show-encoder: false,
+//   show-predictor:false,
+//   show-sofa: false,
+//   show-connections: false,
+//   show-pkappa: false,
+//   show-ikappa: false,
+//   show-immune: false,
+//   show-sigma: false,
+// ))},
+// {
+// v(30pt)
+// $
+//   cmb(dot(phi)^1_i) =& -1/N sum^N_(j=1) lr({ cmw((1 + kappa^1_(i j)))sin(cmb(phi^1_i) - cmb(phi^1_j) -0.28pi) }) cmw(- sigma sin(phi^1_i - phi^2_i)) \
+//   cmw(dot(kappa)^1_(i j) &= -0.03 (kappa^1_(i j) + sin(phi^1_i - phi^1_j - beta)) \
+//   dot(phi)^2_i =& - 1/N sum^N_(j=1) lr({kappa^2_(i j)sin(phi^2_i - phi^2_j -0.28pi) }) - sigma sin(phi^2_i - phi^1_i) \
+//   dot(kappa)^2_(i j) &= -0.3 (kappa^2_(i j) + sin(phi^2_i - phi^2_j - beta)))  
+// $}
+// )
 #pagebreak()
+#v(3em)
+#dnm-short
 #grid(
 columns: 2,
 {
-v(80pt)
+v(10pt)
 scale(80%, create-poster-figure(
   show-encoder: false,
   show-predictor:false,
@@ -250,7 +122,7 @@ scale(80%, create-poster-figure(
   show-ikappa: false,
 ))},
 {
-v(100pt)
+v(30pt)
 $
   cmb(dot(phi)^1_i) =& -1/N sum^N_(j=1) lr({ cmw((1 + kappa^1_(i j)))sin(cmb(phi^1_i) - cmb(phi^1_j) -0.28pi) }) cmw(- sigma sin(phi^1_i - phi^2_i)) \
   cmw(dot(kappa)^1_(i j) &= -0.03 (kappa^1_(i j) + sin(phi^1_i - phi^1_j - beta))) \
@@ -258,43 +130,47 @@ $
   cmw(dot(kappa)^2_(i j) &= -0.3 (kappa^2_(i j) + sin(phi^2_i - phi^2_j - beta)))  
 $}
 )
+// #pagebreak()
+// #v(3em)
+// #dnm-short
+// #grid(
+// columns: 2,
+// {
+// v(10pt)
+// scale(80%, create-poster-figure(
+//   show-encoder: false,
+//   show-predictor:false,
+//   show-sofa: false,
+//   show-connections: false,
+//   show-sigma: false,
+//   show-ikappa: false,
+// ))},
+// {
+// v(30pt)
+// $
+//   cmb(dot(phi)^1_i) =& -1/N sum^N_(j=1) lr({ (1 + cmp(kappa^1_(i j)))sin(cmb(phi^1_i) - cmb(phi^1_j) -0.28pi) }) cmw(- sigma sin(phi^1_i - phi^2_i)) \
+//   cmp(dot(kappa)^1_(i j)) &= -0.03 (cmp(kappa^1_(i j)) + sin(cmb(phi^1_i) - cmb(phi^1_j) - cmr(beta))) \
+//   cmg(dot(phi)^2_i) =& - 1/N sum^N_(j=1) lr({cmw(kappa^2_(i j))sin(cmg(phi^2_i) - cmg(phi^2_j) -0.28pi)}) cmw(- sigma sin(phi^2_i - phi^1_i)) \
+//   cmw(dot(kappa)^2_(i j) &= -0.3 (kappa^2_(i j) + sin(phi^2_i - phi^2_j - beta)))  
+//   // cmpp(dot(kappa)^2_(i j)) &= -0.3 (cmpp(kappa^2_(i j)) + sin(cmg(phi^2_i) - cmg(phi^2_j) - beta))  
+// $}
+// )
 #pagebreak()
+#v(3em)
+#dnm-short
 #grid(
 columns: 2,
 {
-v(80pt)
+v(10pt)
 scale(80%, create-poster-figure(
   show-encoder: false,
   show-predictor:false,
   show-sofa: false,
   show-connections: false,
   show-sigma: false,
-  show-ikappa: false,
 ))},
 {
-v(100pt)
-$
-  cmb(dot(phi)^1_i) =& -1/N sum^N_(j=1) lr({ (1 + cmp(kappa^1_(i j)))sin(cmb(phi^1_i) - cmb(phi^1_j) -0.28pi) }) cmw(- sigma sin(phi^1_i - phi^2_i)) \
-  cmp(dot(kappa)^1_(i j)) &= -0.03 (cmp(kappa^1_(i j)) + sin(cmb(phi^1_i) - cmb(phi^1_j) - cmr(beta))) \
-  cmg(dot(phi)^2_i) =& - 1/N sum^N_(j=1) lr({cmw(kappa^2_(i j))sin(cmg(phi^2_i) - cmg(phi^2_j) -0.28pi)}) cmw(- sigma sin(phi^2_i - phi^1_i)) \
-  cmw(dot(kappa)^2_(i j) &= -0.3 (kappa^2_(i j) + sin(phi^2_i - phi^2_j - beta)))  
-  // cmpp(dot(kappa)^2_(i j)) &= -0.3 (cmpp(kappa^2_(i j)) + sin(cmg(phi^2_i) - cmg(phi^2_j) - beta))  
-$}
-)
-#pagebreak()
-#grid(
-columns: 2,
-{
-v(80pt)
-scale(80%, create-poster-figure(
-  show-encoder: false,
-  show-predictor:false,
-  show-sofa: false,
-  show-connections: false,
-  show-sigma: false,
-))},
-{
-v(100pt)
+v(30pt)
 $
   cmb(dot(phi)^1_i) =& -1/N sum^N_(j=1) lr({ (1 + cmp(kappa^1_(i j)))sin(cmb(phi^1_i) - cmb(phi^1_j) -0.28pi) }) cmw(- sigma sin(phi^1_i - phi^2_i)) \
   cmp(dot(kappa)^1_(i j)) &= -0.03 (cmp(kappa^1_(i j)) + sin(cmb(phi^1_i) - cmb(phi^1_j) - cmr(beta))) \
@@ -303,10 +179,12 @@ $
 $}
 )
 #pagebreak()
+#v(3em)
+#dnm-short
 #grid(
 columns: 2,
 {
-v(80pt)
+v(10pt)
 scale(80%, create-poster-figure(
   show-encoder: false,
   show-predictor:false,
@@ -314,7 +192,7 @@ scale(80%, create-poster-figure(
   show-connections: false,
 ))},
 {
-v(100pt)
+v(30pt)
 $
   cmb(dot(phi)^1_i) =& -1/N sum^N_(j=1) lr({ (1 + cmp(kappa^1_(i j)))sin(cmb(phi^1_i) - cmb(phi^1_j) -0.28pi) })  - cmo(sigma) sin(cmb(phi^1_i) - cmg(phi^2_i)) \
   cmp(dot(kappa)^1_(i j)) &= -0.03 (cmp(kappa^1_(i j)) + sin(cmb(phi^1_i) - cmb(phi^1_j) - cmred(beta))) \
@@ -323,50 +201,43 @@ $
 $}
 )
 
-// #pagebreak()
-// #figure(image("images/presentation/simulation.gif", width:wid))
-
 #pagebreak()
 #v(4em)
 #figure(image("images/presentation/simulation0.png", width: 85%))
 
 #pagebreak()
-#v(1em)
+#v(11em)
+#align(center, text()[Simulation Video])
 
 #pagebreak()
 #v(4em)
 #figure(image("images/presentation/simulation1.png", width: 85%))
 
 #pagebreak()
-#v(4em)
-#grid(
-  columns: (1fr, 1fr),
-  figure(image("images/presentation/phase.svg", width: 100%)),
-  [
-  ]
-)
+#v(1em)
+#figure(image("images/presentation/phase.svg", width: 60%))
 
-#pagebreak()
-#v(4em)
-#grid(
-  columns: (1fr, 1fr),
-  figure(image("images/presentation/phase.svg", width: 100%)),
-  [#set text(size: 20pt)
-   #v(2em)
-    *Summary*
-    - Functional Model of critical transitions
-    - $beta $ and $ sigma$ modulate synchronization
-    #v(1em)
-    - Not yet validated on clinical data
-    *Can we utilize it to overcome black-box predictions?*
-  ]
-)
+// #pagebreak()
+// #v(4em)
+// #grid(
+//   columns: (1fr, 1fr),
+//   figure(image("images/presentation/phase.svg", width: 100%)),
+//   [#set text(size: 20pt)
+//    #v(2em)
+//     *Summary*
+//     - Functional Model of critical transitions
+//     - $beta $ and $ sigma$ modulate synchronization
+//     #v(1em)
+//     - Not yet validated on clinical data
+//     *Can we utilize it to overcome black-box predictions?*
+//   ]
+// )
 
 
 #let sep-def-not = text(20pt)[
-  *Sepsis Definition* $-> S_t$
-    + Suspected Infection $-> I_t$
-    + Dysregulated Host Response $-> A_t$
+  *Sepsis Definition (simplified)* $-> S_t$
+    + Infection $-> I_t$
+    + Rapid Organ Failure $-> A_t$
       - SOFA-score increase $>=$ 2
 ]
 
@@ -383,27 +254,27 @@ $}
   columns: (1fr, 1fr),
   [#v(3em) #scale(figure(create-oo-figure(off: false, control: false, labels: text(black)[$S_t$])), 120%) #v(3em) #sep-def-not],
   box(inset:(x:7.1em))[#set text(size: 12pt)
-    #v(6em) #scale(figure(create-simple-ldm-figure(inf: false, sofa: false)), 100%)],
+    #v(6em) #scale(figure(create-simple-ldm-figure(inf: false, sofa: false)), 110%)],
 )
 #grid(
   columns: (1fr, 1fr),
   [#v(3em)#scale(figure(create-oo-figure(off: false, control: false, labels: text(black)[$S_t$])), 120%) #v(3em) #sep-def-not],
   [#set text(size: 12pt)
-    #v(6em) #scale(figure(create-simple-ldm-figure(inf: true, sofa: false)), 100%)],
+    #v(6em) #scale(figure(create-simple-ldm-figure(inf: true, sofa: false)), 110%)],
 )
 #grid(
   columns: (1fr, 1fr),
   [#v(3em)#scale(figure(create-oo-figure(off: false, control: false, labels: text(black)[$S_t$])), 120%) #v(3em) #sep-def-not],
   [#set text(size: 12pt)
-    #v(6em) #scale(figure(create-simple-ldm-figure(inf: true, sofa: true)), 100%)],
+    #v(6em) #scale(figure(create-simple-ldm-figure(inf: true, sofa: true)), 110%)],
 )
 
-#pagebreak()
-#v(8em)
-#block(inset: (x: 12em))[
-  #set text(size: 12pt)
-  #scale(fsq_fig, 200%)
-]
+// #pagebreak()
+// #v(8em)
+// #block(inset: (x: 12em))[
+//   #set text(size: 12pt)
+//   #scale(fsq_fig, 200%)
+// ]
 
 = Experimental Results
 #pagebreak()
@@ -414,9 +285,9 @@ $}
 #v(4em)
 #figure(image("images/presentation/heat_space.svg", width: 100%))
 
-#pagebreak()
-#v(4em)
-#figure(image("images/presentation/heat.svg", width: 105%))
+// #pagebreak()
+// #v(4em)
+// #figure(image("images/presentation/heat.svg", width: 105%))
 
 #pagebreak()
 #v(2em)
@@ -435,36 +306,36 @@ $}
   table.hline(stroke: .5pt),
 
   [Regularized Logistic Regression],
-  [77.1],
-  [4.6],
+  [77.1 $plus.minus (0.4)$],
+  [4.6 $plus.minus (0.1)$],
 
   [Light Gradient Boosting Machine],
-  [77.5],
-  [5.9],
+  [77.5 $plus.minus (0.3)$],
+  [5.9 $plus.minus (0.2)$],
 
   [Transformer],
-  [80.0],
-  [6.6],
+  [80.0 $plus.minus (0.8)$],
+  [6.6 $plus.minus (0.2)$],
 
   [LSTM],
-  [82.0],
-  [8.0],
+  [82.0 $plus.minus (0.3)$],
+  [8.0 $plus.minus (0.2)$],
 
   [Temporal Convolutional Network],
-  [82.7],
-  [8.8],
+  [82.7 $plus.minus (0.3)$],
+  [8.8 $plus.minus (0.2)$],
 
   [GRU],
-  [*83.6*],
-  [*9.1*],
+  [*83.6* $plus.minus (0.3)$],
+  [*9.1* $plus.minus (0.3)$],
 
   table.hline(stroke: .5pt),
   table.cell(colspan: 3)[*This work*],
   table.hline(stroke: .5pt),
 
-  [LDM],
-  [*$aurocp$*],
-  [*$auprcp$*],
+  [Latent Dynamics Model],
+  [*84.01* $plus.minus (0.8)$],
+  [*9.97* $plus.minus (0.8)$],
   ),
   caption:[Comparison against mean performance of YAIB @yaib, \ AUROC $times 100$ ($arrow.t$, higher is better) and AUPRC $times 100$ ($arrow.t$).
   ]
@@ -475,29 +346,36 @@ $}
 = Conclusion
 == Conclusion
 
-#v(3em)
-#box(inset: (x: 2em))[#text(size: 20pt)[*Strengths*
+#v(2em)
+#box(inset: (x: 2em))[#text(size: 20pt)[
+// *Strengths*
 - Interpretable
 - Decomposition Strategy
 - Competitive Performance
+#v(2em)
+// *Limitations and Outlook*
+// - No ablation study (what parts are actually necessary?)
+- Do other sepsis models exist, that work even better?
 
-*Limitations and Outlook*
-- Missing external validation
-- No ablation study for the LDM
-  + What parts are actually necessary?
-  + How much does the DNM contribute, do other sepsis models exist?
-- Backpropagate through DNM?]]
-
-= 
-== Conclusion
-
+#v(1em)
+#grid(
+  columns: (1fr, 1fr),
+  [#v(3em)
+  #text(blue)[https://github.com/unartig/sepsis_osc]],
+  [#figure(image("images/presentation/qrcode.svg", width: 40%))]
+)
+// - Backpropagate through Dynamic Network Model?
+]]
 
 #pagebreak()
+= 
+== 
 #v(5em)
 #bibliography("bibliography.bib", style:"ieee_custom.csl")
 
 #pagebreak()
-== Backups
+= Supplemental Material
+== Supplemental Material
 #v(5em)
 #figure(
   image("images/sofa-sep-3-1.png", width: 100%),
@@ -505,7 +383,20 @@ $}
 )
 
 #pagebreak()
+#v(3em)
+*Initialization*
+  - Uniform cytokine activity in the organ layer
+  - Uniform initial phases
+  - Cytokine activation clusters in the immune layer
+#figure(image("images/presentation/init.svg", width: 100%))
+
+
+#pagebreak()
 #figure(image("images/presentation/ensembles.svg", width: 60%))
+
+#pagebreak()
+#v(4em)
+#figure(image("images/presentation/snapshots.svg", width: 80%))
 
 #pagebreak()
 #[#set text(size: 12pt)

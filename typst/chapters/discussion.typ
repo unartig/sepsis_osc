@@ -109,7 +109,7 @@ For clinical deployment, well-calibrated probabilities would be essential, which
 All experiments relied on the #acr("MIMIC")-IV exclusively.
 While this enables direct comparison with #acr("YAIB") benchmarks, it limits generalizability claims.
 As noted in @sec:sota, applications trained on single datasources often do not generalize well to other datasources or real-world settings.
-This is why, external validation on independent datasets is essential to assess whether learned representations transfer across settings, but are out of this scope for this proof-of-concept thesis.
+This is why, external validation on independent datasets is essential to assess whether learned representations transfer across settings, but are out of this scope for this thesis.
 Some performance degradation on external data is expected, but the central question is whether the #acr("DNM")-structured latent space provides robust representations.
 If the latent space captures fundamental physiological principles rather than dataset-specific patterns, these representations should be transferable.
 Another point of interest is the particularity of the #acr("DNM") parameter space.
@@ -127,7 +127,7 @@ Such analyses would either strengthen confidence in the #acr("DNM")s clinical va
 
 The current implementation uses a differential lookup methodology to retrieve the #acr("DNM") synchronization metrics.
 A more principled approach would directly integrate the #acr("DNM") system of differential equations:
-At each time step, given latent position $bold(hat(z))_t = (beta_t, sigma_t)$, solve this system numerically to obtain $s^1(bold(hat(z))_(t))$.
+At each timestep, given latent position $bold(hat(z))_t = (beta_t, sigma_t)$, solve this system numerically to obtain $s^1(bold(hat(z))_(t))$.
 Modern differentiable #acr("ODE")-solvers, such as diffrax @kidger2022diffrax, enable backpropagation through the integration process, making this approach trainable end-to-end.
 This approach would come with a tremendous increase in computational cost, but is the most promising path toward mechanistic and more nuanced interpretability.
 
@@ -138,7 +138,7 @@ This would test whether learned latent dynamics capture sufficient structure to 
 Training a model on both online- and offline-prediction might offer cross-benefits for both tasks.
 
 Lastly, some general concerns, not specific to the #acr("LDM").
-Current sepsis prediction implementations treat patients as passively observed systems, ignoring medical interventions. 
+Current sepsis prediction implementations treat patients as passively observed systems, ignoring medical interventions.
 Incorporating treatment variables could improve predictions and enable counterfactual reasoning about intervention timing, though this raises its own methodological challenges.
 Furthermore, hourly resampling with forward-fill imputation may obscure rapid deterioration occurring between measurements.
 More sophisticated approaches like irregular time series methods could better capture high-frequency dynamics.

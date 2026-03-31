@@ -13,5 +13,5 @@ Trained and evaluated retrospectively on real-world patient data, the #acr("LDM"
 Beyond improved predictive accuracy, the #acr("LDM") provides interpretable intermediate outputs, in contrast to purely data-driven black-box models.
 Qualitative analysis of patient trajectories through the latent space demonstrated clinically plausible patterns of deterioration, recovery, and stability, with latent coordinates systematically aligning with physiological progressions.
 
-This proof-of-concept study establishes hybrid physics-informed deep learning as a promising pathway for interpretable clinical decision support, offering an alternative to purely black-box models while maintaining competitive predictive performance.
+This study establishes hybrid physics-informed deep learning as a promising pathway for interpretable clinical decision support, offering an alternative to purely black-box models while maintaining competitive predictive performance.
 Finally, this work has acknowledged current limitations, such as external validation and the lack of systematic latent-space analyses, but also provides directions for future research in terms of model improvements and extensions.

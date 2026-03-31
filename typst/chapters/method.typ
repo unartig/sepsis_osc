@@ -32,7 +32,7 @@ The #acr("EHR") aggregates multiple clinical variables, such as laboratory bioma
 Using the information that is available in the #acr("EHR") until the prediction time-point $t$, the objective is to estimate the patients risk of developing sepsis at that time $t$.
 The following methodology will formalize the online-prediction, where newly arriving observations are continuously integrated into updated risk estimates.
 
-Even though the presented work is a proof-of-concept study, the prediction system is designed for real-world clinical use, where causality has to be obeyed.
+The prediction system is designed for real-world clinical use, where causality has to be obeyed.
 This means, that for every prediction at time $t$ only the information available up to that time-point can be used, and no future observations.
 
 === Patient Representation
@@ -46,11 +46,11 @@ $
   bold(mu)_t = (mu_(t,1),..., mu_(t,D))^T in RR^D
 $
 where the superscript $dot^T$ denoting a transpose operation.
-The vector $bold(mu)_t$ is the most complete description of the #acr("ICU")-patient's physiological state at observation time point $t$ given the available data. 
+The vector $bold(mu)_t$ is the completest description of the #acr("ICU")-patient's physiological state at observation time point $t$ given the available data.
 It is used as the feature vector, meaning it does not carry information that directly translate to the sepsis definition.
 
 === Modeling the Sepsis-3 Target
-The goal is to derive continuously updated estimates of sepsis risk based on newly arriving observations $bold(mu)_(t)$ over time, with equally spaced and discrete time-steps $t$.
+The goal is to derive continuously updated estimates of sepsis risk based on newly arriving observations $bold(mu)_(t)$ over time, with equally spaced and discrete timesteps $t$.
 Following the Sepsis-3 definition, the onset of sepsis requires both suspected infection and acute multi-organ failure.
 
 Defining the instantaneous _sepsis onset event_ $S_t in {0, 1}$ as the occurrence of the Sepsis-3 criteria at time point $t$ within the patient's #acr("ICU") stay as:
@@ -79,7 +79,7 @@ Importantly, all assumptions result in differentiable approximations of the real
 The central assumption is that infection $I_t$ and multi-organ failure $A_t$ are conditionally independent:
 
 $
-  Pr(A_t inter I_t|bold(mu)_(1:t)) = Pr(I_t|bold(mu)_(1:t))Pr(A_t|bold(mu)_(1:t))
+  Pr(A_t and I_t|bold(mu)_(1:t)) = Pr(I_t|bold(mu)_(1:t))Pr(A_t|bold(mu)_(1:t))
 $
 Clinically, this assumption does not hold, since the majority multi-organ failures stem from an underlying infection, meaning they exhibit strong partial correlations.
 Yet this assumption is necessary because the #acr("DNM"), which is an essential building block to the #acr("LDM"), only captures organ failure risk irrespective of infection states and the independence allows treating both components separately for the prediction.
@@ -212,7 +212,7 @@ $
   (tilde(I)_t, bold(h)^f_t)=f_theta_f (bold(mu)_(t),bold(h)^f_(t-1))
 $
 The hidden state $bold(h)_t$ propagates temporal information through time.
-For the first time-step $t=1$ a learnable initial hidden state $bold(h)^f_1$ is used, shared for all patients.
+For the first timestep $t=1$ a learnable initial hidden state $bold(h)^f_1$ is used, shared for all patients.
 
 The model is implemented as a #acr("RNN"), illustrated in @fig:inf.
 At each timestep, a #acr("GRU")-cell updates the hidden state, and a learned linear projection $bold(W)_f bold(h) ^f_t$, with $bold(W)_f in RR^(1times H_f)$, followed by sigmoid activation produces the infection risk estimate:
@@ -263,7 +263,7 @@ The prediction strategy involves the mapping of individual #acr("EHR") to the la
 Based on the latent location and additional clinical information, the patient will perform a trajectory through the latent space yielding step-by-step #acr("SOFA")-score $hat(O)_(1:t) (bold(z))$ estimates needed to calculate the heuristic organ failure statistic $tilde(A)_t$.
 
 ==== Latent Parameter Dynamics <sec:md>
-An neural encoder connects the initial $t=1$ and high-dimensional #acr("EHR")-vector $bold(mu)_1$ to the dynamical regime of the #acr("DNM"):
+A neural encoder connects the initial $t=1$ and high-dimensional #acr("EHR")-vector $bold(mu)_1$ to the dynamical regime of the #acr("DNM"):
 
 $
   g^e_(theta_g^e): RR^D -> RR^2 times RR^(H_g) = RR^(2+H_g)
@@ -310,7 +310,7 @@ The online-prediction rollout is shown in @fig:sofa.
 The model learns incremental changes in the latent space $Delta bold(z)_t$ rather than absolute positions $bold(z)$, this naturally constraints the magnitude of changes and encourages the prediction of more gradual trajectories of the physiological state within the latent space.
 For the latent sequence this is more desirable compared to the infection indicator, where jumps in predicted values do not matter as much. 
 
-To fit the functions $g^e_theta$ and $g^r_theta$, the latent points $bold(z)$ are positioned to minimize the #acr("MSE") loss:
+To fit the functions $g^e_theta$ and $g^r_theta^r_g$, the latent points $bold(z)$ are positioned to minimize the #acr("MSE") loss:
 $
 cal(L)_"sofa" = 1/B sum^B_(i=1) 1/(T_i) sum^(T_i)_(t=1) w_(O_(i,t)) dot (O_(i,t)/24 - (s^1_(i,t)(bold(hat(z))))/s^1_"max")^2
 $
@@ -331,9 +331,9 @@ Also notice that both parts, i.e. the continuous approximation (given by the des
   short: [#acs("SOFA") Predictor Module Architecture])
   ) <fig:sofa>
 
-Theoretically, gradients can flow backwards through the whole sequence, jointly train the encoder $g^e_theta$ and recurrent function $g^r_theta$ by minimizing the loss $cal(L)_"sofa"$.
+Theoretically, gradients can flow backwards through the whole sequence, jointly train the encoder $g^e_theta^e_g$ and recurrent function $g^r_theta^r_g$ by minimizing the loss $cal(L)_"sofa"$.
 Computing $s^1(bold(z))$ requires numerically integrating the coupled #acr("ODE") system of the #acr("DNM"), which is expensive for each forward pass.
-More problematically, backpropagating gradients through this integration over a long simulation time $T_"sim"$ and across an ensemble of $M$ system, each consisting of $N$ oscillators, will likely lead to vanishing gradients and numerical instability.
+More problematically, backpropagating gradients through this integration over a long simulation time $T_"sim"$ and across an ensemble of $M$ systems, and each ensemble member consisting of $N$ oscillators, will likely lead to vanishing gradients and numerical instability.
 This would provide uninformative learning signals to the latent coordinates $(beta, sigma)$.
 Motivated by these challenges, the next subsection introduces a quantization-based lookup strategy which precomputes the #acr("DNM") dynamics and maintains differentiability through interpolation.
 
@@ -415,7 +415,7 @@ $
 In this way, the decoder learns to disentangle the latent coordinates in $hat(bold(z))_(t)$ based on ground truth future #acr("EHR")s $bold(mu)_t$.
 The module is trained using a #acr("MSE") supervised loss:
 $
-  cal(L)_"dec" = 1/(B) sum^B_(i=1) 1/(T_i) sum^(T_i -1)_(t=0) (bold(mu)_(i,t) - bold(hat(mu))_(i,t))^2 
+  cal(L)_"dec" = 1/(B) sum^B_(i=1) 1/(T_i) sum^(T_i)_(t=1) (bold(mu)_(i,t) - bold(hat(mu))_(i,t))^2 
 $
 This serves as regularization because the reconstruction objective forces the latent space to maintain a structured organization where physiologically distinct states are positioned into different regions, rather than allowing arbitrary latent encodings.
 
@@ -436,7 +436,7 @@ Because positive labels may be temporally windowed around the true onset of seps
 $
   tilde(S)_t = "CS"(tilde(A)_t) dot tilde(I)_t
 $
-where $"CS"(dot)$ denotes a causal smoothing operator that maintains elevated predictions in the time-steps preceding the predicted sepsis onset event $tilde(S)_t$.
+where $"CS"(dot)$ denotes a causal smoothing operator that maintains elevated predictions in the timesteps preceding the predicted sepsis onset event $tilde(S)_t$.
 The causal smoothing operation is defined as:
 $
   "CS"(x_t) = sum_(tau=0)^r w_tau dot x_(t-tau), quad w_tau = (e^(-alpha tau))/(sum_(k=0)^r e^(-alpha k))
@@ -453,7 +453,7 @@ In reality, sepsis is not only a single time-point of onset but a physiological 
   Complete #acr("LDM") architecture with three main components.
   The Infection Module $f_theta_f$ and #acr("SOFA") Module $g_theta_g$ process #acr("EHR") data $bold(mu)_t$ through recurrent networks to estimate infection level $tilde(I)_t$ and latent coordinates $bold(hat(z))_t$ respectively.
   The latent coordinates map to organ failure $hat(O)_t$, from which acute changes $tilde(A)_t$ are computed using consecutive predictions.
-  The heuristic organ failure risk is assumed to be 0 for the initial time step.
+  The heuristic organ failure risk is assumed to be 0 for the initial timestep.
   The Decoder $d_theta_d$ reconstructs EHR features $bold(mu)_t$ from latent coordinates, regularizing the latent space to maintain clinically meaningful structure.
   Final sepsis risk $S_t$ combines infection and acute change signals.
   ],
@@ -486,7 +486,7 @@ The loss is minimized when $det("Cov"(bold(hat(Z))))$ of the latent dimensions $
 This quantity is known as the _generalized variance_ @Carroll1997, and roughly measures the volume occupied by the distribution, where it increases when sampled points spread more.
 Consequently, $cal(L)_"spread"$ encourages a larger spread in the latent space and prevents collapse to a narrow region.
 
-*Latent Space Regularization*\
+*Latent Boundary*\
 In order to keep the predicted latent points inside the predefined area, they will be discouraged to move too close to the edges:
 $
   cal(L)_"boundary" = "ReLU"(f - "sigmoid"(bold(z)^"raw"_t)) + "ReLU"("sigmoid"(bold(z)^"raw"_t) - (1 - f))
@@ -558,7 +558,7 @@ These outputs allow clinicians to not only assess overall sepsis risk but also t
 Additionally, the latent trajectory $s^1 (hat(bold(z))_(1:t))$ through the #acr("DNM") parameter space provides interpretable visualization of the patients physiological evolution over time.
 
 == Assessing the Prediction Performance <sec:metrics>
-In order to quantitatively assess the sepsis prediction performance theoretically grounded metrics will be introduced. 
+In order to quantitatively assess the sepsis prediction performance theoretically grounded metrics will be introduced.
 Predicting whether a patient will develop sepsis is a binary classification problem based on the continuous estimated sepsis risk $tilde(S)_t$.
 Given an estimated risk $tilde(S)_t$ and a decision threshold $tau in [0, 1]$, the decision if a prediction value counts as septic is given by the rule:
 $

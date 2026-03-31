@@ -59,7 +59,7 @@ As feature selection is not standardized, the reviewed works deployed feature se
 
 Most sepsis prediction models are trained retrospectively and evaluated using offline prediction tasks, typically predicting sepsis onset $T=6–48$ hours in advance.
 Model performance is commonly reported using #acr("AUROC") and #acr("AUPRC") (the metric derivation and interpretation is discussed in @sec:metrics).
-Across studies, reported #acr("AUROC") values typically range from approximately 0.60 to 0.95, indicating modest to very good performance, though such values must be interpreted cautiously given differences in cohort definition, task formulation and evaluation protocols.
+Across studies, reported #acr("AUROC") values typically range from approximately 0.60 to 0.95, indicating modest to excellent performance, though such values must be interpreted cautiously given differences in cohort definition, task formulation and evaluation protocols.
 For comparison, classical assessment scores achieve #acr("AUROC")s of #acr("SOFA") $0.667$ and #acr("qSOFA") $0.612$ @Yadgarov2024Review. 
 
 Methodologically, a wide range of supervised learning approaches has been explored.
@@ -87,7 +87,7 @@ In contrast, data-driven models show strong empirical performance on #acr("EHR")
 
 This work, therefore, aims to combine the strengths of both paradigms: mechanistic components of a physiologically inspired model is used to introduce structured physiological biases to help the learning process and provide more interpretable intermediate quantities.
 At the same time, the data-driven components allow the model to adapt to real clinical variability and make use of information that is not explicitly captured by the mechanistic structure.
-In this way, this work novel methodology seeks to make data-driven sepsis prediction models more transparent and potentially more robust.
+In this way, this work novel methodology seeks to make data-driven sepsis prediction models more transparent and potentially robuster.
 
 The heterogeneity in prediction tasks, sepsis definitions and feature sets illustrates why each decision of one of these aspects regarding new prediction models should be taken with care.
 For the sake of reproducibility the choices need to be reported as precisely as possible.

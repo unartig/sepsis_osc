@@ -2,7 +2,7 @@
 #import draw: bezier, circle, content, line
 #import "helper.typ": *
 
-#set page(width: auto, height: auto, margin: 8pt, fill: none)
+#set page(width: auto, height: auto, margin: 8pt, fill: white)
 // #set text(font: "poppins", size: 8pt)
 
 #let node-radius = 0.4
@@ -472,7 +472,20 @@
   })
 }
 
-#let poster_fig = create-poster-figure()
+#let poster_fig = create-poster-figure(
+  
+  show-encoder: false,
+  show-predictor: false,
+  show-dnm: true,
+  show-sofa: false,
+  show-connections: true,
+  show-labels: false,
+  show-annotations: true,
+  show-pkappa: true,
+  show-immune: true,
+  show-ikappa: true,
+  show-sigma: true,
+)
 // ============================================================
 // DEFAULT FIGURE
 // ============================================================
