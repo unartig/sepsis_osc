@@ -21,7 +21,7 @@ from diffrax import (
     diffeqsolve,
 )
 from jax import tree as jtree
-from jaxtyping import Array, Bool, DTypeLike, Float, PRNGKeyArray
+from jaxtyping import Array, ArrayLike, Bool, DTypeLike, Float, PRNGKeyArray, PyTree, Real, Shaped
 from typing_extensions import Self
 
 from sepsis_osc.utils.utils import timing
@@ -39,7 +39,6 @@ class ConfigArgBase(ABC, eqx.Module):
     Subclasses should define the static parameters required by the
     differential equation's derivative function.
     """
-
 
 
 class ConfigBase(ABC, eqx.Module):
@@ -141,8 +140,6 @@ class StateBase(ABC, TreeBase):
     Base class for representing the physical state of a system.
     """
 
-    pass
-
 
 class MetricBase(ABC, TreeBase):
     """
@@ -196,6 +193,7 @@ class ODEBase(ABC):
     for PID step-size control, steady-state detection, and progress tracking.
     """
 
+    # TODO to actual abstract-or-final
     def __init__(
         self,
         step_rtol: float = 1e-3,
@@ -206,7 +204,7 @@ class ODEBase(ABC):
         steady_state_check: bool = False,
         progress_bar: bool = True,
     ) -> None:
-        deriv: Callable = self.system_deriv
+        deriv: Callable[list[Real[ArrayLike, ""]], PyTree[Shaped[ArrayLike, "?*y"], " Y"]] = self.system_deriv
         self.init_sampler = self.generate_init_sampler()
         self.term = ODETerm(deriv)
         self.save_method = (
@@ -264,7 +262,7 @@ class ODEBase(ABC):
         T_max: float,
         T_step: float,
         solver: AbstractSolver,
-        ts: list | None = None,
+        ts: list | Array | None = None,
     ) -> Solution:
         """
         Performs numerical integration using Diffrax.

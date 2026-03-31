@@ -113,10 +113,10 @@ class DNMConfig(ConfigBase):
 @jaxtyped(typechecker=typechecker)
 class DNMState(StateBase):
     # NOTE shapes: Ensemble Simulation | Single Simulation | Visualisations
-    phi_1: Float[Array, "*t ensemble N"] | Float[Array, " N"] | np.ndarray
-    phi_2: Float[Array, "*t ensemble N"] | Float[Array, " N"] | np.ndarray
-    kappa_1: Float[Array, "*t ensemble N N"] | Float[Array, "N N"] | np.ndarray
-    kappa_2: Float[Array, "*t ensemble N N"] | Float[Array, "N N"] | np.ndarray
+    phi_1: Float[Array, "*t ensemble N"] | Float[Array, " N"]
+    phi_2: Float[Array, "*t ensemble N"] | Float[Array, " N"]
+    kappa_1: Float[Array, "*t ensemble N N"] | Float[Array, "N N"]
+    kappa_2: Float[Array, "*t ensemble N N"] | Float[Array, "N N"]
 
     # following running moments are used for steady state check
     m_1: Float[Array, "*t ensemble"] | Float[Array, ""]
@@ -232,8 +232,6 @@ class DNMMetrics(MetricBase):
 
 
 class DynamicNetworkModel(ODEBase):
-    def __init__(self, **kwargs) -> None:
-        super().__init__(**kwargs)
 
     def generate_init_sampler(self) -> Callable:
         def init_sampler(config: DNMConfig, M: int, key: jnp.ndarray) -> DNMState:

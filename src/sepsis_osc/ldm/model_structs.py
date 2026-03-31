@@ -1,5 +1,6 @@
 from dataclasses import dataclass, field, fields
 
+import equinox as eqx
 import jax.numpy as jnp
 import numpy as np
 from jax import tree as jtree
@@ -35,7 +36,6 @@ class AuxLosses:
     sofa_d2_risk: Array
     susp_inf_p: Array
     sep3_risk: Array
-
 
     def to_np(self) -> "AuxLosses":
         """
@@ -77,8 +77,7 @@ class AuxLosses:
         }
 
 
-@dataclass
-class TrainingConfig:
+class TrainingConfig(eqx.Module):
     """
     Configuration dataclass for the training loop execution.
     """
@@ -91,8 +90,7 @@ class TrainingConfig:
     early_stop: bool = False
 
 
-@dataclass
-class LoadingConfig:
+class LoadingConfig(eqx.Module):
     """
     Configuration dataclass for the loading of pretrained models.
     """
@@ -101,8 +99,7 @@ class LoadingConfig:
     epoch: int
 
 
-@dataclass
-class SaveConfig:
+class SaveConfig(eqx.Module):
     """
     Configuration dataclass for the saving of models in training.
     """
@@ -111,8 +108,8 @@ class SaveConfig:
     perform: bool
 
 
-@dataclass
-class LRConfig:
+
+class LRConfig(eqx.Module):
     """
     Configuration dataclass for the learning rate schedule.
     """
@@ -123,9 +120,7 @@ class LRConfig:
     enc_wd: float
 
 
-@register_dataclass
-@dataclass
-class LossesConfig:
+class LossesConfig(eqx.Module):
     """
     Configuration dataclass for the losses involved in training.
     """
@@ -139,6 +134,5 @@ class LossesConfig:
 
     lambda_recon: float
 
+    sofa_dist: Array = field(default_factory=lambda: jnp.ones(24))
     steps_per_epoch: int = 0
-    sofa_dist: Array= field(default_factory=lambda: jnp.ones(24))
-

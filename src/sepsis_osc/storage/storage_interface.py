@@ -1,6 +1,5 @@
 import concurrent.futures
 import logging
-from typing import Optional
 
 import faiss
 import numpy as np
