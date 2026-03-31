@@ -12,12 +12,12 @@ matplotlib>=3.7.1
 msgpack-numpy==0.4.8
 numpy>=2.0.1
 optax==0.2.6
+rocksdb-py==0.6.0
 tbparse==0.0.9
 tensorboard==2.20.0
 tensorboardx==2.6.4
 tqdm==4.67.1
 
-git+https://github.com/trK54Ylmz/rocksdb-py
 
-yaib==0.3.1 --install-option="--no-deps"
+# yaib==0.3.1 --install-option="--no-deps"
 # YAIB dependencies: polars scikit-learn joblib threadpoolctl recipies gin-config torch
