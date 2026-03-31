@@ -64,7 +64,7 @@
     for jj in range(end-count) {
       let start = (xoff_start, yoff_start - ii * 0.8)
       let end = (xoff_end, yoff_end - jj * 0.8)
-      draw.line(start, end, stroke: rgb("#aaa") + .5pt)
+      draw.line(start, end, stroke: gray + .5pt)
     }
   }
 }

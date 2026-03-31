@@ -2,13 +2,14 @@
 #import draw: bezier, circle, content, line, rect
 #import "helper.typ": *
 
-#set page(width: auto, height: auto, margin: 8pt, fill: none)
+#set page(width: auto, height: auto, margin: 8pt, fill: white)
 
 #let x-range = 4
 #let y-range = 4
 #let kernel-size = 1
 #let ratio = 1
 #let zc = (2.8, 2.3)
+#let pradius = 3.5pt
 
 #let fsq_fig = canvas({
 
@@ -18,16 +19,8 @@
     radius: 1.6,
     stroke: none,
     fill: gradient.radial(
-      // ..color.map.viridis.rev(),
-      // yellow,
-      // lime,
-      // aqua,
-      // white,
-      // TODO maybe after 0.13.1 update we can do this
-      // yellow,
-      // lime,
-      orange.transparentize(0%),
-      orange.transparentize(100%),
+      red.transparentize(0%),
+      red.transparentize(100%),
     ),
     fill-opacity: 1%,
     name: "kernel",
@@ -52,10 +45,10 @@
     for y in range(0, y-range + 1) {
       circle(
         (x, ratio * y),
-        radius: 2pt,
+        radius: pradius,
         fill: gradient
           .linear(..color.map.viridis)
-          .sample(calc.sin(x - 1.5) * 50% + calc.sin(y - 1.5) * 50%),
+          .sample(calc.sin(x - 1.75) * 50% + calc.sin(y - 1.3) * 50%),
         stroke: none,// .5pt + black,
       )
       
@@ -66,26 +59,26 @@
     for y in range(-kernel-size, kernel-size + 1) {
       circle(
         cadd(cround(zc), (x, ratio * y)),
-        radius: 2pt,
+        radius: pradius,
         fill: none,
         // stroke: none,
-        stroke: .5pt + red,
+        stroke: 1pt + red,
       )
     }
   }
 
 
   // Draw z
-  dashed(zc, cround(zc), node-radius: 0, c: black)
-  circle(zc, radius: 2pt, fill: red, stroke: none, name: "zp")
+  line(zc, cround(zc), node-radius: 0, c: black, stroke: (dash: "densely-dotted"))
+  circle(zc, radius: pradius, fill: red, stroke: black, name: "zp")
   content(
     (rel: (.15, 0.15), to: zc),
-    $hat(bold(z))$,
+    text(size: 8pt)[$(beta,sigma)$],
     anchor: "west",
   )
   content(
     (rel: (.15, -0.15), to: cround(zc)),
-    $tilde(bold(z))$,
+    text(size: 7pt)[$(tilde(beta),tilde(sigma))$],
     anchor: "west",
   )
 
@@ -102,18 +95,39 @@
   line((-netend, y-range / 2), (-0.5, y-range / 2), name: "flow1", mark: emark)
   content(
     (rel: (0.2, -0.2), to: "flow1"),
-    $hat(bold(z))=(hat(z)_beta, hat(z)_sigma)$,
+    $beta,sigma$,
     anchor: "north",
   )
   line((5, y-range/2), (7, y-range / 2), name: "flow1", mark: emark)
   content(
     (rel: (0.2, -0.2), to: "flow1"),
-    $s^1 (bold(hat(z)))$,
+    $tilde(s)^1 (beta,sigma)$,
     anchor: "north",
   )
 
 
-  rect((rel: (-1, -1.5), to: zc), (rel: (1.4, 0.9), to: zc), stroke: (paint: red.lighten(1%), dash: "dotted"))
+  rect((rel: (-1, -1.5), to: zc), (rel: (1.4, 0.9), to: zc), stroke: (thickness: 1.5pt, paint: red.lighten(1%), dash: "dotted"), radius: 0.1)
+  content((rel: (0.3, -1.8), to: zc), text(size:8pt)[$cal(N)_(k times k)(tilde(beta),tilde(sigma))$])
+  // content((rel: (3.3, -1.7), to: zc), text(size:8pt)[$cal(N)_(k times k)(tilde(beta),tilde(sigma))$])
+  // line((rel: (1.5, -1), to: zc), (rel: (2.5, -1.5), to: zc), stroke: (dash: "dashed"))
 
+
+  
+  rect(
+    (rel: (2.8, 0.25), to: zc),
+    (rel: (3.0, 1.8), to: zc),
+    stroke: 1pt,
+    fill: gradient.linear(..color.map.viridis, angle: -90deg),
+  )
+  content(
+    (rel: (2.9, 1.8), to: zc),
+    text(
+      "Desynchronization",
+      size: 8pt,
+    ),
+    anchor: "south",
+    padding: .3em,
+  )
+  // line((rel: (1.2, 1.7), to: zc), (rel: (2.7, 1.2), to: zc), stroke: (dash: "dashed"))
 })
 #figure(fsq_fig)

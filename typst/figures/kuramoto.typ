@@ -22,6 +22,11 @@
   }
 }
 
+#let lerp-color(c1, c2, t) = color.mix((c1, 1 - t), (c2, t))
+
+#let rdbu =(rgb("#00005A"),rgb("#0000F7"), rgb("#7171FF"), white, rgb("#FF7D7D"), rgb("#FE0000"), rgb("#840000"))
+
+
 #let kuramoto_fig = canvas({
   circle((0, 0), radius: radius, stroke: 1pt, name: "loop")
   content(
@@ -43,7 +48,7 @@
     circle(
       (calc.cos(ang) * radius, calc.sin(ang) * radius),
       radius: vertex-rad,
-      fill: gradient.linear(..color.map.plasma).sample(col), // random color
+      fill: gradient.linear(..rdbu).sample(col).saturate(40%), // random color
       stroke: none,
     )
   }
@@ -75,7 +80,7 @@
         calc.sin(ang + 30deg) * (radius + d),
       ),
       radius: vertex-rad,
-      fill: gradient.linear(..color.map.plasma).sample(col), // random color
+      fill: gradient.linear(..rdbu).sample(col).saturate(40%), // random color
       stroke: none,
     )
   }
@@ -87,7 +92,7 @@
     circle(
       (calc.cos(ang) * radius + x-sep, calc.sin(ang) * radius), // random color
       radius: vertex-rad,
-      fill: gradient.linear(..color.map.plasma).sample(col),
+      fill: gradient.linear(..rdbu).sample(col).saturate(40%),
       stroke: none,
     )
   }
@@ -116,7 +121,7 @@
         calc.sin(ang + 30deg) * (radius + d),
       ),
       radius: vertex-rad,
-      fill: gradient.linear(..color.map.plasma).sample(col), // random color,
+      fill: gradient.linear(..rdbu).sample(col).saturate(40%), // random color,
       stroke: none,
     )
   }
@@ -126,7 +131,9 @@
     (2.65 * x-sep, 0.7),
     (2.65 * x-sep + 0.2, -0.9),
     stroke: 1pt,
-    fill: gradient.linear(..color.map.plasma, angle: -90deg),
+    // fill: gradient.linear(rgb("#67001f"),rgb("#d6604d"), white,rgb("#2166ac"), rgb("#053061"), angle: -90deg),
+    fill: gradient.linear(..rdbu, angle: -90deg),
+    // fill: gradient.linear(..color.map.vlag, angle: -90deg),
   )
   content(
     (2.65 * x-sep + 0.1, 0.8),
@@ -173,7 +180,7 @@
     mark: (end: "stealth", fill: black),
     name: "x-axis",
   )
-  content((x-sep, -1.6), text("Increasing " + $Kappa$, size: text-size), anchor: "north")
+  content((x-sep, -1.6), text("Increasing " + $Kappa$ + " (Coupling Strength)", size: text-size), anchor: "north")
 })
 
 #figure(kuramoto_fig)

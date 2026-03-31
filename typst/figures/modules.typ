@@ -1,39 +1,55 @@
 #import "@preview/cetz:0.4.2": canvas, draw, tree
 #import "helper.typ": cmbeta, cmsigma
 
-#set page(width: auto, height: auto, margin: 8pt, fill: none)
+#set page(width: auto, height: auto, margin: 8pt, fill: white)
+
+
+#let iparam = $theta$
+#let aparam = $theta$
+#let dparam = $theta$
+
+#let c-ink      = rgb("#111111")
+#let c-dim      = rgb("#555555")
+#let c-mod-bg   = rgb("#f4f4f4")
+#let sw-mod     = 0.75pt
+#let rx-box     = 0.07pt
+
 // Infection Indicator Module
 #let inf_fig = canvas({
     import draw: *
+    let ehr(x, y, name, wtext: false, mu_t:$bold(mu)_t$)  = {
+        let dx = if wtext {1.37} else {0.5}
+        // let stroke_style = 
+        rect((x - dx, y - .26), (x + dx, y + .26), name:name, fill: white, stroke: (paint: c-ink, dash: if wtext {"solid"} else {"dotted"}), radius: 0.1)
+        content((x, y),text(if wtext {c-ink} else {c-dim}, weight: "semibold")[#mu_t] + if wtext {text(fill: c-dim)[#h(.5em) Observation]})
+    }
+    let inf_c = black
 
-    let inf_c = olive
-    rect((-6, 0), (-4, 0.8), name: "ehr-1", stroke: (paint: blue.lighten(1%), dash: "dotted"), fill: blue.lighten(95%))
-    content("ehr-1.center", text(fill: gray.darken(20%))[EHR $bold(mu)_(t-1)$])
+    ehr(-5, .5, "ehr-1", mu_t:$bold(mu)_(t-1)$)
     
-    rect((-6, -1.5), (-4, -0.5), name: "rnn-1", stroke: (paint: inf_c.lighten(1%), dash: "dotted"), fill: inf_c.lighten(95%))
-    content("rnn-1.center", text(fill: gray.darken(20%))[GRU $f_theta_f$])
+    rect((-6, -1.5), (-4, -0.5), name: "rnn-1", stroke: (paint: inf_c.lighten(1%), dash: "dotted"), fill: c-mod-bg, radius:0.1)
+    content("rnn-1.center", text(fill: c-dim)[GRU $f_iparam$])
     
-    rect((-6, -2.7), (-4, -2), name: "inf-1", stroke: (paint: red.lighten(1%), dash: "dotted"))
-    content("inf-1.center", text(fill: gray.darken(20%))[$tilde(I)_(t-1)$])
+    rect((-6, -2.7), (-4, -2), name: "inf-1", stroke: (paint: c-dim, dash: "dotted"), radius:0.1)
+    content("inf-1.center", text(fill: c-dim)[$tilde(I)_(t-1)$])
     
-    line("ehr-1.south", "rnn-1.north", mark: (end: ">"), stroke: (paint: gray.lighten(1%), dash: "dotted"))
-    line("rnn-1.south", "inf-1.north", mark: (end: ">"), stroke: (paint: gray.lighten(1%), dash: "dotted"))
+    line("ehr-1.south", "rnn-1.north", mark: (end: ">"), stroke: (paint: c-dim, dash: "dotted"))
+    line("rnn-1.south", "inf-1.north", mark: (end: ">"), stroke: (paint: c-dim, dash: "dotted"))
     
-    rect((-1, 0), (1, 0.8), name: "ehr", stroke: 2pt + blue)
-    content("ehr.center", [EHR $bold(mu)_t$])
+    ehr(0, .5, "ehr", wtext: true)
     
-    rect((-3.6, -1.3), (-1.4, -0.7), name: "hprev", stroke: 1pt + gray)
+    rect((-3.6, -1.3), (-1.4, -0.7), name: "hprev", stroke: 1pt + gray, radius:0.1)
     content("hprev.center", [$bold(h)^f_(t-1) in RR^(H_f)$])
     
-    rect((-1, -1.5), (1, -0.5), name: "rnn", stroke: 2pt + inf_c, fill: inf_c.lighten(90%))
-    content("rnn.center", [GRU $f_theta_f$])
+    rect((-1, -1.5), (1, -0.5), name: "rnn", stroke: 2pt + inf_c, fill: c-mod-bg, radius:0.1)
+    content("rnn.center", [GRU $f_iparam$])
     
     line("ehr.south", "rnn.north", mark: (end: ">"), stroke: 1.5pt)
     
-    rect((-1, -2.7), (1, -2), name: "inf", stroke: 2pt + red)
+    rect((-1, -2.7), (1, -2), name: "inf", stroke: 2pt + c-dim, radius:0.1)
     content("inf.center", [$tilde(I)_t in (0,1)$])
     
-    rect((2, -1.3), (3, -0.7), name: "h", stroke: 1pt + gray)
+    rect((2, -1.3), (3, -0.7), name: "h", stroke: 1pt + gray, radius:0.1)
     content("h.center", [$bold(h)^f_t$])
     
     line("rnn.south", "inf.north", mark: (end: ">"), stroke: 1.5pt)
@@ -42,51 +58,54 @@
     
     line("rnn-1.east", "hprev.west", mark: (end: ">"), stroke: (paint: gray, dash: "dotted"))
     
-    rect((4, 0), (6, 0.8), name: "ehr+1", stroke: (paint: blue.lighten(1%), dash: "dotted"), fill: blue.lighten(95%))
-    content("ehr+1.center", text(fill: gray.darken(20%))[EHR $bold(mu)_(t+1)$])
+    ehr(5, .5, "ehr+1", mu_t:$bold(mu)_(t+1)$)
     
-    rect((4, -1.5), (6, -0.5), name: "rnn+1", stroke: (paint: inf_c.lighten(1%), dash: "dotted"), fill: inf_c.lighten(95%))
-    content("rnn+1.center", text(fill: gray.darken(20%))[GRU $f_theta_f$])
+    rect((4, -1.5), (6, -0.5), name: "rnn+1", stroke: (paint: c-dim, dash: "dotted"), fill: c-mod-bg, radius: 0.1)
+    content("rnn+1.center", text(fill: gray.darken(20%))[GRU $f_iparam$])
     
-    rect((4, -2.7), (6, -2), name: "inf+1", stroke: (paint: red.lighten(1%), dash: "dotted"))
-    content("inf+1.center", text(fill: gray.darken(20%))[$tilde(I)_(t+1)$])
+    rect((4, -2.7), (6, -2), name: "inf+1", stroke: (paint: c-dim, dash: "dotted"), radius: 0.1)
+    content("inf+1.center", text(fill: c-dim)[$tilde(I)_(t+1)$])
     
-    line("ehr+1.south", "rnn+1.north", mark: (end: ">"), stroke: (paint: gray.lighten(1%), dash: "dotted"))
-    line("rnn+1.south", "inf+1.north", mark: (end: ">"), stroke: (paint: gray.lighten(1%), dash: "dotted"))
+    line("ehr+1.south", "rnn+1.north", mark: (end: ">"), stroke: (paint: c-dim, dash: "dotted"))
+    line("rnn+1.south", "inf+1.north", mark: (end: ">"), stroke: (paint: c-dim, dash: "dotted"))
     line((3, -1), (4, -1), mark: (end: ">"), stroke: (paint: gray, dash: "dotted"))
   })
 
 #let sofa_fig = canvas({
     import draw: *
-    let sofa_c = olive
+    let ehr(x, y, name, wtext: false, solid: false, mu_t:$bold(mu)_t$)  = {
+        let dx = if wtext {1.37} else {0.5}
+        // let stroke_style = 
+        rect((x - dx, y - .26), (x + dx, y + .26), name:name, fill: white, stroke: (paint: c-ink, dash: if solid {"solid"} else {"dotted"}), radius: 0.1)
+        content((x, y),text(if solid {c-ink} else {c-dim}, weight: "semibold")[#mu_t] + if wtext {text(fill: c-dim)[#h(.5em) Observation]})
+    }
+    let sofa_c = black
 
     let dh = 0.3
-    rect((-5, 2), (-3, 2.8), name: "ehr0", stroke: 2pt + blue)
-    content("ehr0.center", [EHR $bold(mu)_1$])
+    ehr(-4, 2.5, "ehr0", solid: true, mu_t:$bold(mu)_1$)
     
-    rect((-5.2, 0.5), (-2.8, 1.5), name: "enc", stroke: 2pt + sofa_c, fill: sofa_c.lighten(90%))
-    content("enc.center", [Encoder $g^e_theta^e_g$])
+    rect((-5.2, 0.5), (-2.8, 1.5), name: "enc", stroke: 2pt + sofa_c, fill: c-mod-bg, radius: 0.1)
+    content("enc.center", [Encoder $g_aparam$])
     
     line("ehr0.south", "enc.north", mark: (end: ">"), stroke: 1pt)
     
-    rect((-5, -1.75), (-3, -1.15), name: "z0", stroke: 2pt + red)
-    content("z0.center", [$hat(bold(z))^"raw"_1 in RR^2$])
+    rect((-5, -1.75), (-3, -1.15), name: "z0", stroke: 2pt + c-dim, radius: 0.1)
+    content("z0.center", [$bold(z)_1 in RR^2$])
     
-    rect((rel: (0, dh), to: (-2.1, 0.65)), (rel: (0, dh), to: (-0.25, 1.35)), name: "h0", stroke: 1pt + gray)
+    rect((rel: (0, dh), to: (-2.1, 0.65)), (rel: (0, dh), to: (-0.25, 1.35)), name: "h0", stroke: 1pt + gray, radius:0.1)
     content("h0.center", [$bold(h)^g_1 in RR^(H_g)$])
     
     line("enc.south", "z0.north", mark: (end: ">"), stroke: 1pt)
     line((rel: (0, dh), to: "enc.east"), "h0.west", mark: (end: ">"), stroke: 1pt + gray)
     
-    rect((0.75, 0.5), (3.25, 1.5), name: "rnn0", stroke: 2pt + sofa_c, fill: sofa_c.lighten(90%))
-    content("rnn0.center", [GRU $g^r_theta^r_g$])
+    rect((0.75, 0.5), (3.25, 1.5), name: "rnn0", stroke: 2pt + sofa_c, fill: c-mod-bg, radius: 0.1)
+    content("rnn0.center", [GRU $q_aparam$])
     line("h0.east", (rel: (0, dh), to: "rnn0.west"), stroke: 1pt +  gray, mark: (end: ">"))
     
-    rect((1, 2), (3, 2.8), name: "ehr1", stroke: 2pt + blue)
-    content("ehr1.center", [EHR $bold(mu)_2$])
+    ehr(2, 2.5, "ehr1", mu_t:$bold(mu)_2$, solid: true, wtext: true)
     line("ehr1.south", "rnn0.north", mark: (end: ">"), stroke: 1pt)
     
-    rect((rel: (0, dh), to: (4.2, 0.65)), (rel: (0, dh), to: (5.95, 1.35)), name: "h1", stroke: 1pt + gray)
+    rect((rel: (0, dh), to: (4.2, 0.65)), (rel: (0, dh), to: (5.95, 1.35)), name: "h1", stroke: 1pt + gray, radius: 0.1)
     content("h1.center", [$bold(h)^g_2$])
     line((rel: (0, dh), to:"rnn0.east"), "h1.west", mark: (end: ">"), stroke: 1pt + gray)
 
@@ -94,11 +113,11 @@
     // line("z0.east", (rel: (0, -0.4), to: "rnn0.west"), mark: (end: ">"))
     bezier((rel: (1, 0), to: "z0.east"), (rel: (0, -dh), to: "rnn0.west"), (-2, 1), mark: (end: ">"), stroke: 1pt)
     
-    rect((1, -0.125), (3, -0.625), name: "dz", stroke: 2pt + orange)
-    content("dz.center", [$Delta hat(bold(z))^"raw"_2$])
+    rect((1, -0.125), (3, -0.625), name: "dz", stroke: 2pt + gray, radius:0.1)
+    content("dz.center", [$Delta bold(z)_2$])
     
-    rect((3, -1.75), (5, -1.25), name: "z1", stroke: 2pt + red)
-    content("z1.center", [$hat(bold(z))^"raw"_2$])
+    rect((3, -1.75), (5, -1.25), name: "z1", stroke: 2pt + c-dim, radius: 0.1)
+    content("z1.center", [$bold(z)_2$])
     
     line("rnn0.south", "dz.north", mark: (end: ">"), stroke: 1pt)
     
@@ -110,16 +129,15 @@
     line((2.3, -1.5), "z1.west", mark: (end: ">"), stroke: 1pt)
     
     // t=2 step
-    rect((6.75, 0.5), (9.25, 1.5), name: "rnn1", stroke: (paint: sofa_c.lighten(1%), dash: "dotted"), fill: sofa_c.lighten(95%))
-    content("rnn1.center", text(fill: gray.darken(20%))[GRU $g^r_theta^r_g$])
+    rect((6.75, 0.5), (9.25, 1.5), name: "rnn1", stroke: (paint: sofa_c.lighten(1%), dash: "dotted"), fill: c-mod-bg, radius: 0.1)
+    content("rnn1.center", text(fill: gray.darken(20%))[GRU $q_aparam$])
     
-    rect((7, 2), (9, 2.8), name: "ehr2", stroke: (paint: blue.lighten(1%), dash: "dotted"), fill: blue.lighten(95%))
-    content("ehr2.center", text(fill: gray.darken(20%))[EHR $bold(mu)_t$])
+    ehr(8, 2.5, "ehr2", mu_t:$bold(mu)_t$, solid: true)
     line("ehr2.south", "rnn1.north", mark: (end: ">"), stroke: (paint: gray.lighten(1%), dash: "dotted"))
     
     line("rnn1.east", (10, 1.0), mark: (end: ">"), stroke: (paint: gray.lighten(1%), dash: "dotted"))
     
-    rect((7, -0.125), (9, -0.625), name: "dz2", stroke: (paint: orange.lighten(1%), dash: "dotted"))
+    rect((7, -0.125), (9, -0.625), name: "dz2", stroke: (paint: gray, dash: "dotted"), radius: 0.1)
     content("dz2.center", text(fill: gray.darken(20%))[$Delta hat(bold(z))^"raw"_t$])
     
     line("rnn1.south", "dz2.north", mark: (end: ">"), stroke: (paint: gray.lighten(1%), dash: "dotted"))
@@ -143,7 +161,7 @@
     content("z.center", [$hat(bold(z))_t$])
     
     rect((-1.5, 0.0), (1.5, 1.0), name: "dec", stroke: 2pt + dec_c, fill: dec_c.lighten(90%))
-    content("dec.center", [Decoder $d_theta_d$])
+    content("dec.center", [Decoder $d_dparam$])
     
     line("z.east", "dec.west", mark: (end: ">"), stroke: 1pt)
     
@@ -168,7 +186,7 @@
     // Infection module
     let inf_c = olive
     rect((-3.5, 3.0), (0.5, 4), name: "inf", stroke: 2pt + inf_c.lighten(20%), fill: inf_c.lighten(95%))
-    content("inf.center", align(center, [Infection Module $f_theta_f$]))
+    content("inf.center", align(center, [Infection Module $f_iparam$]))
 
     line((rel:(-1, 0.0), to:"inf.south"), (rel:(-1, -0.5), to:"inf.south"), (rel:(-2.5, -0.5), to:"inf.south"), (rel:(-2.5, 1.5), to:"inf.south"), (rel:(-1, 1.5), to:"inf.south"), (rel:(-1, 0), to:"inf.north"), mark: (end: ">"))
     content((rel: (-1.5, 0.9), to:"inf.north"), align(center, text(size: 10pt)[hidden state $bold(h)^f_(t-1)$]))
@@ -185,7 +203,7 @@
     line((rel:(1, 0.0), to:"sofa.south"), (rel:(1, -0.5), to:"sofa.south"), (rel:(2.5, -0.5), to:"sofa.south"), (rel:(2.5, 1.5), to:"sofa.south"), (rel:(1, 1.5), to:"sofa.south"), (rel:(1, 0), to:"sofa.north"), mark: (end: ">"))
     content((rel: (2.5, 1.1), to:"sofa.north"), align(left, text(size: 10pt)[hidden state $bold(h)^g_(t-1)$\ and previous position $bold(z)^"raw"_(t-1)$]))
     
-    content("sofa.center", align(center, [SOFA Module $g_theta_g$]))
+    content("sofa.center", align(center, [SOFA Module $g_aparam$]))
     line("ehr.south", (rel: (0, .5), to: "sofa.north"), "sofa.north", mark: (end: ">"), stroke: 1pt)
     
     rect((1.5, 2.25), (5.5, 1.5), name: "zout", stroke: 1.5pt + out_c)
@@ -207,7 +225,7 @@
     // Dec
     let dec_c = olive
     rect((7, 2.5), (9.5, 1.25), name: "dec", stroke: 2pt + dec_c, fill: dec_c.lighten(90%))
-    content("dec.center", [Decoder $d_theta_d$])
+    content("dec.center", [Decoder $d_dparam$])
     
     line("zout.east", "dec.west", mark: (end: ">"), stroke: 1pt)
     rect((10, 1.5), (12, 2.25), name: "ehr", stroke: 2pt + blue)
@@ -239,7 +257,7 @@
         // Infection module
         let inf_c = olive
         rect((-3.5, 3.0), (0.5, 4), name: "inf", stroke: 2pt + inf_c.lighten(20%), fill: inf_c.lighten(95%))
-        content("inf.center", align(center, [Infection Module $f_theta_f$]))
+        content("inf.center", align(center, [Infection Module $f_iparam$]))
 
         line((rel:(-1, 0.0), to:"inf.south"), (rel:(-1, -0.5), to:"inf.south"), (rel:(-2.5, -0.5), to:"inf.south"), (rel:(-2.5, 1.5), to:"inf.south"), (rel:(-1, 1.5), to:"inf.south"), (rel:(-1, 0), to:"inf.north"), mark: (end: ">"))
         content((rel: (-1.5, 0.9), to:"inf.north"), align(center, text(size: 10pt)[hidden state $bold(h)^f_(t-1)$]))
@@ -259,7 +277,7 @@
         line((rel:(1, 0.0), to:"sofa.south"), (rel:(1, -0.5), to:"sofa.south"), (rel:(2.5, -0.5), to:"sofa.south"), (rel:(2.5, 1.5), to:"sofa.south"), (rel:(1, 1.5), to:"sofa.south"), (rel:(1, 0), to:"sofa.north"), mark: (end: ">"))
         content((rel: (2.5, 1.1), to:"sofa.north"), align(left, text(size: 10pt)[hidden state $bold(h)^g_(t-1)$\ and previous position $bold(z)^"raw"_(t-1)$]))
     
-        content("sofa.center", align(center, [SOFA Module $g_theta_g$]))
+        content("sofa.center", align(center, [SOFA Module $g_aparam$]))
         line("ehr.south", (rel: (0, .5), to: "sofa.north"), "sofa.north", mark: (end: ">"), stroke: 1pt)
     
         rect((1.5, 2.25), (5.5, 1.5), name: "zout", stroke: 1.5pt + out_c)
@@ -274,10 +292,10 @@
   }
 }
 
-#figure(ldm_fig)
+#figure(sofa_fig)
 
-#let create-simple-ldm-figure(inf: true, sofa: true) = {
-  canvas({draw_simple_ldm_fig(inf: inf, sofa: sofa)})
-}
-#let simple_ldm_fig = create-simple-ldm-figure()
+// #let create-simple-ldm-figure(inf: true, sofa: true) = {
+//   canvas({draw_simple_ldm_fig(inf: inf, sofa: sofa)})
+// }
+// #let simple_ldm_fig = create-simple-ldm-figure()
 
