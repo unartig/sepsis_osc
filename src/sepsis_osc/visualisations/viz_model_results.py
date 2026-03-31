@@ -6,6 +6,7 @@ from matplotlib import colors
 from matplotlib.cm import ScalarMappable
 from matplotlib.gridspec import GridSpec
 from matplotlib.pyplot import Axes, Figure
+from scipy import ndimage
 from scipy.stats import binned_statistic_2d
 from sklearn.metrics import PrecisionRecallDisplay, RocCurveDisplay
 
@@ -17,99 +18,97 @@ from sepsis_osc.visualisations.viz_param_space import space_plot
 plt.rcParams.update(plt_params)
 
 
-def viz_space_heatmap(
+def viz_space_distribution_countour(
+    betas: jnp.ndarray,
+    sigmas: jnp.ndarray,
+    mask: jnp.ndarray,
+    *,
+    resolution: float = 0.25,
+    show_cmap: bool = True,
+    show_inlay_notation: bool = True,
+    figax: tuple[Figure, Axes] | None = None,
+) -> tuple[Figure, Axes]:
+    if figax is not None:
+        fig, ax = figax
+    else:
+        fig, ax = plt.subplots(1, 1)
+
+    bins = [
+        np.arange(BETA_SPACE[0], BETA_SPACE[1], BETA_SPACE[2] * resolution),
+        np.arange(SIGMA_SPACE[0], SIGMA_SPACE[1], SIGMA_SPACE[2] * resolution),
+    ]
+    betas_space = jnp.arange(BETA_SPACE[0], BETA_SPACE[1] + BETA_SPACE[2], BETA_SPACE[2])
+    sigmas_space = jnp.arange(SIGMA_SPACE[0], SIGMA_SPACE[1] + SIGMA_SPACE[2], SIGMA_SPACE[2])
+    heatmap, *_ = np.histogram2d(betas[mask], sigmas[mask], bins=bins)
+
+    extent = (betas_space.min(), betas_space.max(), sigmas_space.min(), sigmas_space.max())
+
+    log_heatmap = np.log1p(heatmap)
+    smoothed_log_density = ndimage.gaussian_filter(log_heatmap.T, sigma=1.2)
+
+    X, Y = np.meshgrid(
+        np.linspace(extent[0], extent[1], smoothed_log_density.shape[1]),
+        np.linspace(extent[2], extent[3], smoothed_log_density.shape[0]),
+    )
+    contours = ax.contour(X, Y, smoothed_log_density, levels=5, cmap="OrRd", linewidths=1.2)
+
+    if show_cmap:
+        cbar_density = fig.colorbar(contours, ax=ax, location="right", shrink=0.8, pad=0.05)
+        for line in cbar_density.ax.collections:
+            line.set_linewidth(40.0)
+        cbar_density.set_label("log(Density)")
+
+    if show_inlay_notation:
+        ax.clabel(contours, inline=True, fontsize=7, fmt="%1.1f")
+
+    return fig, ax
+
+
+def viz_space_alignment(
     test_y: jnp.ndarray,
     betas: jnp.ndarray,
     sigmas: jnp.ndarray,
-    lookup: LatentLookup,
-    *,
     mask: np.ndarray,
-    cmaps: bool = True,
-    figax: tuple[Figure, tuple[Axes, Axes]] | None = None,
-) -> tuple[Figure, tuple[Axes, Axes]]:
+    *,
+    resolution: float = 0.25,
+    show_cmap: bool = True,
+    figax: tuple[Figure, Axes] | None = None,
+) -> tuple[Figure, Axes]:
     if figax is not None:
-        fig, axs = figax
+        fig, ax = figax
     else:
-        fig, axs = plt.subplots(1, 2, sharey=True, width_ratios=[1.4, 1.0])
+        fig, ax = plt.subplots(1, 1)
 
-    fig.subplots_adjust(top=0.95, bottom=0.2)
-    ax0, ax1 = axs[0], axs[1]
-    betas_space = jnp.arange(*BETA_SPACE)
-    sigmas_space = jnp.arange(*SIGMA_SPACE)
-    beta_grid, sigma_grid = np.meshgrid(betas_space, sigmas_space, indexing="ij")
-    param_grid = np.stack([beta_grid.ravel(), sigma_grid.ravel()], axis=1)
-
-    metrics = lookup.hard_get_fsq(jnp.asarray(param_grid)).reshape(len(betas_space), len(sigmas_space))
-
-    space_plot(
-        metrics,
-        xs=np.asarray(betas_space),
-        ys=np.asarray(sigmas_space),
-        title="",
-        cmap=cmaps,
-        figax=(fig, ax0),
-        filename="",
-    )
-    ax1 = space_plot(
-        metrics,
-        xs=np.asarray(betas_space),
-        ys=np.asarray(sigmas_space),
-        title="",
-        cmap=False,
-        figax=(fig, ax1),
-        filename="",
-    )
-
-    reso = 0.25
     bins = [
-        np.arange(BETA_SPACE[0], BETA_SPACE[1], BETA_SPACE[2] * reso),
-        np.arange(SIGMA_SPACE[0], SIGMA_SPACE[1], SIGMA_SPACE[2] * reso),
+        np.arange(BETA_SPACE[0], BETA_SPACE[1], BETA_SPACE[2] * resolution),
+        np.arange(SIGMA_SPACE[0], SIGMA_SPACE[1], SIGMA_SPACE[2] * resolution),
     ]
-    heatmap, xedges, yedges = np.histogram2d(betas[mask], sigmas[mask], bins=bins)
-    heatmap = heatmap[:, ::-1].T
-
-    alpha = np.ones_like(heatmap, dtype=np.float32)
-    alpha[heatmap == 0] = 0.0
-
-    im = ax0.images[0]
-    extent = im.get_extent()
-
-    im_count = ax0.imshow(np.log(heatmap + 1), extent=extent, aspect="auto", cmap="OrRd_r", alpha=alpha)
-    cbar = fig.colorbar(im_count, ax=ax0, location="left", shrink=0.8)
-    cbar_ax = cbar.ax
-    pos = cbar_ax.get_position()
-    cbar_ax.set_position((pos.x0 - 0.05, pos.y0, pos.width, pos.height))
-    cbar.set_label(r"$log(Count)$")
-
-    cbar = ax0.images[0].colorbar
-    cbar_ax = cbar.ax
-    pos = cbar_ax.get_position()
-    cbar_ax.set_position([pos.x0 + 0.03, pos.y0, pos.width, pos.height])
-
-    # scatter
-    # Same bins you used for the count heatmap
     x = betas[mask]
     y = sigmas[mask]
+    betas_space = jnp.arange(BETA_SPACE[0], BETA_SPACE[1] + BETA_SPACE[2], BETA_SPACE[2])
+    sigmas_space = jnp.arange(SIGMA_SPACE[0], SIGMA_SPACE[1] + SIGMA_SPACE[2], SIGMA_SPACE[2])
+    extent = (float(betas_space.min()), float(betas_space.max()), float(sigmas_space.min()), float(sigmas_space.max()))
     values = test_y[0, mask, 0]  # SOFA score
 
     mean_map, *_ = binned_statistic_2d(x, y, values, statistic="mean", bins=bins)
-
-    # Match orientation to your earlier heatmap
     mean_map = mean_map[:, ::-1].T
+
     alpha_mean = ~np.isnan(mean_map)
     mean_map = np.nan_to_num(mean_map, nan=0.0)
-    cm = plt.colormaps.get_cmap("copper")
-    norm = colors.Normalize(vmin=0, vmax=24)
 
-    im_mean = ax1.imshow(mean_map, extent=extent, aspect="auto", cmap=cm, norm=norm, alpha=alpha_mean.astype(float))
+    boundaries = np.arange(-0.0, 25.5, 1)
+    base_cmap = plt.get_cmap("gray")
+    norm = colors.BoundaryNorm(boundaries, ncolors=base_cmap.N, extend="neither")
 
-    cbar = fig.colorbar(im_mean, ax=ax1, location="right", shrink=0.8)
-    cbar.set_label("Mean of the ground truth SOFA-score")
-    ax1.set_xlabel(r"$\beta / \pi$")
-    ax0.set_xlabel(r"$\beta / \pi$")
-    ax0.set_ylabel(r"$\sigma$")
-    ax1.set_ylabel("")
-    return fig, axs
+    im_mean = ax.imshow(
+        mean_map, extent=extent, aspect="auto", cmap=base_cmap, norm=norm, alpha=alpha_mean.astype(float)
+    )
+
+    if show_cmap:
+        cbar = fig.colorbar(im_mean, ax=ax, location="right", shrink=0.8, pad=0.05)
+        cbar.set_label("Mean Ground Truth SOFA-score")
+
+    return fig, ax
 
 
 def viz_trajectories_over_time(
@@ -142,7 +141,7 @@ def viz_trajectories_over_time(
         metrics_np,
         xs=np.asarray(betas_space),
         ys=np.asarray(sigmas_space),
-        title=rf"SOFA Progression over {std_sym} space{'\n'}Parenchymal Layer",
+        title=rf"SOFA Progression over time inside the {std_sym} space{'\n'}Parenchymal Layer",
         cmap=cmaps,
         filename=filename,
         figure_dir=figure_dir,
@@ -175,7 +174,6 @@ def viz_patients_latent(
     window_size: int = 5,
     zoom: bool = True,
     cmaps: bool = True,
-    cs: tuple[str, ...] | list[str] = ("tab:cyan", "tab:purple", "tab:pink", "tab:orange"),
 ) -> tuple[Figure, Axes]:
     if figax is not None:
         fig, ax = figax
@@ -193,11 +191,7 @@ def viz_patients_latent(
 
     if zoom:
         beta_min, beta_max, sigma_min, sigma_max = compute_window_bounds(
-            betas=betas,
-            sigmas=sigmas,
-            betas_space=betas_space,
-            sigmas_space=sigmas_space,
-            window_size=window_size,
+            betas=betas, sigmas=sigmas, betas_space=betas_space, sigmas_space=sigmas_space, window_size=window_size
         )
 
         metrics = metrics_np[beta_min:beta_max, sigma_min:sigma_max]
@@ -211,17 +205,20 @@ def viz_patients_latent(
         metrics,
         xs=np.asarray(betas_space),
         ys=np.asarray(sigmas_space),
-        title=rf"SOFA Progression over {std_sym} space{'\n'}Parenchymal Layer",
+        title=rf"Trajectories over {std_sym} space",
         cmap=cmaps,
         filename="",
         figax=(fig, ax),
+        xticklabel_rot=0,
+        num_ticks=5,
     )
 
-    cm = plt.colormaps.get_cmap("copper")
-    norm = colors.Normalize(vmin=0, vmax=24)
+    boundaries = np.arange(-0.0, 25.5, 1)
+    base_cmap = plt.get_cmap("gray")
+    norm = colors.BoundaryNorm(boundaries, ncolors=base_cmap.N, extend="neither")
 
     if cmaps:
-        sm = ScalarMappable(cmap=cm, norm=norm)
+        sm = ScalarMappable(cmap=base_cmap, norm=norm)
         sm.set_array([])
         sm.set_clim(0, 24)
         cbar2 = plt.colorbar(sm, ax=ax, shrink=0.8)
@@ -236,37 +233,24 @@ def viz_patients_latent(
     for i in range(true_sofa.shape[0]):
         m = mask[i]
 
-        ax.scatter(
-            betas[i, m],
-            sigmas[i, m],
-            c=true_sofa[i, m],
-            cmap=cm,
-            norm=norm,
-            s=20,
-        )
-        ax.scatter(
-            betas[i, m][[0, -1]],
-            sigmas[i, m][[0, -1]],
-            c=cs[i],
-            marker="x",
-        )
+        ax.scatter(betas[i, m], sigmas[i, m], c=true_sofa[i, m], cmap=base_cmap, norm=norm, s=20)
+        ax.scatter(betas[i, m][[0, -1]], sigmas[i, m][[0, -1]], c="white", marker="x", s=20)
 
         ax.annotate(
-            "0",
-            (betas[i, m][0] - 3*BETA_SPACE[2], sigmas[i, m][0]),
-            color=cs[i],
-            weight="bold",
-            clip_on=False,
+            rf"P{i + 1}: \textbf{{0}}",
+            (betas[i, m][0] - 5 * BETA_SPACE[2], sigmas[i, m][0] - 3 * SIGMA_SPACE[2]),
+            color="white",
+            weight="heavy",
         )
         ax.annotate(
-            f"{betas[i, m].size}",
-            (betas[i, m][-1] + 1*BETA_SPACE[2], sigmas[i, m][-1] - 2 * SIGMA_SPACE[2]),
-            color=cs[i],
-            weight="bold",
-            #clip_on=False,
+            rf"P{i + 1}: \textbf{{{betas[i, m].size}}}",
+            (betas[i, m][-1] - 4 * BETA_SPACE[2], sigmas[i, m][-1] + 1 * SIGMA_SPACE[2]),
+            color="white",
+            weight="heavy",
         )
 
     return fig, ax
+
 
 def viz_patients(
     patient_idx: list[int],
@@ -274,15 +258,13 @@ def viz_patients(
     test_m: np.ndarray,
     test_metrics: AuxLosses,
     lookup_table: LatentLookup,
-) -> Figure:
+) -> tuple[Figure, Axes]:
     if not isinstance(patient_idx, list):
         patient_idx = [patient_idx]
 
     fig = plt.figure()
     gs = GridSpec(len(patient_idx), 2, figure=fig, width_ratios=[1.3, 1], wspace=0.2, hspace=0.4)
     axl = fig.add_subplot(gs[:, 0])
-
-    cs = ["tab:cyan", "tab:purple", "tab:pink", "tab:orange"]
 
     viz_patients_latent(
         true_sofa=test_y[0, patient_idx, :, 0],
@@ -294,7 +276,6 @@ def viz_patients(
         lookup=lookup_table,
         cmaps=True,
         figax=(fig, axl),
-        cs=cs,
     )
 
     for i, pidx in enumerate(patient_idx):
@@ -303,7 +284,7 @@ def viz_patients(
         axr.plot(test_y[0, pidx, :, 0][m], label="Ground Truth")
         axr.plot(test_metrics.hists_sofa_score[0, pidx, :][m], label="Prediction")
         axr.set_ylim(0, 24)
-        axr.set_ylabel(f"Patient {i + 1}", color=cs[i])
+        axr.set_ylabel(f"Patient {i + 1}")
         axr.set_ylim(0, 24)
         axr.set_yticks(range(25))
 
@@ -314,12 +295,12 @@ def viz_patients(
         axr.grid(visible=True, axis="y", which="both", alpha=0.8)
         if i == 0:
             axr.set_title("SOFA-score")
-            axr.legend(ncols=2, bbox_to_anchor=(1, 0.3 + 0.5 * len(patient_idx)), frameon=False)
         if i == len(patient_idx) - 1:
             axr.set_xlabel("time [hours]")
+            axr.legend(ncols=2, bbox_to_anchor=(1, -0.6), frameon=False)
 
     fig.subplots_adjust(bottom=0.2)
-    return fig
+    return fig, axl
 
 
 def viz_concept_densities(
@@ -328,13 +309,14 @@ def viz_concept_densities(
     pred_sofa: jnp.ndarray | np.ndarray,
     pred_infs: jnp.ndarray | np.ndarray,
     *,
+    show_inf: str | None = None,
     cmap: bool,
     figax: tuple[Figure, tuple[Axes, Axes, Axes]] | None = None,
 ) -> tuple[Figure, tuple[Axes, Axes, Axes]]:
     if figax is not None:
         fig, ax = figax
     else:
-        fig, ax = plt.subplots(1, 3)
+        fig, ax = plt.subplots(1, 3 if show_inf is not None else 2)
 
     sofa_bins = [np.arange(-0.5, 24.5, 1), np.arange(-0.5, 24.5, 1)]
     sofa_heatmap = np.histogram2d(true_sofa, pred_sofa, bins=sofa_bins)
@@ -344,48 +326,69 @@ def viz_concept_densities(
     dsofa_heatmap = np.histogram2d(np.diff(true_sofa), np.diff(pred_sofa), bins=dsofa_bins)
     dsofa = (dsofa_heatmap, r"$\Delta$SOFA-score", ax[1])
 
-    infection_bins = [np.arange(-0.05, 1.05, 0.1), np.arange(-0.05, 1.05, 0.1)]
-    inf_heatmap = np.histogram2d(true_infs, pred_infs, bins=infection_bins)
-    inf = (inf_heatmap, "Suspected Infection", ax[2])
+    if show_inf is not None:
+        if show_inf == "temporal":
+            inf_bins = [np.linspace(0, 169, 40), np.linspace(-169, 169, 40)]
+            inf_heatmap = np.histogram2d(true_infs, pred_infs, bins=inf_bins)
+            inf = (inf_heatmap, "Temporal Infection Alignment", ax[2])
+        elif show_inf == "smoothed":
+            inf_bins = [np.arange(-0.05, 1.05, 0.1), np.arange(-0.05, 1.05, 0.1)]
+            inf_heatmap = np.histogram2d(true_infs, pred_infs, bins=inf_bins)
+            inf = (inf_heatmap, "Suspected Infection", ax[2])
+        else:
+            raise NotImplementedError("Only 'smoothed' or 'temporal'")
 
-    heats = np.log(
+    heats = np.log1p(
         np.concat(
             [
                 np.asarray(sofa_heatmap[0]).flatten(),
                 np.asarray(dsofa_heatmap[0]).flatten(),
-                np.asarray(inf_heatmap[0]).flatten(),
+                np.asarray(inf_heatmap[0]).flatten() if show_inf is not None else np.array([0]),
             ]
         )
-        + 1
     )
     norm = colors.Normalize(vmin=np.min(heats), vmax=np.max(heats))
 
     images = []
-    for (heatmap, xedges, yedges), name, axi in [sofa, dsofa, inf]:
+
+    for _i, ((heatmap, xedges, yedges), name, axi) in enumerate(
+        [sofa, dsofa, inf] if show_inf is not None else [sofa, dsofa]
+    ):
         # Plot the 2D histogram as an image
+        masked_heatmap = np.ma.masked_where(heatmap <= 0, heatmap)
+        log_data = np.log1p(masked_heatmap.T)
         images.append(
             axi.imshow(
-                np.log(heatmap.T + 1),  # transpose so it matches axes orientation
+                log_data,  # transpose so it matches axes orientation
                 origin="lower",
                 extent=(xedges[0], xedges[-1], yedges[0], yedges[-1]),
-                aspect="equal",
-                cmap="magma",
+                aspect="auto",
+                cmap="OrRd",  # OrRd
                 norm=norm,
             )
         )
-        axi.set_title(name)
+        axi.set_box_aspect(1)
         axi.set_xlabel("Ground Truth")
-        axi.plot((xedges[0], xedges[-1]), (yedges[0], yedges[-1]), color="red", label="Optimal", linestyle=":")
+        axi.plot(
+            (xedges[0], xedges[-1]),
+            (0 if _i == 2 else yedges[0], yedges[-1]),
+            color="black",
+            label="Optimal",
+            linestyle=":",
+        )
     if cmap:
         pos = ax[-1].get_position()
 
         # Create colorbar axes outside the plot
-        cax = fig.add_axes((pos.x1 + 0.02, pos.y0, 0.02, pos.height))
+        cax = fig.add_axes((pos.x1 + 0.05, pos.y0 + 0.1, 0.02, pos.height))
         fig.colorbar(images[-1], cax=cax, label="log(Count)")
 
-    ax[0].legend(bbox_to_anchor=(3.85, 1.175))
+    ax[0].legend(frameon=False)
     ax[0].set_ylabel("Predicted")
-    fig.subplots_adjust(wspace=0.2)
+    fig.subplots_adjust(wspace=0.2, top=0.9, bottom=0.15)
+
+    ax[0].text(-0.15, 1.0, r"\textbf{A}", transform=ax[0].transAxes, fontsize=14, fontweight="bold", va="top")
+    ax[1].text(-0.15, 1.0, r"\textbf{B}", transform=ax[1].transAxes, fontsize=14, fontweight="bold", va="top")
     return fig, ax
 
 
@@ -499,22 +502,24 @@ def viz_loss_mean_std(
     loss_subscripts: tuple[str],
     lambdas: tuple[str],
     hparams: pd.DataFrame,
+    *,
+    alpha: float = 0.4,
 ) -> Figure:
-    fig, axs = plt.subplots(3, 3, figsize=(12, 8), sharex=True)
+    fig, axs = plt.subplots(3, 3, sharex=True)
 
     # Total loss
     total_loss = agg_data["train_losses/total_loss_mean"]
     val_loss = agg_data["val_losses/total_loss_mean"]
     axs[0, 0].plot(total_loss["step"], total_loss["mean"], label="Training")
     axs[0, 0].fill_between(
-        total_loss["step"], total_loss["mean"] - total_loss["std"], total_loss["mean"] + total_loss["std"], alpha=0.2
+        total_loss["step"], total_loss["mean"] - total_loss["std"], total_loss["mean"] + total_loss["std"], alpha=alpha
     )
     axs[0, 0].plot(val_loss["step"], val_loss["mean"], label="Validation")
     axs[0, 0].fill_between(
-        val_loss["step"], val_loss["mean"] - val_loss["std"], val_loss["mean"] + val_loss["std"], alpha=0.2
+        val_loss["step"], val_loss["mean"] - val_loss["std"], val_loss["mean"] + val_loss["std"], alpha=alpha
     )
-    axs[0, 0].legend(ncols=2, bbox_to_anchor=(2.3, 1.5), frameon=False)
-    axs[0, 0].set_title(r"log($L_\text{total}$)")
+    axs[0, 0].legend(ncols=2, bbox_to_anchor=(2.3, -3.5), frameon=False)
+    axs[0, 0].set_title(r"log($\cal{L}_{\mathrm{total}}$)")
     axs[0, 0].grid(True)
     axs[0, 0].set_yscale("log")
 
@@ -523,7 +528,7 @@ def viz_loss_mean_std(
         df = agg_data[metric]
         axs[0, i + 1].plot(df["step"], df["mean"], c="tab:orange")
         axs[0, i + 1].fill_between(
-            df["step"], df["mean"] - df["std"], df["mean"] + df["std"], color="tab:orange", alpha=0.2
+            df["step"], df["mean"] - df["std"], df["mean"] + df["std"], color="tab:orange", alpha=alpha
         )
         axs[0, i + 1].set_title(metric.split("/")[-1].split("_")[0])
         axs[0, i + 1].grid(True)
@@ -546,15 +551,15 @@ def viz_loss_mean_std(
 
             ax.plot(train_df["step"], train_df["mean"], label="Training")
             ax.fill_between(
-                train_df["step"], train_df["mean"] - train_df["std"], train_df["mean"] + train_df["std"], alpha=0.2
+                train_df["step"], train_df["mean"] - train_df["std"], train_df["mean"] + train_df["std"], alpha=alpha
             )
             ax.plot(val_df["step"], val_df["mean"], label="Validation")
-            ax.fill_between(val_df["step"], val_df["mean"] - val_df["std"], val_df["mean"] + val_df["std"], alpha=0.2)
+            ax.fill_between(val_df["step"], val_df["mean"] - val_df["std"], val_df["mean"] + val_df["std"], alpha=alpha)
 
-            ax.set_title(rf"$L_\text{{{subscript}}}\lambda_\text{{{subscript}}}$")
+            ax.set_title(rf"$\cal{{L}}_\mathrm{{{subscript}}}\lambda_\mathrm{{{subscript}}}$")
             ax.grid(True)
             if i // 3 == 1:
                 ax.set_xlabel("Epoch")
 
-    fig.subplots_adjust(hspace=0.5, wspace=0.3)
+    fig.subplots_adjust(hspace=0.5, wspace=0.3, bottom=0.2, left=0.07, right=0.99)
     return fig

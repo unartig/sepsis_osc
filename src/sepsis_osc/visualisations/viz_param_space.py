@@ -15,7 +15,14 @@ num_ticks = 10
 
 
 def plot_tt(
-    tt: np.ndarray, title: str, *, filename: str, figure_dir: str, fs: tuple[int, int] = (8, 6), show: bool = False
+    tt: np.ndarray,
+    title: str,
+    *,
+    filename: str,
+    figure_dir: str,
+    fs: tuple[int, int] = (8, 6),
+    show: bool = False,
+    xticklabel_rot: int = 45,
 ) -> None:
     fig, ax = plt.subplots(figsize=fs)
     im = ax.imshow(tt.T[::-1, :], aspect="auto", cmap="viridis")
@@ -25,7 +32,7 @@ def plot_tt(
     xtick_positions = np.linspace(0, len(xs) - 1, num_ticks, dtype=int)
     ytick_positions = np.linspace(0, len(ys) - 1, num_ticks, dtype=int)
     ax.set_xticks(xtick_positions)
-    ax.set_xticklabels([f"{val:.2f}" for val in xs[xtick_positions]], rotation=45)
+    ax.set_xticklabels([f"{val:.2f}" for val in xs[xtick_positions]], rotation=xticklabel_rot)
     ax.set_yticks(ytick_positions)
     ax.set_yticklabels([f"{val:.2f}" for val in ys[ytick_positions]][::-1])
     ax.plot(orig_xs, [orig_ys[0], orig_ys[0]], color="white", linewidth=0.5)
@@ -51,28 +58,34 @@ def space_plot(
     figure_dir: str = "figures",
     fs: tuple[int, int] = (6, 4),
     cmap: bool = True,
+    alpha: float = 1.0,
     figax: tuple[plt.Figure, plt.Axes] | None = None,
     show: bool = False,
+    xticklabel_rot: int = 45,
+    num_ticks: int = 10,
 ) -> plt.Axes:
     if not figax:
         fig, ax = plt.subplots(1, 1, figsize=fs)
     else:
         fig, ax = figax
 
-    im = ax.imshow(metric.T[::-1, :], cmap="viridis", aspect="auto", extent=(xs[0], xs[-1], ys[0], ys[-1]))
+    ax.set_facecolor("#303030")
+    im = ax.imshow(metric.T[::-1, :], cmap="viridis", aspect="auto", extent=(xs[0], xs[-1], ys[0], ys[-1]), alpha=alpha)
     ax.set_title(title, fontsize=14)
     ax.set_ylabel(r"$\sigma$", fontsize=12)
     ax.set_xlabel(r"$\beta / \pi$", fontsize=12)
 
     xtick_vals = xs[np.linspace(0, len(xs) - 1, num_ticks, dtype=int)]
     ytick_vals = ys[np.linspace(0, len(ys) - 1, num_ticks, dtype=int)]
+    ytick_vals[-1] = ys[-1]
+    xtick_vals[-1] = xs[-1]
     ax.set_xticks(xtick_vals)
-    ax.set_xticklabels([f"{v:.2f}" for v in xtick_vals], rotation=45)
+    ax.set_xticklabels([f"{v:.2f}" for v in xtick_vals], rotation=xticklabel_rot)
     ax.set_yticks(ytick_vals)
     ax.set_yticklabels([f"{v:.2f}" for v in ytick_vals])
 
     if cmap:
-        cbar = fig.colorbar(im, ax=ax, location="right", shrink=0.8)
+        cbar = fig.colorbar(im, ax=ax, location="right", shrink=0.8, pad=0.05)
         cbar.set_label(r"$s^{1}$")
     if filename and figure_dir:
         plt.savefig(f"{figure_dir}/{filename}.svg", format="svg")
@@ -96,6 +109,7 @@ def pretty_plot(
     show: bool = False,
     figax: tuple[plt.Figure, list[plt.Axes]] | None = None,
     x_label: bool = True,
+    xticklabel_rot: int = 45,
 ) -> None:
     if not figax:
         fig, axes = plt.subplots(1, 2, figsize=fs)
@@ -116,7 +130,7 @@ def pretty_plot(
     ytick_positions = np.linspace(0, len(ys) - 1, num_ticks, dtype=int)
     for a in axes:
         a.set_xticks(xtick_positions)
-        a.set_xticklabels([f"{val:.2f}" for val in xs[xtick_positions]], rotation=45)
+        a.set_xticklabels([f"{val:.2f}" for val in xs[xtick_positions]], rotation=xticklabel_rot)
         a.set_yticks(ytick_positions)
         a.set_yticklabels([f"{val:.2f}" for val in ys[ytick_positions]][::-1])
         a.plot([orig_xs[0], orig_xs[1]], [orig_ys[0], orig_ys[0]], color="white", linewidth=0.5)

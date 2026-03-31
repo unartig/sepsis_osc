@@ -1,3 +1,5 @@
+from typing import Literal
+
 import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.animation import FFMpegWriter, FuncAnimation, PillowWriter
@@ -117,74 +119,47 @@ def plot_kappa(
     *,
     cbar1: bool = True,
     cbar2: bool = False,
-    cbar_loc: str | None = None,
+    cbar_loc: Literal["top", "inside", "side"] | None = None,
 ) -> list[plt.Axes]:
+
     if not figax:
-        if cbar_loc == "top":
-            # Create figure with gridspec to reserve colorbar space
-            fig = plt.figure(figsize=(12, 6))
-            gs = fig.add_gridspec(3, 2, height_ratios=[0.05, 1, 0.05], hspace=0.05, wspace=0.3)
-            ax = [fig.add_subplot(gs[1, 0]), fig.add_subplot(gs[1, 1])]
-            cax = [fig.add_subplot(gs[0, 0]), fig.add_subplot(gs[0, 1])]
-        else:
-            fig, ax = plt.subplots(1, 2)
-            cax = [None, None]
+        fig, ax = plt.subplots(1, 2, figsize=(12, 6))
+        cax = [None, None]
     else:
         fig, ax = figax
-        if cax is None:
-            cax = [None, None]
+        cax = cax or [None, None]
 
-    for a in ax:
-        a.xaxis.set_ticks_position("bottom")
-        a.xaxis.set_label_position("bottom")
+    ims = []
+    for i, (k_raw, sort) in enumerate(zip([kappas_1, kappas_2], [sorting_1, sorting_2], strict=True)):
+        kappa = k_raw[t].copy()
 
-    n = kappas_1[0].shape[-1]
-    vmin = -1
-    vmax = 1
-    cmap = "seismic"
+        if t != 0:
+            orig_diag = np.diag(kappa)
+            kappa = kappa[np.ix_(sort, sort)]
+            np.fill_diagonal(kappa, orig_diag)
 
-    if t == 0:
-        im1 = ax[0].imshow(kappas_1[0], origin="lower", vmin=vmin, vmax=vmax, cmap=cmap)
-        im2 = ax[1].imshow(kappas_2[0], origin="lower", vmin=vmin, vmax=vmax, cmap=cmap)
-    else:
-        ims = []
-        for i, (sorting, kappas) in enumerate(zip([sorting_1, sorting_2], [kappas_1, kappas_2], strict=True)):
-            kappa = kappas[t].copy()
-            sorted_indices = np.ix_(sorting, sorting)
-            sorted_kappa = kappa[sorted_indices]
-            diag_mask = np.eye(n, dtype=bool)
-            off_diag_mask = ~diag_mask
-            final_kappa = np.zeros_like(kappa)
-            final_kappa[diag_mask] = np.diag(kappa)
-            final_kappa[off_diag_mask] = sorted_kappa[off_diag_mask]
-            ims.append(ax[i].imshow(final_kappa, origin="lower", vmin=vmin, vmax=vmax, cmap=cmap))
-        im1, im2 = tuple(ims)
+        im = ax[i].imshow(kappa, origin="lower", vmin=-1, vmax=1, cmap="seismic")
+        ims.append(im)
+        ax[i].xaxis.set_ticks_position("bottom")
 
-    for i, (axi, im, cb) in enumerate([(ax[0], im1, cbar1), (ax[1], im2, cbar2)]):
-        if cb:
-            if cbar_loc is None:
-                cbar = fig.colorbar(im, cmap=cmap, ax=axi, fraction=0.046, pad=0.14)
-                cbar.set_label(r"$\kappa^1_{ij}$ value")
-            elif cbar_loc == "inside":
-                axins = inset_axes(
-                    axi,
-                    width="40%",
-                    height="3%",
-                    loc="upper left",
-                    bbox_to_anchor=(0, 0, 1, 1),
-                    bbox_transform=axi.transAxes,
-                    borderpad=1,
-                )
-                cbar = fig.colorbar(im, cmap=cmap, cax=axins, fraction=0.046, pad=0.04, orientation="horizontal")
-                for label in cbar.ax.get_xticklabels():
-                    label.set_weight("bold")
-            elif cbar_loc == "top":
-                if cax[i] is not None:  # Check if colorbar axes exists
-                    cbar = fig.colorbar(im, cax=cax[i], orientation="horizontal")
-                    cax[i].xaxis.set_ticks_position("top")
-                else:
-                    continue  # Skip if no colorbar axes provided
-            cbar.set_ticks([-1, 0, 1])
+    for i, (im, show_cbar) in enumerate(zip(ims, [cbar1, cbar2], strict=True)):
+        if not show_cbar:
+            continue
+
+        # Determine target axis for colorbar
+        curr_cax = cax[i]
+        orient = "horizontal" if cbar_loc in ["top", "inside"] else "vertical"
+
+        if cbar_loc == "inside":
+            curr_cax = inset_axes(ax[i], width="40%", height="3%", loc="upper left", borderpad=1)
+
+        cb = fig.colorbar(im, cax=curr_cax, ax=(None if curr_cax else ax[i]), orientation=orient)
+        cb.set_ticks([-1, 0, 1])
+
+        if cbar_loc == "top" and curr_cax:
+            curr_cax.xaxis.set_ticks_position("top")
+        if cbar_loc == "inside":
+            plt.setp(cb.ax.get_xticklabels(), weight="bold")
 
     return ax
 
@@ -384,7 +359,6 @@ def gif_both(
             dscatters[i].set_offsets(np.c_[range_n, dphis_t])
 
         time_text.set_text(f"Time step: {ts[t]:.4f}")
-
 
         return [*pscatters, *dscatters, *bars[0], *bars[1], time_text]
 
