@@ -16,7 +16,7 @@ db_metrics_key_value = "storage/SepsisMetrics.db"
 # YAIB data
 target_name = "sep3_alt_first"
 cohort_name = f"{target_name}_with_marginals_ramp"
-yaib_data_dir = f"PATH/TO/YAIB-cohorts/data/{cohort_name}/miiv"
+yaib_data_dir = f"/home/unartig/Desktop/uni/ResearchProject/YAIB-cohorts/data/{cohort_name}/miiv"
 
 
 # Log Config
@@ -44,4 +44,7 @@ plt_params = {
     "ytick.labelsize": SMALL_SIZE,
     "legend.fontsize": SMALL_SIZE,
     "figure.dpi": 100,
+    "text.usetex": True,
+    "font.family": "serif",
+    "font.serif": ["Termes", "DejaVu Serif", "serif"],
 }
