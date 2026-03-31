@@ -40,6 +40,11 @@ def _():
     from matplotlib.gridspec import GridSpec
     from sepsis_osc.visualisations.viz_param_space import space_plot
     from sepsis_osc.ldm.lookup import LatentLookup
+    import matplotlib.style
+
+    matplotlib.style.use(
+        "default"
+    )
     plt.rcParams.update(plt_params)
     return (
         ALPHA,
@@ -91,7 +96,7 @@ def _(
         test_x,
         test_y,
         test_m,
-    ) = get_data_sets_online(swapaxes_y=(1, 2, 0), dtype=jnp.float32, path_prefix="..", cv_repetitions=2, repetition_index=0, cv_folds=2, fold_index=0)
+    ) = get_data_sets_online(swapaxes_y=(1, 2, 0), dtype=jnp.float32, cv_repetitions=2, repetition_index=0, cv_folds=2, fold_index=0)
     for y, m, s in ((train_y, train_m, "Train"), (val_y, val_m, "Val"), (test_y, test_m, "Test")):
         print(f"Prevalence {s} Set {((y * m[..., None]).max(axis=1) == 1.0).mean(axis=0) * 100}%")
 
@@ -128,8 +133,8 @@ def _(
     db_str = "DaisyFinal"
     sim_storage = Storage(
         key_dim=9,
-        metrics_kv_name=f"../data/{db_str}SepsisMetrics.db/",
-        parameter_k_name=f"../data/{db_str}SepsisParameters_index.bin",
+        metrics_kv_name=f"data/{db_str}SepsisMetrics.db/",
+        parameter_k_name=f"data/{db_str}SepsisParameters_index.bin",
         use_mem_cache=True,
     )
     sim_storage.close()
@@ -148,7 +153,7 @@ def _(
     logger,
 ):
     run_name = 'best'
-    RUN_DIR = f'../runs/{run_name}'
+    RUN_DIR = f'runs/{run_name}'
     tb_reader = SummaryReader(RUN_DIR)
     tb_df = tb_reader.scalars
     hparams = tb_reader.hparams.T
@@ -264,8 +269,7 @@ def _(
 
 @app.cell
 def _(heat_fig):
-    heat_fig.savefig("../typst/images/heat.svg")
-    heat_fig.savefig("../typst/images/paper/heat.png", dpi=400)
+    heat_fig.savefig("typst/images/thesis/heat.svg")
     return
 
 
@@ -300,8 +304,7 @@ def _(lookup_table, np, test_m, test_metrics, test_y, viz_patients):
 
 @app.cell
 def _(patient_fig):
-    patient_fig.savefig(f"../typst/images/trajectory.svg")
-    patient_fig.savefig(f"../typst/images/paper/trajectory.png", dpi=400)
+    patient_fig.savefig(f"typst/images/thesis/trajectory.svg")
     return
 
 
@@ -321,60 +324,7 @@ def _(lookup_table, test_m, test_metrics, test_y, viz_space_heatmap):
 
 @app.cell
 def _(heat_space_fig):
-    heat_space_fig.savefig("../typst/images/heat_space.svg")
-    heat_space_fig.savefig("../typst/images/paper/heat_space.png", dpi=400)
-    heat_space_fig.savefig("../typst/images/heat_space.png", dpi=400)
-    return
-
-
-@app.cell
-def _():
-    """
-    def viz_loss() -> Figure:
-        fig, axs = plt.subplots(3, 3, sharex=True)
-
-        data_train = tb_df.query(f"tag == 'train_losses/total_loss_mean'")
-        data_val = tb_df.query(f"tag == 'val_losses/total_loss_mean'")
-        axs[0, 0].plot(data_train["step"], data_train["value"], label="Training")
-        axs[0, 0].plot(data_val["step"], data_val["value"], label="Validation")
-        axs[0, 0].legend(ncols=2, bbox_to_anchor=(2.4, 1.75), frameon=False)
-        axs[0, 0].set_title(r"log($L_\text{total}$)")
-        axs[0, 0].grid(True)
-        axs[0, 0].set_yscale("log")
-        print((data_train["value"]).to_numpy()[[0, -1]], (data_val["value"]).to_numpy()[[0, -1]])
-
-        data = tb_df.query(f"tag == 'sepsis_metrics/AUROC_pred_sep'")
-        axs[0, 1].plot(data["step"], data["value"], c="tab:orange")
-        axs[0, 1].set_title(r"AUROC")
-        axs[0, 1].grid(True)
-
-        data = tb_df.query(f"tag == 'sepsis_metrics/AUPRC_pred_sep'")
-        axs[0, 2].plot(data["step"], data["value"], c="tab:orange")
-        axs[0, 2].set_title(r"AUPRC")
-        axs[0, 2].grid(True)
-
-        losses = ("sepsis-3", "sofa", "infection", "recon_loss", "spreading_loss", "boundary_loss")
-        loss_subscripts = ("sepsis", "sofa", "inf", "dec", "spread", "boundary")
-        lambdas = ("sep3", "sofa_classification", "inf", "recon", "spreading", "boundary")
-
-        #axs = np.empty((2, 3), dtype=np.object_)
-        for i, (loss, subscript, weight) in enumerate(zip(losses, loss_subscripts, lambdas, strict=True)):
-            ax = axs[i//3 + 1, i%3]
-            data_train = tb_df.query(f"tag == 'train_losses/{loss}_mean'")
-            data_val = tb_df.query(f"tag == 'val_losses/{loss}_mean'")
-            llambda = hparams.loc["value", f"losses_lambda_{weight}"]
-            print(loss,(data_train["value"]*llambda).to_numpy()[[0, -1]], (data_val["value"]*llambda).to_numpy()[[0, -1]])
-            ax.plot(data_train["step"], data_train["value"]*llambda, label="Training")
-            ax.plot(data_val["step"], data_val["value"]*llambda, label="Validation")
-            ax.set_title(fr"$L_\text{'{'}{subscript}{'}'}\lambda_\text{'{'}{subscript}{'}'}$")
-            ax.grid(True)
-            if i//3 == 1:
-                ax.set_xlabel("Epoch")
-
-        fig.subplots_adjust(hspace=0.5)
-        fig.subplots_adjust(wspace=0.3)
-        return fig
-    """
+    heat_space_fig.savefig("typst/images/thesis/heat_space.svg")
     return
 
 
@@ -387,28 +337,7 @@ def _(hparams, tb_df, viz_losses):
 
 @app.cell
 def _(loss_fig):
-    loss_fig.savefig("../typst/images/losses.svg")
-    loss_fig.savefig("../typst/images/paper/losses.png", dpi=400)
-    return
-
-
-@app.cell
-def _():
-    """
-    def viz_areas() -> Figure:
-        fig, ax = plt.subplots(1, 2)
-        roc = RocCurveDisplay.from_predictions(
-            true_sep3, pred_sep3_risk, ax=ax[0], curve_kwargs={"color": "tab:orange"}, plot_chance_level=True
-        )
-        roc.ax_.plot((0, 0), (1,1), label="random", color="red", linestyle=":")
-        PrecisionRecallDisplay.from_predictions(true_sep3, pred_sep3_risk, ax=ax[1], color="tab:orange", plot_chance_level=True)
-
-        ax[0].set_title("Receiver Operating Characteristics")
-        ax[1].set_title("Precision Recall Curve")
-        ax[1].legend(loc="upper right")
-
-        return fig
-    """
+    loss_fig.savefig("typst/images/thesis/losses.svg")
     return
 
 
@@ -421,8 +350,7 @@ def _(pred_sep3_risk, true_sep3, viz_curves_sepsis):
 
 @app.cell
 def _(area_fig):
-    area_fig.savefig("../typst/images/areas.svg")
-    area_fig.savefig("../typst/images/paper/areas.png", dpi=400)
+    area_fig.savefig("typst/images/thesis/areas.svg")
     return
 
 

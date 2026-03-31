@@ -1,7 +1,7 @@
 import marimo
 
 __generated_with = "0.20.4"
-app = marimo.App()
+app = marimo.App(width="full")
 
 
 @app.cell
@@ -30,6 +30,11 @@ def _():
     from sepsis_osc.visualisations.viz_single_run import plot_kappa, plot_phase_snapshot
     from mpl_toolkits.axes_grid1.inset_locator import inset_axes
     from mpl_toolkits.axes_grid1 import make_axes_locatable
+    import matplotlib.style
+
+    matplotlib.style.use(
+        "default"
+    )
     setup_jax(simulation=True)
     return (
         DNMConfig,
@@ -69,8 +74,8 @@ def _(DNMConfig, DNMMetrics, Storage, as_2d_indices, jnp, np):
     db_str = "Daisy2"
     sim_storage = Storage(
         key_dim=9,
-        metrics_kv_name=f"../data/{db_str}SepsisMetrics.db/",
-        parameter_k_name=f"../data/{db_str}SepsisParameters_index.bin",
+        metrics_kv_name=f"data/{db_str}SepsisMetrics.db/",
+        parameter_k_name=f"data/{db_str}SepsisParameters_index.bin",
         use_mem_cache=True,
     )
     sim_storage.close()
@@ -113,7 +118,7 @@ def _(BETA_SPACE, SIGMA_SPACE, metrics_2d, np, plt, pretty_plot):
             x_label=False
         )
 
-        configs = {"A": (0.5, 1.0), "B": (0.58, 1.0), "C": (0.7, 1.0), "D": (0.5, 0.7)}
+        configs = {"A": (0.5, 1.0), "B": (0.58, 1.0), "C": (0.7, 1.0), "D": (0.5, 0.2)}
         pretty_plot(
             metrics_2d.r_1, metrics_2d.r_2, r"$R$", xs=xs, ys=ys, orig_xs=orig_xs, orig_ys=orig_ys, figax=(fig, axes[1])
         )
@@ -143,8 +148,8 @@ def _(plot_phase):
 
 @app.cell
 def _(phase_fig):
-    phase_fig.savefig("../typst/images/phase.svg")
-    phase_fig.savefig("../typst/images/paper/phase.png", dpi=400)
+    phase_fig.savefig("typst/images/phase.svg")
+    phase_fig.savefig("typst/images/paper/phase.png", dpi=400)
     return
 
 
@@ -264,6 +269,7 @@ def _(GridSpec, np, plot_kappa, plot_phase_snapshot, plt, sols):
                 t=-1,
                 deriv=True,
                 ax=[ax1, ax2],
+                sort=True
             )
             plot_phase_snapshot(
                 np.asarray(ys.phi_1),
@@ -271,6 +277,7 @@ def _(GridSpec, np, plot_kappa, plot_phase_snapshot, plt, sols):
                 t=-1,
                 deriv=False,
                 ax=[ax3, ax4],
+                sort=True
             )
             ax2.set_yticks([])
             ax2.set_yticklabels([])
@@ -325,8 +332,8 @@ def _(plot_snapshots):
 
 @app.cell
 def _(snap_fig):
-    snap_fig.savefig("../typst/images/snapshots.svg")
-    snap_fig.savefig("../typst/images/paper/snapshots.png", dpi=400)
+    snap_fig.savefig("typst/images/snapshots.svg")
+    snap_fig.savefig("typst/images/paper/snapshots.png", dpi=400)
     return
 
 
@@ -386,8 +393,8 @@ def _(plot_init):
 
 @app.cell
 def _(init_fig):
-    init_fig.savefig("../typst/images/init.svg")
-    init_fig.savefig("../typst/images/paper/init.png", dpi=400)
+    init_fig.savefig("typst/images/init.svg")
+    init_fig.savefig("typst/images/paper/init.png", dpi=400)
     return
 
 
@@ -470,6 +477,51 @@ def _(plot_ensembles):
 def _(ensemble_fig):
     ensemble_fig.savefig("../typst/images/ensembles.svg")
     ensemble_fig.savefig("../typst/images/paper/ensembles.png", dpi=400)
+    return
+
+
+@app.cell
+def _(BETA_SPACE, SIGMA_SPACE, metrics_2d, np, plt, pretty_plot):
+    def plot_phase_freq() -> plt.Figure:
+        xs = np.arange(*BETA_SPACE)
+        ys = np.arange(*SIGMA_SPACE)
+
+        orig_xs = np.asarray([np.argmin(np.abs(xs - x)) for x in [0.4, 0.7]])
+        orig_ys = np.asarray([len(ys) - np.argmin(np.abs(ys - y)) - 1 for y in [0.0, 1.5]])
+        fig, axes = plt.subplots(1, 2, sharey=True, squeeze=True)
+        pretty_plot(
+            metrics_2d.s_1, metrics_2d.s_2, r"$s$", xs=xs, ys=ys, orig_xs=orig_xs, orig_ys=orig_ys, figax=(fig, axes),
+            x_label=False
+        )
+
+        configs = {"A": (0.5, 1.0), "B": (0.58, 1.0), "C": (0.7, 1.0), "D": (0.5, 0.2)}
+        for n, c in configs.items():
+            b, s = c
+            beta_scale = len(xs) * (b - BETA_SPACE[0]) / (BETA_SPACE[1] - BETA_SPACE[0])
+            sigma_scale = len(ys) * (1 - (s - SIGMA_SPACE[0]) / (SIGMA_SPACE[1] - SIGMA_SPACE[0]))
+            for i in range(2):
+                axes[i].scatter(beta_scale, sigma_scale, c="tab:orange")
+                axes[i].annotate(n, (beta_scale + 2, sigma_scale + 1), c="tab:orange")
+
+
+        fig.tight_layout()
+        fig.subplots_adjust(wspace=0., hspace=0.35)
+        return fig
+
+    return (plot_phase_freq,)
+
+
+@app.cell
+def _(plot_phase_freq):
+    BETA_SPACE = (0.4, 0.7, 0.01) 
+    phase_freq_fig = plot_phase_freq()
+    phase_freq_fig
+    return (BETA_SPACE,)
+
+
+@app.cell
+def _(phase_fig):
+    phase_fig.savefig("typst/images/paper/phase.png", dpi=400)
     return
 
 

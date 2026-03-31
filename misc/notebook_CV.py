@@ -1,7 +1,7 @@
 import marimo
 
 __generated_with = "0.20.4"
-app = marimo.App()
+app = marimo.App(width="full")
 
 
 @app.cell
@@ -17,6 +17,7 @@ def _():
 
     import pandas as pd
     import equinox as eqx
+    import jax
     import jax.numpy as jnp
     import jax.random as jr
     import matplotlib.pyplot as plt
@@ -43,6 +44,11 @@ def _():
     logger = logging.getLogger(__name__)
 
     from matplotlib.patches import Ellipse
+    import matplotlib.style
+
+    matplotlib.style.use(
+        "default"
+    )
 
 
     plt.rcParams.update(plt_params)
@@ -60,6 +66,7 @@ def _():
         build_lookup_table,
         eqx,
         get_data_sets_online,
+        jax,
         jax_random_seed,
         jnp,
         jr,
@@ -86,8 +93,8 @@ def _(
     db_str = "DaisyFinal"
     storage = Storage(
         key_dim=9,
-        metrics_kv_name=f"../data/{db_str}SepsisMetrics.db/",
-        parameter_k_name=f"../data/{db_str}SepsisParameters_index.bin",
+        metrics_kv_name=f"data/{db_str}SepsisMetrics.db/",
+        parameter_k_name=f"data/{db_str}SepsisParameters_index.bin",
         use_mem_cache=True,
     )
     storage.close()
@@ -115,29 +122,191 @@ def _(
     logger,
     pd,
 ):
-    def get_model(rep: int, fold: int) -> tuple[LatentDynamicsModel, pd.DataFrame, pd.DataFrame, str, int, pd.DataFrame, pd.DataFrame]:
-        _run_name = f'rep{rep:002}_fold{fold:002}'
-        run_dir = f'../runs/cv3/{_run_name}'
+    def get_model(
+        rep: int, fold: int
+    ) -> tuple[
+        LatentDynamicsModel,
+        pd.DataFrame,
+        pd.DataFrame,
+        str,
+        int,
+        pd.DataFrame,
+        pd.DataFrame,
+    ]:
+        _run_name = f"rep{rep:002}_fold{fold:002}"
+        run_dir = f"runs/cv3/{_run_name}"
         tb_reader = SummaryReader(run_dir)
         _tb_df = tb_reader.scalars
         hparams = tb_reader.hparams.T
-        hparams.columns = hparams.loc['tag']
-        hparams = hparams.drop('tag')
+        hparams.columns = hparams.loc["tag"]
+        hparams = hparams.drop("tag")
         _auprc = _tb_df.query("tag == 'sepsis_metrics/AUPRC_pred_sep'")
-        prc_epoch = _auprc.loc[_auprc['value'].idxmax(), 'step']
+        prc_epoch = _auprc.loc[_auprc["value"].idxmax(), "step"]
         _auroc = _tb_df.query("tag == 'sepsis_metrics/AUROC_pred_sep'")
-        roc_epoch = _auroc.loc[_auroc['value'].idxmax(), 'step']
+        roc_epoch = _auroc.loc[_auroc["value"].idxmax(), "step"]
         best_epoch = round((prc_epoch + roc_epoch) / 2)
-        logger.info(f"Best Epoch: {best_epoch} with between AUPRC={_auprc['value'].max():.3f}@{prc_epoch} AUROC={_auroc['value'].max():.3f}@{roc_epoch}")
+        logger.info(
+            f"Best Epoch: {best_epoch} with between AUPRC={_auprc['value'].max():.3f}@{prc_epoch} AUROC={_auroc['value'].max():.3f}@{roc_epoch}"
+        )
         _load_epoch = best_epoch
         load_conf = LoadingConfig(from_dir=run_dir, epoch=_load_epoch)
         if load_conf.from_dir:
-            model, _ = load_checkpoint(load_conf.from_dir + '/checkpoints', load_conf.epoch, None)
+            model, _ = load_checkpoint(
+                load_conf.from_dir + "/checkpoints", load_conf.epoch, None
+            )
         model = eqx.nn.inference_mode(model)
         assert model
         return (model, _tb_df, hparams, _run_name, _load_epoch, _auroc, _auprc)
 
     return (get_model,)
+
+
+@app.cell
+def _(eqx, get_model, jax, pd):
+    def clean_name(parts):
+        cleaned = []
+
+        for p in parts:
+            p = str(p).strip("'").lstrip(".")
+
+            if p == "":
+                continue
+
+            # turn [0] into 0
+            if p.startswith("[") and p.endswith("]"):
+                p = "linear" + p[1:-1]
+
+            cleaned.append(p)
+
+        # keep last two meaningful parts
+        if len(cleaned) >= 2:
+            cleaned[1] = "GRU " + cleaned[1] if cleaned[1].endswith(("hh", "ih")) else cleaned[1]
+            return f"{cleaned[-2]} {cleaned[-1]}"
+        elif cleaned:
+            print("cleand1", cleaned)
+            return cleaned[-1]
+        else:
+            return ""
+
+
+    def latex_escape(text):
+        return (text
+                .replace("_", r"\_")
+                .replace("%", r"\%")
+                .replace("&", r"\&"))
+
+    def generate_param_df(model):
+        rows = []
+
+        for path, value in jax.tree_util.tree_leaves_with_path(model):
+            if not eqx.is_array(value):
+                continue
+
+            parts = [str(p) for p in path]
+            full_path = ".".join(parts)
+
+            if "rollout" in full_path:
+                continue
+            # Module grouping
+            if "latent_pre_encoder" in full_path:
+                group = "SOFA Module (Encoder)"
+            elif any(k in full_path for k in ["latent_encoder", "latent_rollout", "latent_proj_out"]):
+                group = "SOFA Module (RNN)"
+            elif any(k in full_path for k in ["inf_encoder", "inf_rollout", "inf_proj_out"]):
+                group = "Infection Module"
+            elif "decoder" in full_path:
+                group = "Decoder Module"
+            else:
+                group = "General"
+
+            display_name = clean_name(parts)
+
+            rows.append({
+                "Module": group,
+                "Name": display_name,
+                "Shape": str(value.shape),
+                "Count": int(value.size),
+            })
+
+        return pd.DataFrame(rows)
+
+    def df_to_latex_grouped(df, module_order):
+        latex = []
+
+        latex.append(r"\begin{tabular}{lcr}")
+        latex.append(r"\hline")
+        latex.append(r"\textbf{Name} & \textbf{Shape} & \textbf{Count} \\")
+        latex.append(r"\hline")
+
+        for module in module_order:
+            group = df[df["Module"] == module]
+            if group.empty:
+                continue
+
+            latex.append(rf"\multicolumn{{3}}{{l}}{{\textbf{{{module}}}}} \\")
+
+            total = 0
+
+            for _, row in group.iterrows():
+                name = latex_escape(str(row["Name"]))
+                shape = row["Shape"]
+                count = row["Count"]
+                total += count
+
+                latex.append(f"{name} & {shape} & {count:,} \\\\")
+
+            latex.append(rf"\multicolumn{{2}}{{r}}{{\textbf{{Total:}}}} & \textbf{{{total:,}}} \\")
+            latex.append(r"\hline")
+
+        latex.append(r"\end{tabular}")
+
+        return "\n".join(latex)
+
+    def model_to_latex_figure(model):
+        df = generate_param_df(model)
+
+        module_order = [
+            "Infection Module",
+            "Decoder Module",
+            "General",
+            "SOFA Module (Encoder)",
+            "SOFA Module (RNN)",
+        ]
+
+        # split modules into two columns
+        mid = len(module_order) // 2
+        left_modules = module_order[:mid]
+        right_modules = module_order[mid:]
+
+        left_df = df[df["Module"].isin(left_modules)]
+        right_df = df[df["Module"].isin(right_modules)]
+
+        left_table = df_to_latex_grouped(left_df, left_modules)
+        right_table = df_to_latex_grouped(right_df, right_modules)
+
+        final = f"""
+    \\begin{{figure*}}[t]
+    \\centering
+    \\begin{{minipage}}{{0.48\\textwidth}}
+    {left_table}
+    \\end{{minipage}}
+    \\hfill
+    \\begin{{minipage}}{{0.48\\textwidth}}
+    {right_table}
+    \\end{{minipage}}
+    \\caption{{Detailed parameter count of the LDM modules.}}
+    \\end{{figure*}}
+    """
+
+        return final
+
+    # -----------------------------
+    model, _tb_df, hparams, _run_name, _load_epoch, _auroc, _auprc = get_model(0, 0)
+
+    latex_code = model_to_latex_figure(model)
+
+    print(latex_code)
+    return (hparams,)
 
 
 @app.cell
@@ -175,7 +344,7 @@ def _(
                 logger.warning(f'Failed to load {rep}-{repetitions - 1} {fold}-{n_folds - 1} sequences. {e}')
                 continue
             logger.info(f'Loaded {rep}-{repetitions} {fold}-{n_folds}.')
-            _data = get_data_sets_online(swapaxes_y=(1, 2, 0), dtype=dtype, cv_repetitions=repetitions, repetition_index=rep, cv_folds=n_folds, fold_index=fold, sequence_files='../data/cv/sequence_')
+            _data = get_data_sets_online(swapaxes_y=(1, 2, 0), dtype=dtype, cv_repetitions=repetitions, repetition_index=rep, cv_folds=n_folds, fold_index=fold, sequence_files='data/cv/sequence_')
             *_, test_x, test_y, test_m = _data
             test_m = test_m.astype(np.bool)
             test_x, test_y, test_m = (test_x[None], test_y[None], test_m[None])
@@ -256,40 +425,7 @@ def _(results_df_1, welch_t_from_stats):
     print('t =', t_auprc)
     print('df =', df_auprc)
     print('p =', p_auprc)
-    return (
-        ldm_auprc_mean,
-        ldm_auprc_std,
-        ldm_auroc_mean,
-        ldm_auroc_std,
-        n1,
-        n2,
-        yaib_auprc_mean,
-        yaib_auprc_std,
-        yaib_auroc_mean,
-        yaib_auroc_std,
-    )
-
-
-@app.cell
-def _(
-    ldm_auprc_mean,
-    ldm_auprc_std,
-    ldm_auroc_mean,
-    ldm_auroc_std,
-    n1,
-    n2,
-    stats,
-    yaib_auprc_mean,
-    yaib_auprc_std,
-    yaib_auroc_mean,
-    yaib_auroc_std,
-):
-    "One sided, H0 - same mean, H1 - LDM mean is greater"
-    rroc = stats.ttest_ind_from_stats(ldm_auroc_mean, ldm_auroc_std, n1, yaib_auroc_mean, yaib_auroc_std, n2, alternative="greater", equal_var=False)
-    rprc = stats.ttest_ind_from_stats(ldm_auprc_mean, ldm_auprc_std, n1, yaib_auprc_mean, yaib_auprc_std, n2, alternative="greater", equal_var=False)
-    print(rroc)
-    print(rprc)
-    return
+    return yaib_auprc_mean, yaib_auprc_std, yaib_auroc_mean, yaib_auroc_std
 
 
 @app.cell
@@ -372,8 +508,7 @@ def _(mo):
 
 @app.cell
 def _():
-    from sepsis_osc.visualisations.viz_model_results import (viz_curves_sepsis, viz_loss_mean_std, viz_patients, 
-                                                             viz_concept_densities, viz_space_heatmap)
+    from sepsis_osc.visualisations.viz_model_results import (viz_curves_sepsis, viz_loss_mean_std, viz_patients, viz_concept_densities, viz_space_heatmap)
 
     return (
         viz_concept_densities,
@@ -436,7 +571,7 @@ def _(aggregate_runs, load_tb_scalars):
     # Prepare run directories
     repetitions_1 = 5
     n_folds_1 = 5
-    run_dirs = [f'../runs/cv3/rep{rep:02}_fold{fold:02}' for rep in range(repetitions_1) for fold in range(n_folds_1)]
+    run_dirs = [f'runs/cv3/rep{rep:02}_fold{fold:02}' for rep in range(repetitions_1) for fold in range(n_folds_1)]
     losses = ['total_loss', 'sepsis-3', 'sofa', 'infection', 'recon_loss', 'spreading_loss', 'boundary_loss']
     # Define tags you want
     metrics = ['AUROC_pred_sep', 'AUPRC_pred_sep']
@@ -463,8 +598,8 @@ def _(agg_data, hparams, lambdas, loss_subscripts, losses, viz_loss_mean_std):
 
 @app.cell
 def _(loss_fig):
-    loss_fig.savefig("../typst/images/losses_std.svg")
-    loss_fig.savefig("../typst/images/paper/losses_std.png", dpi=400)
+    loss_fig.savefig("typst/images/losses_std.svg")
+    loss_fig.savefig("typst/images/paper/losses_std.png", dpi=400)
     return
 
 
@@ -506,7 +641,7 @@ def _(
     repetitions_1,
 ):
     model_1, _tb_df, hparams_1, _run_name, _load_epoch, _auroc, _auprc = get_model(rep_1, fold_1)
-    _data = get_data_sets_online(swapaxes_y=(1, 2, 0), dtype=dtype, cv_repetitions=repetitions_1, repetition_index=rep_1, cv_folds=n_folds_1, fold_index=fold_1, sequence_files='../data/cv/sequence_')
+    _data = get_data_sets_online(swapaxes_y=(1, 2, 0), dtype=dtype, cv_repetitions=repetitions_1, repetition_index=rep_1, cv_folds=n_folds_1, fold_index=fold_1, sequence_files='data/cv/sequence_')
     *_, test_x_1, test_y_1, test_m_1 = _data
     test_m_1 = test_m_1.astype(np.bool)
     test_x_1, test_y_1, test_m_1 = (test_x_1[None], test_y_1[None], test_m_1[None])
@@ -584,7 +719,7 @@ def _(
 
 @app.cell
 def _(heat_fig):
-    heat_fig.savefig("../typst/images/paper/heat.png", dpi=400)
+    heat_fig.savefig("typst/images/paper/heat.png", dpi=400)
     return
 
 
@@ -613,7 +748,7 @@ def _(lookup_table, test_m_1, test_metrics_1, test_y_1, viz_patients):
 
 @app.cell
 def _(patient_fig):
-    patient_fig.savefig("../typst/images/paper/trajectory.png", dpi=400)
+    patient_fig.savefig("typst/images/paper/trajectory.png", dpi=400)
     return
 
 
@@ -626,7 +761,7 @@ def _(lookup_table, test_m_1, test_metrics_1, test_y_1, viz_space_heatmap):
 
 @app.cell
 def _(heat_space_fig):
-    heat_space_fig.savefig("../typst/images/paper/heat_space.png", dpi=400)
+    heat_space_fig.savefig("typst/images/paper/heat_space.png", dpi=400)
     return
 
 
@@ -639,7 +774,12 @@ def _(pred_sep3_risk_1, true_sep3_1, viz_curves_sepsis):
 
 @app.cell
 def _(area_fig):
-    area_fig.savefig("../typst/images/paper/areas.png", dpi=400)
+    area_fig.savefig("typst/images/paper/areas.png", dpi=400)
+    return
+
+
+@app.cell
+def _():
     return
 
 

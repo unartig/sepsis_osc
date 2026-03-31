@@ -25,7 +25,7 @@ def _():
     from sepsis_osc.ldm.gin_configs import file_names, new_vars, paper_vars, modality_mapping
 
     label_col = "sep3_alt_first"
-    sep3_path = Path(f"/PATH/TO/miiv")
+    sep3_path = Path(f"/home/unartig/Desktop/uni/ResearchProject/yaib_docker/YAIB-cohorts/data/{label_col}_with_marginals_ramp/miiv")
     cohort_demo_path = Path("cohort_stats.csv")
 
     def get_data(p):
