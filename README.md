@@ -7,6 +7,7 @@
 This repository contains the code accompanying the thesis:
 
 > **Combining Machine-Learning and Dynamic Network Models to Improve Sepsis Prediction**
+>
 > [[Thesis PDF]](main_thesis.pdf) · [[(Outdated) Poster]](Poster.pdf) · [[DPG Talk]](presentation_dpg.pdf) · [[University Talk]](presentation_uni.pdf)
 
 It provides two models:
