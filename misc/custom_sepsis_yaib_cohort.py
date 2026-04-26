@@ -1,15 +1,12 @@
 import argparse
 import os
 
+import numpy as np
 import pyarrow as pa
 import pyarrow.parquet as pq
-from pandas import DataFrame, Series, option_context, isna
-
-import numpy as np
-
 import rpy2
 import rpy2.robjects as robjects
-
+from pandas import DataFrame, Series, isna, option_context
 from src.cohort import Cohort, SelectionCriterion
 from src.ricu import stay_windows
 from src.ricu_utils import (
@@ -30,14 +27,17 @@ from src.steps import (
     InputStep,
     LoadStep,
     Pipeline,
-    TransformStep,
     RenameStep,
+    TransformStep,
 )
 
+
 class args:
-    src = "miiv"
+    src = "eicu"
+
+
 # https://eth-mds.github.io/ricu/reference/callback_sofa.html
-main_target = "sep3_alt_first"
+main_target = "sep3_alt"
 outc_vars = ["sofa", "susp_inf_alt", main_target, "los_icu", "death_icu", "death"]
 static_vars = ["age", "sex", "height", "weight"]
 dynamic_vars = [
@@ -100,7 +100,7 @@ with robjects.default_converter.context():
     sofa = LoadStep(outc_vars, args.src, cache=True, **sepsis_args).perform()
     sepsis = LoadStep([main_target], args.src, cache=True, **sepsis_args).perform()
     los_icu = LoadStep(["los_icu"], args.src, cache=True, **sepsis_args).perform()
-    
+
     static = LoadStep(static_vars, args.src, cache=True).perform()
     dynamic = LoadStep(dynamic_vars, args.src, cache=True).perform()
 assert isinstance(sofa, DataFrame), "Could not get SOFA DataFrame"
@@ -131,14 +131,16 @@ excl3 = SelectionCriterion("Less than 4 hours with any measurement")
 excl3.add_step([InputStep(dynamic), AggStep("stay_id", "count"), FilterStep("time", lambda x: x < 4)])
 
 excl4 = SelectionCriterion("More than 12 hour gap between measurements")
-excl4.add_step([
-    InputStep(dynamic),
-    CustomStep(make_grid_mapper(patients, step_size=1)),
-    CustomStep(n_obs_per_row),
-    TransformStep("n", lambda x: x > 0),
-    AggStep("stay_id", longest_rle, "n"),
-    FilterStep("n", lambda x: x > 12),
-])
+excl4.add_step(
+    [
+        InputStep(dynamic),
+        CustomStep(make_grid_mapper(patients, step_size=1)),
+        CustomStep(n_obs_per_row),
+        TransformStep("n", lambda x: x > 0),
+        AggStep("stay_id", longest_rle, "n"),
+        FilterStep("n", lambda x: x > 12),
+    ]
+)
 
 excl5 = SelectionCriterion("Aged < 18 years")
 excl5.add_step([InputStep(static), FilterStep("age", lambda x: x < 18)])
@@ -152,13 +154,17 @@ get_first_sepsis = Pipeline("Get patients")
 get_first_sepsis.add_step([InputStep(csofa), AggStep("stay_id", "max")])
 load_hospital_id = LoadStep("hospital_id", src=args.src)
 excl6 = SelectionCriterion("Low sepsis prevalence")
-excl6.add_step([
-    CombineStep(steps=[get_first_sepsis, load_hospital_id], func=make_prevalence_calculator(main_target)),
-    FilterStep("prevalence", lambda x: x == 0),
-])
+excl6.add_step(
+    [
+        CombineStep(steps=[get_first_sepsis, load_hospital_id], func=make_prevalence_calculator(main_target)),
+        FilterStep("prevalence", lambda x: x == 0),
+    ]
+)
 
 excl7 = SelectionCriterion("Sepsis onset before 6h in the ICU")
-excl7.add_step([InputStep(sepsis), AggStep(["stay_id"], lambda x: x.iloc[0]), FilterStep("time", lambda x: x < 6)])#####################
+excl7.add_step(
+    [InputStep(sepsis), AggStep(["stay_id"], lambda x: x.iloc[0]), FilterStep("time", lambda x: x < 6)]
+)  #####################
 
 
 print("   Select cohort\n")
@@ -174,18 +180,19 @@ patients, attrition = cohort.select()
 print("len patients", len(patients))
 print("\n")
 outc_formatting = Pipeline("Prepare length of stay")
-outc_formatting.add_step([
-    InputStep(csofa), 
-    CustomStep(lambda x: x.replace({rpy2.rinterface_lib.sexp.NALogicalType(): np.nan}), "replace R nans with py"),
-    CustomStep(make_grid_mapper(patients)),
-    # CustomStep(make_outcome_windower(0, "sofa")),
-    # CustomStep(make_outcome_windower(0, "susp_inf_alt")),
-    CustomStep(lambda x: x.assign(yaib_label=x[main_target])),
-    CustomStep(make_outcome_windower(6, "yaib_label")),
-    # CustomStep(make_outcome_windower(0, main_target)),
-    CustomStep(lambda x: x.fillna(0), "replace nans with 0"),
-    TransformStep(["susp_inf_alt", "sofa", "yaib_label", main_target, "death", "death_icu"], lambda x: x.astype(int)),
-])
+outc_formatting.add_step(
+    [
+        InputStep(csofa),
+        CustomStep(lambda x: x.replace({rpy2.rinterface_lib.sexp.NALogicalType(): np.nan}), "replace R nans with py"),
+        CustomStep(make_grid_mapper(patients)),
+        CustomStep(lambda x: x.assign(yaib_label=x[main_target])),
+        CustomStep(make_outcome_windower(6, "yaib_label")),
+        CustomStep(lambda x: x.fillna(0), "replace nans with 0"),
+        TransformStep(
+            ["susp_inf_alt", "sofa", "yaib_label", main_target, "death", "death_icu"], lambda x: x.astype(int)
+        ),
+    ]
+)
 outc = outc_formatting.apply()
 
 sta_formatting = Pipeline("Prepare static variables")
@@ -193,10 +200,7 @@ sta_formatting.add_step([InputStep(static), CustomStep(make_patient_mapper(patie
 sta = sta_formatting.apply()
 
 dyn_formatting = Pipeline("Prepare dynamic variables")
-dyn_formatting.add_step([
-    InputStep(dynamic),
-    CustomStep(make_grid_mapper(patients, step_size=1))
-])
+dyn_formatting.add_step([InputStep(dynamic), CustomStep(make_grid_mapper(patients, step_size=1))])
 dyn = dyn_formatting.apply()
 
 save_dir = f"../data/{main_target}/{args.src}/"
@@ -207,24 +211,25 @@ pq.write_table(pa.Table.from_pandas(dyn), os.path.join(save_dir, "dyn.parquet"))
 pq.write_table(pa.Table.from_pandas(sta), os.path.join(save_dir, "sta.parquet"))
 
 
-sofa_index = outc.set_index(['stay_id', 'time']).index
+sofa_index = outc.set_index(["stay_id", "time"]).index
 print("len sofa_index", len(sofa_index))
-#print(dynamic)
 dyn_formatting = Pipeline("Prepare dynamic variables")
-dyn_formatting.add_step([
-    InputStep(dynamic),
-    CustomStep(make_grid_mapper(patients, step_size=1)),
-    CustomStep(lambda x: x.set_index(["stay_id", "time"])),  # Set MultiIndex
-    CustomStep(lambda x: x.loc[sofa_index]),  # Filter using tabshe MultiIndex
-    CustomStep(lambda x: x.reset_index()),
-    CustomStep(make_grid_mapper(patients, step_size=1)),
-    CustomStep(lambda x: x.drop_duplicates(keep="last", ignore_index=False)),
-])
+dyn_formatting.add_step(
+    [
+        InputStep(dynamic),
+        CustomStep(make_grid_mapper(patients, step_size=1)),
+        CustomStep(lambda x: x.set_index(["stay_id", "time"])),  # Set MultiIndex
+        CustomStep(lambda x: x.loc[sofa_index]),  # Filter using tabshe MultiIndex
+        CustomStep(lambda x: x.reset_index()),
+        CustomStep(make_grid_mapper(patients, step_size=1)),
+        CustomStep(lambda x: x.drop_duplicates(keep="last", ignore_index=False)),
+    ]
+)
 dyn = dyn_formatting.apply()
 
-combined_index = outc.drop_duplicates(
-                    keep="last", ignore_index=False
-                 ).index.intersection(dyn.drop_duplicates(keep="last", ignore_index=False).index)
+combined_index = outc.drop_duplicates(keep="last", ignore_index=False).index.intersection(
+    dyn.drop_duplicates(keep="last", ignore_index=False).index
+)
 print("len combined_index", len(combined_index))
 outc = outc.reindex(combined_index)
 dyn = dyn.reindex(combined_index)
@@ -237,36 +242,37 @@ pq.write_table(pa.Table.from_pandas(dyn), os.path.join(save_dir, "dyn.parquet"))
 pq.write_table(pa.Table.from_pandas(sta), os.path.join(save_dir, "sta.parquet"))
 attrition.to_csv(os.path.join(save_dir, "attrition.csv"))
 
+
 def infection_ramp(arr, X=48, Y=24, peak_val=1.0):
     start_val = 0.1
     end_val = 0.1
-    
+
     # ramps
     increase = start_val + (peak_val - start_val) * (np.arange(1, X + 1) / X)
     decrease = peak_val * (end_val / peak_val) ** (np.arange(1, Y + 1) / Y)
-    
+
     arr_increase = np.zeros_like(arr, dtype=float)
     arr_decrease = np.zeros_like(arr, dtype=float)
-    
+
     # indices of ones
     ones_idx = np.where(arr == 1)[0]
-    
+
     # ramp up
     inc_offsets = -np.arange(X, 0, -1)  # [-X, ..., -1]
     inc_positions = ones_idx[:, None] + inc_offsets
-    valid_mask = (inc_positions >= 0)  # filter out negatives
+    valid_mask = inc_positions >= 0  # filter out negatives
     flat_pos = inc_positions[valid_mask]
     flat_vals = np.tile(increase, (len(ones_idx), 1))[valid_mask]
     np.maximum.at(arr_increase, flat_pos, flat_vals)
-    
+
     # ramp down
     dec_offsets = np.arange(1, Y + 1)  # [1, ..., Y]
     dec_positions = ones_idx[:, None] + dec_offsets
-    valid_mask = (dec_positions < len(arr))
+    valid_mask = dec_positions < len(arr)
     flat_pos = dec_positions[valid_mask]
     flat_vals = np.tile(decrease, (len(ones_idx), 1))[valid_mask]
     np.maximum.at(arr_decrease, flat_pos, flat_vals)
-    
+
     # combine
     result = np.maximum(arr_increase, arr_decrease)
     result[arr == 1] = peak_val
@@ -275,34 +281,36 @@ def infection_ramp(arr, X=48, Y=24, peak_val=1.0):
 
 def apply_infection_ramp(df: DataFrame) -> DataFrame:
     df = df.copy()
-    
+
     def per_stay(g):
         susp = g["susp_inf_alt"].to_numpy()
-        
+
         ramp_main = infection_ramp(susp, X=48, Y=24, peak_val=1.0)
-        
+
         return ramp_main
-    
-    df["susp_inf_ramp"] = df.groupby("stay_id", group_keys=False).apply(per_stay, include_groups=False).explode().astype(float).values
+
+    df["susp_inf_ramp"] = (
+        df.groupby("stay_id", group_keys=False).apply(per_stay, include_groups=False).explode().astype(float).values
+    )
     return df
 
 
 print("   Load and format outcome data")
 routc_formatting = Pipeline("Prepare length of stay")
 routc_formatting.add_step([InputStep(csofa)])
-routc_formatting.add_step([CustomStep(apply_infection_ramp, desc="Add infection_ramp column based on susp_inf_alt")])
-routc_formatting.add_step([
-    CustomStep(lambda x: x.replace({rpy2.rinterface_lib.sexp.NALogicalType(): np.nan}), "replace R nans with py"),
-    CustomStep(make_grid_mapper(patients)),
-    # CustomStep(make_outcome_windower(0, "sofa")),
-    # CustomStep(make_outcome_windower(0, "susp_inf_alt")),
-    # CustomStep(make_outcome_windower(0, "susp_inf_ramp")),
-    CustomStep(lambda x: x.assign(yaib_label=x[main_target])),
-    CustomStep(make_outcome_windower(6, "yaib_label")),
-    CustomStep(lambda x: x.fillna(0), "replace R nans with py"),
-    # CustomStep(make_outcome_windower(0, main_target)),
-    TransformStep(["susp_inf_alt", "sofa", "yaib_label", main_target, "death", "death_icu"], lambda x: x.astype(int)),
-])
+routc_formatting.add_step([CustomStep(apply_infection_ramp)])
+routc_formatting.add_step(
+    [
+        CustomStep(lambda x: x.replace({rpy2.rinterface_lib.sexp.NALogicalType(): np.nan}), "replace R nans with py"),
+        CustomStep(make_grid_mapper(patients)),
+        CustomStep(lambda x: x.assign(yaib_label=x[main_target])),
+        CustomStep(make_outcome_windower(6, "yaib_label")),
+        CustomStep(lambda x: x.fillna(0), "replace R nans with py"),
+        TransformStep(
+            ["susp_inf_alt", "sofa", "yaib_label", main_target, "death", "death_icu"], lambda x: x.astype(int)
+        ),
+    ]
+)
 routc = routc_formatting.apply()
 
 save_dir = f"../data/{main_target}_with_marginals_ramp/{args.src}/"
@@ -313,52 +321,3 @@ pq.write_table(pa.Table.from_pandas(dyn), os.path.join(save_dir, "dyn.parquet"))
 pq.write_table(pa.Table.from_pandas(sta), os.path.join(save_dir, "sta.parquet"))
 attrition.to_csv(os.path.join(save_dir, "attrition.csv"))
 
-# def cut_after_onset(group):
-#     group = group.sort_values('time')
-
-#     # Find the index label of the first True
-#     onset_label = group.index[group[main_target] == 1.0].min()
-#     if isna(onset_label):  # no onset found
-#         return group
-    
-#     # Convert to position
-#     onset_pos = group.index.get_loc(onset_label)
-
-#     # Keep from start to onset + up to 6 rows after
-#     cutoff_pos = min(onset_pos + 6, len(group))
-#     return group.iloc[:cutoff_pos]
-    
-# def apply_cut(df: DataFrame) -> DataFrame:
-#     cols = df.columns  # all columns
-#     return df[cols].groupby('stay_id', group_keys=False).apply(cut_after_onset, include_groups=False)
-
-# print("   Load and format outcome data")
-# routc_formatting = Pipeline("Prepare length of stay")
-# routc_formatting.add_step([InputStep(csofa)])
-# routc_formatting.add_step([CustomStep(apply_infection_ramp, desc="Add infection_ramp column based on susp_inf_alt")])
-# routc_formatting.add_step([
-#     CustomStep(lambda x: x.replace({rpy2.rinterface_lib.sexp.NALogicalType(): 0}).fillna(0), "remove nans and intify"),
-#     CustomStep(make_grid_mapper(patients)),
-#     CustomStep(make_outcome_windower(1, "sofa")),
-#     CustomStep(make_outcome_windower(1, "susp_inf_alt")),
-#     CustomStep(make_outcome_windower(1, main_target)),
-#     CustomStep(lambda x: x.drop_duplicates(keep="last", ignore_index=False)),
-#     TransformStep(["susp_inf_alt", "sofa", main_target], lambda x: x.astype(int)),
-# ])
-# routc_formatting.add_step([CustomStep(apply_cut, desc="Cut sequence after onset")])
-# routc = routc_formatting.apply()
-
-# combined_index = routc.drop_duplicates(
-#                     keep="last", ignore_index=False
-#                  ).index.intersection(dyn.drop_duplicates(keep="last", ignore_index=False).index)
-
-# routc = routc.reindex(combined_index)
-# rdyn = dyn.reindex(combined_index)
-
-# save_dir = f"../data/{main_target}_with_marginals_ramp_short/{args.src}/"
-# os.makedirs(save_dir, exist_ok=True)
-# print(f"Data Shapes: {routc.shape}, {rdyn.shape}, {sta.shape}")
-# pq.write_table(pa.Table.from_pandas(routc), os.path.join(save_dir, "outc.parquet"))
-# pq.write_table(pa.Table.from_pandas(rdyn), os.path.join(save_dir, "dyn.parquet"))
-# pq.write_table(pa.Table.from_pandas(sta), os.path.join(save_dir, "sta.parquet"))
-# attrition.to_csv(os.path.join(save_dir, "attrition.csv"))
