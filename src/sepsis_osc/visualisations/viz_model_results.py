@@ -132,7 +132,9 @@ def viz_trajectories_over_time(
     beta_grid, sigma_grid = np.meshgrid(betas_space, sigmas_space, indexing="ij")
     param_grid = np.stack([beta_grid.ravel(), sigma_grid.ravel()], axis=1)
 
-    metrics_full = lookup.hard_get_fsq(jnp.asarray(param_grid)).reshape(len(betas_space), len(sigmas_space))
+    metrics_full = lookup.hard_get_fsq(jnp.asarray(param_grid), jnp.array([0.0, 0.0], dtype=jnp.uint32)).reshape(
+        len(betas_space), len(sigmas_space)
+    )
     metrics_np = np.asarray(metrics_full)
 
     # --- SOFA
@@ -185,7 +187,9 @@ def viz_patients_latent(
     beta_grid, sigma_grid = np.meshgrid(betas_space, sigmas_space, indexing="ij")
     param_grid = np.stack([beta_grid.ravel(), sigma_grid.ravel()], axis=1)
 
-    metrics_full = lookup.hard_get_fsq(jnp.asarray(param_grid)).reshape(len(betas_space), len(sigmas_space))
+    metrics_full = lookup.hard_get_fsq(jnp.asarray(param_grid), jnp.array([0, 0], dtype=jnp.uint32)).reshape(
+        len(betas_space), len(sigmas_space)
+    )
 
     metrics_np = np.asarray(metrics_full)
 
@@ -376,6 +380,7 @@ def viz_concept_densities(
             label="Optimal",
             linestyle=":",
         )
+        axi.set_title(name)
     if cmap:
         pos = ax[-1].get_position()
 
