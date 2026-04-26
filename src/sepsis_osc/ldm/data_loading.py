@@ -13,7 +13,14 @@ from icu_benchmarks.data.split_process_data import preprocess_data
 from tqdm import trange
 
 from sepsis_osc.ldm.gin_configs import file_names, modality_mapping, new_vars
-from sepsis_osc.utils.config import cohort_name, np_rng, random_seed, sequence_files, target_name, yaib_data_dir
+from sepsis_osc.utils.config import (
+    cohort_name,
+    np_rng,
+    random_seed,
+    sequence_files,
+    target_name,
+    yaib_data_dir,
+)
 from sepsis_osc.utils.logger import setup_logging
 
 logger = logging.getLogger(__name__)
@@ -242,8 +249,21 @@ def get_data_sets_online(
             train_y,
             train_m,
         ) = _get_all(
-            PredictionPolarsDataset(data, split="train", vars=detect_vars, ram_cache=False, name=f"{cohort_name}_train")
+            PredictionPolarsDataset(data, split="train", vars=detect_vars, ram_cache=True, name=f"{cohort_name}_train")
         )
+        # (
+        #     old_train_x,
+        #     old_train_y,
+        #     old_train_m,
+        # ) = _get_all(
+        #     PredictionPolarsDataset(data, split="train", vars=detect_vars, ram_cache=False, name=f"{cohort_name}_train")
+        # )
+        # print("ASSERTING")
+        # assert np.allclose(old_train_x, train_x)
+        # assert np.allclose(old_train_y, train_y)
+        # assert np.allclose(old_train_m, train_m)
+        # print("HELL YEAH")
+        # exit(0)
         (
             val_test_x,
             val_test_y,
@@ -393,5 +413,5 @@ if __name__ == "__main__":
         _x,
         _y,
         _m,
-    ) = get_data_sets_online(swapaxes_y=(1, 2, 0), dtype=jnp.float32)
+    ) = get_data_sets_online(swapaxes_y=(1, 2, 0), dtype=jnp.float32, path_prefix="test")
     print(t_y[1, :, 2])

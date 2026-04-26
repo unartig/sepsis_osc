@@ -7,7 +7,7 @@ from jaxtyping import Array, Float
 from sklearn.metrics import average_precision_score, roc_auc_score
 from tensorboardX import SummaryWriter
 
-from sepsis_osc.ldm.lookup import LatentLookup
+from sepsis_osc.ldm.lookup import LookupProtocol
 from sepsis_osc.ldm.model_structs import AuxLosses
 from sepsis_osc.visualisations.viz_model_results import (
     viz_concept_densities,
@@ -56,7 +56,7 @@ def log_train_metrics(
 def log_val_metrics(
     aux_losses: AuxLosses,
     y: np.ndarray,
-    lookup: LatentLookup,
+    lookup: LookupProtocol,
     epoch: int,
     writer: SummaryWriter,
     *,
@@ -135,9 +135,9 @@ def log_val_metrics(
     for k in metrics:
         if k == "hists":
             writer.add_histogram("SOFA_Score", np.asarray(pred_sofa_score), epoch, bins=25)
-        elif k == "mult":
-            for t, v in enumerate(np.asarray(metrics["mult"]["sofa_t"]).mean(axis=(0, 1))):
-                writer.add_scalar(f"sofa_per_timestep/t{t}", np.asarray(v), epoch)
+        # elif k == "mult":
+        #     for t, v in enumerate(np.asarray(metrics["mult"]["sofa_t"]).mean(axis=(0, 1))):
+        #         writer.add_scalar(f"sofa_per_timestep/t{t}", np.asarray(v), epoch)
         elif k == "sepsis_metrics":
             writer.add_scalar(k + "/AUROC_pred_sep", roc_auc_score(true_sep3, pred_sep3_risk), epoch)
             writer.add_scalar(k + "/AUPRC_pred_sep", average_precision_score(true_sep3, pred_sep3_risk), epoch)
