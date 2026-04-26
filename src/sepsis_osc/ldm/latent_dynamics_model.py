@@ -7,7 +7,49 @@ from numpy.typing import DTypeLike
 
 from sepsis_osc.ldm.ae import Decoder, LatentEncoder
 from sepsis_osc.ldm.commons import qr_init
+from sepsis_osc.ldm.lookup import LookupProtocol
+from sepsis_osc.utils.config import BETA_SPACE, SIGMA_SPACE
 from sepsis_osc.utils.jax_config import typechecker
+
+
+@jaxtyped(typechecker=typechecker)
+def constrain_z(z: Float[Array, "time zlatent_dim"]) -> Float[Array, "time zlatent_dim"]:
+    """
+    Linearly scales raw latent outputs from the unit interval to the predefined physical ranges for the parameters.
+    """
+    beta, sigma = jnp.split(z, 2, axis=-1)
+    beta = beta * (BETA_SPACE[1] - BETA_SPACE[0]) + BETA_SPACE[0]
+    sigma = sigma * (SIGMA_SPACE[1] - SIGMA_SPACE[0]) + SIGMA_SPACE[0]
+    return jnp.concatenate([beta, sigma], axis=-1)
+
+
+@jaxtyped(typechecker=typechecker)
+def constrain_z_margin(z: Float[Array, "time zlatent_dim"], margin: int = 1) -> Float[Array, "time zlatent_dim"]:
+    """
+    Maps latent outputs to a narrowed parameter space to ensure the lookup kernel
+    remains within valid bounds latent space.
+    """
+    beta, sigma = jnp.split(z, 2, axis=-1)
+
+    safe_beta_min = BETA_SPACE[0] + margin * BETA_SPACE[2]
+    safe_beta_max = BETA_SPACE[1] - margin * BETA_SPACE[2]
+    safe_sigma_min = SIGMA_SPACE[0] + margin * SIGMA_SPACE[2]
+    safe_sigma_max = SIGMA_SPACE[1] - margin * SIGMA_SPACE[2]
+
+    beta = beta * (safe_beta_max - safe_beta_min) + safe_beta_min
+    sigma = sigma * (safe_sigma_max - safe_sigma_min) + safe_sigma_min
+    return jnp.concatenate([beta, sigma], axis=-1)
+
+
+@jaxtyped(typechecker=typechecker)
+def bound_z(z: Float[Array, "time zlatent_dim"]) -> Float[Array, "time zlatent_dim"]:
+    """
+    Applies a hard clip to latent values to ensure they do not exceed the defined boundaries of the parameter space.
+    """
+    beta, sigma = jnp.split(z, 2, axis=-1)
+    beta = beta.clip(BETA_SPACE[0], BETA_SPACE[1])
+    sigma = sigma.clip(SIGMA_SPACE[0], SIGMA_SPACE[1])
+    return jnp.concatenate([beta, sigma], axis=-1)
 
 
 class LatentDynamicsModel(eqx.Module):
@@ -31,6 +73,7 @@ class LatentDynamicsModel(eqx.Module):
     latent_dim: int
     inf_dim: int
 
+    lookup: LookupProtocol
     lookup_kernel_size: int
 
     _lookup_temperature: Float[Array, "1"]
@@ -50,12 +93,12 @@ class LatentDynamicsModel(eqx.Module):
         inf_dim: int,
         inf_hidden_dim: int,
         dec_hidden_dim: int,
+        lookup: LookupProtocol,
         lookup_kernel_size: int = 3,
         dtype: DTypeLike = jnp.float32,
     ) -> None:
         key_dec, key_enc, keyz, keyinf = jr.split(key, 4)
 
-        self.lookup_kernel_size = lookup_kernel_size
         self.input_dim = input_dim
         self.latent_dim = latent_dim
         self.inf_dim = inf_dim
@@ -63,6 +106,8 @@ class LatentDynamicsModel(eqx.Module):
         self.latent_hidden_dim = latent_hidden_dim
         self.inf_hidden_dim = inf_hidden_dim
         self.dec_hidden_dim = dec_hidden_dim
+        self.lookup = lookup
+        self.lookup_kernel_size = lookup_kernel_size
 
         self.latent_pre_encoder = LatentEncoder(
             key_enc,
@@ -143,7 +188,13 @@ class LatentDynamicsModel(eqx.Module):
     @jaxtyped(typechecker=typechecker)
     def online_sequence(
         self, xs: Float[Array, "time input_dim"], key: PRNGKeyArray
-    ) -> tuple[Float[Array, "time latent_dim"], Float[Array, " time"]]:
+    ) -> tuple[
+        Float[Array, "time latent_dim"],
+        Float[Array, "time latent_dim"],
+        Float[Array, " time"],
+        Float[Array, " time"],
+        Float[Array, " time"],
+    ]:
         @jaxtyped(typechecker=typechecker)
         def z_step(
             carry: tuple[Float[Array, " latent_hidden_dim"], Float[Array, " latent_dim"]],
@@ -163,7 +214,6 @@ class LatentDynamicsModel(eqx.Module):
         (_, _), z_preds = jax.lax.scan(z_step, (h0, z0), xs[1:])
         z_seq = jnp.concat([z0[None], z_preds], axis=0)
 
-
         @jaxtyped(typechecker=typechecker)
         def inf_step(
             h_prev: Float[Array, " inf_hidden_dim"], x_t: Float[Array, " input_dim"]
@@ -172,9 +222,13 @@ class LatentDynamicsModel(eqx.Module):
             return h_next, h_next
 
         _, ihs = jax.lax.scan(inf_step, self.inf_h0, xs)
-        inf_seq = jax.vmap(self.inf_proj_out)(ihs).squeeze()
+        inf_pred_raw = jax.vmap(self.inf_proj_out)(ihs).squeeze()
 
-        return jax.nn.sigmoid(z_seq), inf_seq
+        z_seq_sigm = jax.nn.sigmoid(z_seq)
+        z_seq = constrain_z_margin(z_seq_sigm, self.lookup_kernel_size // 2)
+
+        sofa_pred = self.lookup.soft_get_local(z_seq, key, self.lookup_temperature, self.lookup_kernel_size)
+        return z_seq_sigm, z_seq, sofa_pred, inf_pred_raw, jax.nn.sigmoid(inf_pred_raw).squeeze()
 
     @jaxtyped(typechecker=typechecker)
     def offline_sequence(
@@ -229,6 +283,7 @@ def make_ldm(
     inf_dim: int,
     inf_hidden_dim: int,
     dec_hidden_dim: int,
+    lookup: LookupProtocol,
     lookup_kernel_size: int,
 ) -> LatentDynamicsModel:
     return LatentDynamicsModel(
@@ -240,6 +295,7 @@ def make_ldm(
         inf_dim=inf_dim,
         inf_hidden_dim=inf_hidden_dim,
         dec_hidden_dim=dec_hidden_dim,
+        lookup=lookup,
         lookup_kernel_size=lookup_kernel_size,
     )
 

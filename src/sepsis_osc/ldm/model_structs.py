@@ -32,6 +32,7 @@ class AuxLosses:
     recon_loss: Array
     spreading_loss: Array
     boundary_loss: Array
+    ranking_loss: Array
 
     sofa_d2_risk: Array
     susp_inf_p: Array
@@ -60,6 +61,7 @@ class AuxLosses:
                 "boundary_loss": self.boundary_loss,
                 "recon_loss": self.recon_loss,
                 "sofa": self.sofa_loss_t,
+                "ranking": self.ranking_loss,
                 "infection": self.infection_p_loss_t,
                 "sepsis-3": self.sep3_loss_t,
             },
@@ -127,6 +129,7 @@ class LossesConfig(eqx.Module):
 
     lambda_sep3: float
     lambda_sofa_classification: float
+    lambda_sofa_ranking: float
     lambda_inf: float
 
     lambda_spreading: float

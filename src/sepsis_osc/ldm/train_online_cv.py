@@ -52,7 +52,7 @@ def load_fold_data(
         repetition_index=rep_idx,
         cv_folds=cv_folds,
         fold_index=fold_idx,
-        sequence_files="data/cv/sequence_",
+        # sequence_files="data/cv/sequence_",
     )
 
     train_x, train_y, train_m, val_x, val_y, val_m, *_ = data
@@ -96,7 +96,7 @@ def init_model_and_optimizer(
         init_value=config.lr.init,
         peak_value=config.lr.peak,
         warmup_steps=config.lr.warmup_epochs * steps_per_epoch,
-        cycles=[(steps_per_epoch * 200, 1.0)],
+        cycles=[(steps_per_epoch * n, scale) for (n, scale) in [(200, 1.0)]],
     )
 
     optimizer = optax.chain(
@@ -127,9 +127,9 @@ def train_one_run(
     hyper_params = flatten_dict(
         {
             "model": hyper_ldm,
-            "losses": asdict(loss_conf),
-            "train": asdict(train_conf),
-            "lr": asdict(lr_conf),
+            "losses": asdict(config.loss),
+            "train": asdict(config.train),
+            "lr": asdict(config.lr),
         }
     )
     writer.add_hparams(hyper_params, metric_dict={}, name="")
@@ -155,13 +155,13 @@ def train_one_run(
                 train_y,
                 train_m,
                 key=shuffle_key,
-                batch_size=train_conf.batch_size,
-                mini_epochs=train_conf.mini_epochs,
+                batch_size=config.train.batch_size,
+                mini_epochs=config.train.mini_epochs,
                 pos_fraction=-1,
             )
-            config.loss.steps_per_epoch = ntrain_batches
+            # config.loss.steps_per_epoch = ntrain_batches
             train_metrics = []
-            for mini_epoch in range(train_conf.mini_epochs):
+            for mini_epoch in range(config.train.mini_epochs):
                 params_model, opt_state, mini_train_metrics, key = process_train_epoch(
                     model,
                     opt_state=opt_state,
@@ -171,7 +171,7 @@ def train_one_run(
                     update=optimizer.update,
                     key=key,
                     lookup_func=lookup_table.soft_get_local,
-                    loss_params=loss_conf,
+                    loss_params=config.loss,
                     param_filter=filter_spec,
                 )
                 train_metrics.append(mini_train_metrics)
@@ -187,7 +187,7 @@ def train_one_run(
             del shuffle_key, train_metrics, mini_train_metrics, params_model
 
         # === VALIDATE ===
-        if epoch % train_conf.validate_every == 0:
+        if epoch % config.train.validate_every == 0:
             val_model = eqx.nn.inference_mode(model, value=True)
             val_key = jr.fold_in(key, epoch + 2)
             val_metrics = process_val_epoch(
@@ -198,10 +198,10 @@ def train_one_run(
                 step=opt_state[1][0].count,
                 key=val_key,
                 lookup_func=lookup_table.hard_get_fsq,
-                loss_params=loss_conf,
+                loss_params=config.loss,
             )
 
-            if train_conf.calibrate and epoch > 0:
+            if config.train.calibrate and epoch > 0:
                 cal = TemperatureScaling().calibrate(
                     train_metrics.sofa_d2_p[m_shuffled],
                     train_metrics.susp_inf_p[m_shuffled],
@@ -213,7 +213,7 @@ def train_one_run(
                 )
                 logger.error(cal.coeffs)
 
-            if train_conf.early_stop:
+            if config.train.early_stop:
                 auprc = average_precision_score((val_y[val_m, 2] == 1.0), val_metrics.to_np().sep3_risk[val_m[None]])
                 auroc = roc_auc_score((val_y[val_m, 2] == 1.0), val_metrics.to_np().sep3_risk[val_m[None]])
                 auprc_stop = early_stop_auprc.step(auprc)
@@ -234,8 +234,8 @@ def train_one_run(
             gc.collect()
 
             # --- Save checkpoint ---
-        if ((epoch + 1) % save_conf.save_every == 0 or stop) and save_conf.perform:
-            save_dir = writer.logdir if not load_conf.from_dir else load_conf.from_dir
+        if ((epoch + 1) % config.save.save_every == 0 or stop) and config.save.perform:
+            save_dir = writer.logdir if not config.load.from_dir else config.load.from_dir
             save_checkpoint(
                 save_dir + "/checkpoints",
                 epoch,
@@ -264,7 +264,7 @@ def run_cross_validation(config: ExperimentConfig, n_folds: int = 5, repetitions
 
     for rep in range(repetitions):
         for fold in range(n_folds):
-            writer = SummaryWriter(logdir=f"runs/cv3/rep{rep:002}_fold{fold:002}")
+            writer = SummaryWriter(logdir=f"runs/cv/rep{rep:002}_fold{fold:002}")
             if Path(Path(writer.logdir) / "checkpoints").exists():
                 logger.warning(f"Skipping {writer.logdir}")
                 continue
@@ -280,7 +280,14 @@ def run_cross_validation(config: ExperimentConfig, n_folds: int = 5, repetitions
                 key,
             )
 
-            config.loss.sofa_dist = sofa_dist
+            # config.loss.sofa_dist = sofa_dist
+            loss_conf_dict = asdict(config.loss)
+            loss_conf_dict["sofa_dist"] = sofa_dist
+            # loss_conf_dict["steps_per_epoch"] = (
+            #     (train_x.shape[0] // train_conf.mini_epochs) // train_conf.batch_size
+            # ) * train_conf.mini_epochs
+            # loss_conf_dict["steps_per_epoch"] = config.train.batch_size
+            config.loss = LossesConfig(**loss_conf_dict)
 
             model, metrics = train_one_run(
                 config,
@@ -314,7 +321,7 @@ if __name__ == "__main__":
     dtype = jnp.float32
     logger = logging.getLogger(__name__)
 
-    train_conf = TrainingConfig(
+    _train_conf = TrainingConfig(
         batch_size=64,
         epochs=int(1e3),
         mini_epochs=4,
@@ -322,13 +329,13 @@ if __name__ == "__main__":
         calibrate=False,
         early_stop=True,
     )
-    lr_conf = LRConfig(
+    _lr_conf = LRConfig(
         init=0.0,
         warmup_epochs=1,
         peak=5e-5,
         enc_wd=2e-1,
     )
-    loss_conf = LossesConfig(
+    _loss_conf = LossesConfig(
         lambda_sep3=600.0,
         lambda_inf=1.0,
         lambda_sofa_classification=2000.0,
@@ -336,16 +343,16 @@ if __name__ == "__main__":
         lambda_boundary=30.0,
         lambda_recon=2.5,
     )
-    load_conf = LoadingConfig(from_dir="", epoch=0)
-    save_conf = SaveConfig(save_every=1, perform=True)
+    _load_conf = LoadingConfig(from_dir="", epoch=0)
+    _save_conf = SaveConfig(save_every=1, perform=True)
 
-    config = ExperimentConfig(
-        train=train_conf,
-        lr=lr_conf,
-        loss=loss_conf,
-        load=load_conf,
-        save=save_conf,
+    _config = ExperimentConfig(
+        train=_train_conf,
+        lr=_lr_conf,
+        loss=_loss_conf,
+        load=_load_conf,
+        save=_save_conf,
     )
 
-    results = run_cross_validation(config, n_folds=5, repetitions=5)
+    results = run_cross_validation(_config, n_folds=5, repetitions=5)
     print(results)

@@ -22,7 +22,16 @@ from sepsis_osc.ldm.data_loading import get_data_sets_online, prepare_batches_ma
 from sepsis_osc.ldm.early_stopping import EarlyStopping
 from sepsis_osc.ldm.latent_dynamics_model import LatentDynamicsModel, init_ldm_weights
 from sepsis_osc.ldm.logging_utils import flatten_dict, log_train_metrics, log_val_metrics
-from sepsis_osc.ldm.lookup import LatentLookup, as_2d_indices
+from sepsis_osc.ldm.lookup import (
+    AnalyticalLookup,
+    IntegrationLookup,
+    LatentLookup,
+    LearnedLookup,
+    as_2d_indices,
+    get_approx,
+    get_linear,
+    get_radial,
+)
 from sepsis_osc.ldm.model_structs import AuxLosses, LoadingConfig, LossesConfig, LRConfig, SaveConfig, TrainingConfig
 from sepsis_osc.storage.storage_interface import Storage
 from sepsis_osc.utils.config import ALPHA, BETA_SPACE, SIGMA_SPACE, jax_random_seed
@@ -109,48 +118,6 @@ def boundary_loss(
 
 
 @jaxtyped(typechecker=typechecker)
-def constrain_z(z: Float[Array, "batch time zlatent_dim"]) -> Float[Array, "batch time zlatent_dim"]:
-    """
-    Linearly scales raw latent outputs from the unit interval to the predefined physical ranges for the parameters.
-    """
-    beta, sigma = jnp.split(z, 2, axis=-1)
-    beta = beta * (BETA_SPACE[1] - BETA_SPACE[0]) + BETA_SPACE[0]
-    sigma = sigma * (SIGMA_SPACE[1] - SIGMA_SPACE[0]) + SIGMA_SPACE[0]
-    return jnp.concatenate([beta, sigma], axis=-1)
-
-
-@jaxtyped(typechecker=typechecker)
-def constrain_z_margin(
-    z: Float[Array, "batch time zlatent_dim"], margin: int = 1
-) -> Float[Array, "batch time zlatent_dim"]:
-    """
-    Maps latent outputs to a narrowed parameter space to ensure the lookup kernel
-    remains within valid bounds latent space.
-    """
-    beta, sigma = jnp.split(z, 2, axis=-1)
-
-    safe_beta_min = BETA_SPACE[0] + margin * BETA_SPACE[2]
-    safe_beta_max = BETA_SPACE[1] - margin * BETA_SPACE[2]
-    safe_sigma_min = SIGMA_SPACE[0] + margin * SIGMA_SPACE[2]
-    safe_sigma_max = SIGMA_SPACE[1] - margin * SIGMA_SPACE[2]
-
-    beta = beta * (safe_beta_max - safe_beta_min) + safe_beta_min
-    sigma = sigma * (safe_sigma_max - safe_sigma_min) + safe_sigma_min
-    return jnp.concatenate([beta, sigma], axis=-1)
-
-
-@jaxtyped(typechecker=typechecker)
-def bound_z(z: Float[Array, "batch time zlatent_dim"]) -> Float[Array, "batch time zlatent_dim"]:
-    """
-    Applies a hard clip to latent values to ensure they do not exceed the defined boundaries of the parameter space.
-    """
-    beta, sigma = jnp.split(z, 2, axis=-1)
-    beta = beta.clip(BETA_SPACE[0], BETA_SPACE[1])
-    sigma = sigma.clip(SIGMA_SPACE[0], SIGMA_SPACE[1])
-    return jnp.concatenate([beta, sigma], axis=-1)
-
-
-@jaxtyped(typechecker=typechecker)
 def cosine_annealing(base_val: float, num_steps: int, num_dead_steps: int, current_step: jnp.int32) -> Float[Array, ""]:
     """
     Computes a cosine-based decay factor for a value over a set number of steps (for temperature or loss scheduling).
@@ -161,7 +128,9 @@ def cosine_annealing(base_val: float, num_steps: int, num_dead_steps: int, curre
 
 
 @jaxtyped(typechecker=typechecker)
-def mask_padding(loss: Float[Array, "batch time"] | Float[Array, "*"], mask: Bool[Array, "batch time"] | None = None) -> Float[Array, ""]:
+def mask_padding(
+    loss: Float[Array, "batch time"] | Float[Array, "*"], mask: Bool[Array, "batch time"] | None = None
+) -> Float[Array, ""]:
     """
     Computes the mean of a loss tensor while ignoring padded indices as defined by a boolean mask.
     """
@@ -181,7 +150,6 @@ def loss(
     step: Int[Array, ""] = INT_INF,
     *,
     key: jnp.ndarray,
-    lookup_func: Callable,
     params: LossesConfig,
 ) -> tuple[Array, AuxLosses]:
     """
@@ -195,16 +163,15 @@ def loss(
     aux = AuxLosses.empty()
     sofa_true, infection_true, sepsis_true = true_concepts[..., 0], true_concepts[..., 1], true_concepts[..., 2]
     batch_keys = jr.split(key, B)
-    z_seq_sigm, inf_seq_raw = jax.vmap(model.online_sequence)(x, batch_keys)
-    z_seq = constrain_z_margin(z_seq_sigm, model.lookup_kernel_size // 2)
+    z_seq_sigm, z_seq, sofa_pred, inf_pred_raw, aux.susp_inf_p = jax.vmap(model.online_sequence)(x, batch_keys)
 
     aux.boundary_loss = boundary_loss(z_seq_sigm, margin_fraction=0.1)
 
     aux.beta, aux.sigma = z_seq[..., 0], z_seq[..., 1]
 
-    sofa_pred = jax.vmap(lookup_func, in_axes=(0, None, None))(
-        z_seq, model.lookup_temperature, model.lookup_kernel_size
-    )
+    aux.sofa_d2_risk = jax.vmap(prob_increase_steps, in_axes=(0, None, None))(sofa_pred, model.d_thresh, model.d_scale)
+    aux.sep3_risk = causal_smoothing(aux.sofa_d2_risk, decay=model.sofa_d2_pred_smooth, radius=12) * aux.susp_inf_p
+
     # --------- Recon Loss
     x_recon = jax.vmap(jax.vmap(model.decoder))(z_seq)
     x_vals = x[..., : D // 2]
@@ -215,14 +182,15 @@ def loss(
     weights_per_sample = class_weights[sofa_true.astype(jnp.int32)]
     aux.sofa_loss_t = (sofa_pred - (sofa_true / 23.0)) ** 2 * (weights_per_sample)
 
-    aux.infection_p_loss_t = optax.sigmoid_binary_cross_entropy(inf_seq_raw, infection_true)
+    delta_sofa = jnp.diff(sofa_true, axis=1)
+    delta_pred = jnp.diff(sofa_pred, axis=1)
+    weight = jax.nn.sigmoid(jnp.abs(delta_sofa) - 0.5)
+    margin = 1.0 / 23.0  # one SOFA point in normalised space
+    aux.ranking_loss = weight * jax.nn.relu(margin - delta_pred * jnp.sign(delta_sofa))
 
-    aux.susp_inf_p = jax.nn.sigmoid(inf_seq_raw).squeeze()
+    aux.infection_p_loss_t = optax.sigmoid_binary_cross_entropy(inf_pred_raw, infection_true)
 
-    aux.sofa_d2_risk = jax.vmap(prob_increase_steps, in_axes=(0, None, None))(sofa_pred, model.d_thresh, model.d_scale)
-
-    aux.sep3_risk = causal_smoothing(aux.sofa_d2_risk, decay=model.sofa_d2_pred_smooth, radius=12) * aux.susp_inf_p
-    aux.sep3_loss_t = optax.sigmoid_binary_cross_entropy(binary_logits(aux.sep3_risk), sepsis_true)  # * fine
+    aux.sep3_loss_t = optax.sigmoid_binary_cross_entropy(binary_logits(aux.sep3_risk), sepsis_true)
 
     # --------- Spreading Loss
     zcov = masked_cov(z_seq, mask)
@@ -240,6 +208,7 @@ def loss(
         + mask_padding(aux.sep3_loss_t * params.lambda_sep3, mask)
         + mask_padding(aux.spreading_loss * params.lambda_spreading)
         + mask_padding(aux.boundary_loss * params.lambda_boundary, mask)
+        + mask_padding(aux.ranking_loss * params.lambda_sofa_ranking, mask[:, 1:])
     )
     return aux.total_loss, aux
 
@@ -256,7 +225,6 @@ def process_train_epoch(
     param_filter: PyTree,
     *,
     key: jnp.ndarray,
-    lookup_func: Callable,
     loss_params: LossesConfig,
 ) -> tuple[PyTree, PyTree, AuxLosses, jnp.ndarray]:
     """
@@ -283,7 +251,6 @@ def process_train_epoch(
             mask=batch_mask,
             step=opt_state[1][0].count,
             key=key,
-            lookup_func=lookup_func,
             params=loss_params,
         )
 
@@ -329,7 +296,6 @@ def process_val_epoch(
     step: Int[Array, ""],
     *,
     key: jnp.ndarray,
-    lookup_func: Callable,
     loss_params: LossesConfig,
 ) -> AuxLosses:
     """
@@ -354,7 +320,6 @@ def process_val_epoch(
             true_concepts=batch_true_c,
             mask=batch_mask,
             key=batch_key,
-            lookup_func=lookup_func,
             params=loss_params,
             step=step,
         )
@@ -363,9 +328,7 @@ def process_val_epoch(
 
     carry = (model_params, key, int(0.0))
     batches = (x_data, y_data, mask_data)
-    carry, step_losses = jax.lax.scan(scan_step, carry, batches)
-
-    model_params, key, _ = carry
+    _carry, step_losses = jax.lax.scan(scan_step, carry, batches)
 
     return step_losses
 
@@ -373,93 +336,9 @@ def process_val_epoch(
 if __name__ == "__main__":
     setup_jax(simulation=False)
     setup_logging("info")
+    key = jr.PRNGKey(jax_random_seed)
     dtype = jnp.float32
     logger = logging.getLogger(__name__)
-
-    train_conf = TrainingConfig(
-        batch_size=128,
-        epochs=int(3e3),
-        mini_epochs=4,
-        validate_every=1,
-        calibrate=False,
-        early_stop=True,
-    )
-    lr_conf = LRConfig(
-        init=0.0,
-        warmup_epochs=1,
-        peak=5e-5,
-        enc_wd=2e-1,
-    )
-    loss_conf = LossesConfig(
-        lambda_sep3=600.0,
-        lambda_inf=1.0,
-        lambda_sofa_classification=2000.0,
-        lambda_spreading=6e-3,
-        lambda_boundary=30.0,
-        lambda_recon=2.5,
-    )
-    load_conf = LoadingConfig(from_dir="", epoch=0)
-    save_conf = SaveConfig(save_every=1, perform=True)
-
-    key = jr.PRNGKey(jax_random_seed)
-    key_model, key_weights = jr.split(key, 2)
-    model = LatentDynamicsModel(
-        key=key_model,
-        input_dim=52,
-        latent_enc_hidden_dim=64,
-        latent_hidden_dim=4,
-        latent_dim=2,
-        inf_hidden_dim=32,
-        inf_dim=1,
-        dec_hidden_dim=32,
-        lookup_kernel_size=3,
-    )
-    model = init_ldm_weights(model, key_weights, scale=1e-4)
-    hyper_ldm = model.hypers_dict()
-
-    # === Data ===
-    (
-        train_x,
-        train_y,
-        train_m,
-        val_x,
-        val_y,
-        val_m,
-        _x,
-        _y,
-        _m,
-    ) = get_data_sets_online(
-        swapaxes_y=(1, 2, 0), dtype=jnp.float32, cv_repetitions=2, repetition_index=0, cv_folds=2, fold_index=0
-    )
-    train_m, val_m = train_m.astype(np.bool), val_m.astype(np.bool)
-    logger.error(f"{jnp.unique(train_y[..., 0])}")
-    logger.error(f"{jnp.unique(train_y[..., 1])}")
-    logger.error(f"{jnp.unique(train_y[..., 2])}")
-    logger.info(f"Train shape      - Y {train_y.shape}, X {train_x.shape}, m {train_m.shape}")
-    logger.info(f"Validation shape - Y {val_y.shape},  X {val_x.shape},  m {val_m.shape}")
-    logger.info(f"Frac Pos labels in Test {train_y[train_m, 2].sum() / train_m.sum() * 100:.2f}%")
-    for y, m, s in ((train_y, train_m, "Train"), (val_y, val_m, "Val"), (_y, _m, "Test")):
-        logger.info(
-            f"Patient Prevalence {s:5}   {((y * m[..., None]).max(axis=1) == 1.0).mean(axis=0).round(4)[[1, 2]] * 100}%"
-        )
-    logger.info("")
-    for y, m, s in ((train_y, train_m, "Train"), (val_y, val_m, "Val"), (_y, _m, "Test")):
-        logger.info(
-            f"Time Prevalence {s:5}      {((y * m[..., None]) > 0.0).mean(axis=(0, 1)).round(4)[[1, 2]] * 100}%"
-        )
-    for y, m, s in ((train_y, train_m, "Train"), (val_y, val_m, "Val"), (_y, _m, "Test")):
-        logger.info(f"Mean sequence length {s:5} {m.sum(axis=-1).mean().round(2)}h")
-    for y, m, s in ((train_y, train_m, "Train"), (val_y, val_m, "Val"), (_y, _m, "Test")):
-        logger.info(f"Max values {s:5}           {(y * m[..., None]).max(axis=((0, 1)))}")
-
-    logger.info(f"First septic patient labels {train_y[1, train_m[1], 2]}")
-    del _x, _y, _m
-
-    counts = np.bincount(train_y[train_m][..., 0].astype(int), minlength=24)
-    sofa_dist = counts / counts.sum()
-    loss_conf.sofa_dist = sofa_dist
-
-    logger.info(f"SOFA class weights {jnp.log(1.0 + 1.0 / (sofa_dist + EPS))}")
 
     # === Lookup ===
     db_str = "DaisyFinal"
@@ -487,8 +366,122 @@ if __name__ == "__main__":
         dtype=jnp.float32,
     )
 
+    # radial = get_radial(jnp.asarray(b), jnp.asarray(s), k=25)
+    linear = get_linear(jnp.asarray(b), jnp.asarray(s), k=25)
+    approx = get_approx()
+    lookup_table = AnalyticalLookup(approx)
+
+    # lookup_table = IntegrationLookup()
+
+    # val_table = LatentLookup(
+    #     metrics=metrics_2d.reshape((-1, 1)),
+    #     indices=indices_2d.reshape((-1, 2)),  # since param space only beta sigma
+    #     metrics_2d=metrics_2d,
+    #     indices_2d=indices_2d,
+    #     grid_spacing=spacing_2d,
+    #     dtype=jnp.float32,
+    # )
+
+    # lookup_table = LearnedLookup(key=key)
+
+    # === Model ===
+
+    train_conf = TrainingConfig(
+        batch_size=64, # NOTE
+        epochs=int(1e3),
+        mini_epochs=4, # NOTE
+        validate_every=1,
+        calibrate=False,
+        early_stop=True,
+    )
+    lr_conf = LRConfig(
+        init=0.0,
+        warmup_epochs=1,
+        peak=5e-5,
+        enc_wd=2e-1,
+    )
+    loss_conf = LossesConfig(
+        lambda_sep3=600.0,
+        lambda_inf=1.0,
+        lambda_sofa_classification=2000.0,
+        lambda_sofa_ranking=0.0,
+        lambda_spreading=6e-3,
+        lambda_boundary=30.0,
+        lambda_recon=2.5,
+    )
+    load_conf = LoadingConfig(from_dir="", epoch=0)
+    save_conf = SaveConfig(save_every=1, perform=True)
+
+    key_model, key_weights = jr.split(key, 2)
+    model = LatentDynamicsModel(
+        key=key_model,
+        input_dim=52,
+        latent_enc_hidden_dim=64,
+        latent_hidden_dim=8,
+        latent_dim=2,
+        inf_hidden_dim=64,
+        inf_dim=1,
+        dec_hidden_dim=32,
+        lookup=lookup_table,
+        lookup_kernel_size=7,
+    )
+    model = init_ldm_weights(model, key_weights, scale=1e-4)
+    hyper_ldm = model.hypers_dict()
+
+    # === Data ===
+    (
+        train_x,
+        train_y,
+        train_m,
+        val_x,
+        val_y,
+        val_m,
+        _x,
+        _y,
+        _m,
+    ) = get_data_sets_online(
+        swapaxes_y=(1, 2, 0), dtype=jnp.float32, cv_repetitions=5, repetition_index=0, cv_folds=5, fold_index=0
+    )
+    train_m, val_m = train_m.astype(np.bool), val_m.astype(np.bool)
+    logger.error(f"{jnp.unique(train_y[..., 0])}")
+    logger.error(f"{jnp.unique(train_y[..., 1])}")
+    logger.error(f"{jnp.unique(train_y[..., 2])}")
+    logger.info(f"Train shape      - Y {train_y.shape}, X {train_x.shape}, m {train_m.shape}")
+    logger.info(f"Validation shape - Y {val_y.shape},  X {val_x.shape},  m {val_m.shape}")
+    logger.info(f"Frac Pos labels in Test {train_y[train_m, 2].sum() / train_m.sum() * 100:.2f}%")
+    for y, m, s in ((train_y, train_m, "Train"), (val_y, val_m, "Val"), (_y, _m, "Test")):
+        logger.info(
+            f"Patient Prevalence {s:5}   {((y * m[..., None]).max(axis=1) == 1.0).mean(axis=0).round(4)[[1, 2]] * 100}%"
+        )
+    logger.info("")
+    for y, m, s in ((train_y, train_m, "Train"), (val_y, val_m, "Val"), (_y, _m, "Test")):
+        logger.info(
+            f"Time Prevalence {s:5}      {((y * m[..., None]) > 0.0).mean(axis=(0, 1)).round(4)[[1, 2]] * 100}%"
+        )
+    for y, m, s in ((train_y, train_m, "Train"), (val_y, val_m, "Val"), (_y, _m, "Test")):
+        logger.info(f"Mean sequence length {s:5} {m.sum(axis=-1).mean().round(2)}h")
+    for y, m, s in ((train_y, train_m, "Train"), (val_y, val_m, "Val"), (_y, _m, "Test")):
+        logger.info(f"Max values {s:5}           {(y * m[..., None]).max(axis=((0, 1)))}")
+
+    logger.info(f"First septic patient labels {train_y[1, train_m[1], 2]}")
+    del _x, _y, _m
+
+    counts = np.bincount(train_y[train_m][..., 0].astype(int), minlength=24)
+    sofa_dist = counts / counts.sum()
+
+    loss_conf_dict = asdict(loss_conf)
+    loss_conf_dict["sofa_dist"] = jnp.asarray(sofa_dist)
+    # loss_conf_dict["steps_per_epoch"] = (
+    #     (train_x.shape[0] // train_conf.mini_epochs) // train_conf.batch_size
+    # ) * train_conf.mini_epochs
+    # loss_conf_dict["steps_per_epoch"] = train_conf.batch_size
+    loss_conf = LossesConfig(**loss_conf_dict)
+
+    logger.info(f"SOFA class weights {jnp.log(1.0 + 1.0 / (sofa_dist + EPS))}")
+
     # === Schedule ===
     steps_per_epoch = (train_x.shape[0] // train_conf.batch_size) * train_conf.batch_size
+    steps_per_epoch = train_conf.batch_size
     schedule = custom_warmup_cosine(
         init_value=lr_conf.init,
         peak_value=lr_conf.peak,
@@ -544,7 +537,7 @@ if __name__ == "__main__":
     for epoch in range(load_conf.epoch if load_conf.from_dir else 0, train_conf.epochs):
         if epoch > 0:
             shuffle_key = jr.fold_in(key, epoch)
-            x_shuffled, y_shuffled, m_shuffled, ntrain_batches = prepare_batches_mask(
+            x_shuffled, y_shuffled, m_shuffled, _ntrain_batches = prepare_batches_mask(
                 train_x,
                 train_y,
                 train_m,
@@ -553,7 +546,6 @@ if __name__ == "__main__":
                 mini_epochs=train_conf.mini_epochs,
                 pos_fraction=-1,
             )
-            loss_conf.steps_per_epoch = ntrain_batches
             train_metrics = []
             for mini_epoch in range(train_conf.mini_epochs):
                 params_model, opt_state, mini_train_metrics, key = process_train_epoch(
@@ -564,7 +556,6 @@ if __name__ == "__main__":
                     mask_data=m_shuffled[mini_epoch],
                     update=optimizer.update,
                     key=key,
-                    lookup_func=lookup_table.soft_get_local,
                     loss_params=loss_conf,
                     param_filter=filter_spec,
                 )
@@ -572,7 +563,7 @@ if __name__ == "__main__":
                 model = eqx.combine(params_model, static_model)
 
             train_metrics = jtu.tree_map(lambda *xs: jnp.stack(xs), *train_metrics)
-            log_msg = log_train_metrics(train_metrics, model.params_to_dict(), epoch, writer, mask=m_shuffled)
+            log_msg = log_train_metrics(train_metrics.to_np(), model.params_to_dict(), epoch, writer, mask=m_shuffled)
             writer.add_scalar(
                 "lr/learning_rate",
                 np.asarray(schedule(np.float64(epoch) * np.float64(train_x.shape[0]))),
@@ -590,7 +581,6 @@ if __name__ == "__main__":
                 mask_data=val_m[None],
                 step=opt_state[1][0].count,
                 key=val_key,
-                lookup_func=lookup_table.hard_get_fsq,
                 loss_params=loss_conf,
             )
 
@@ -617,7 +607,7 @@ if __name__ == "__main__":
                     f"AUPRC {early_stop_auprc.bad_steps}|{early_stop_auprc.stopped}"
                 )
 
-            log_msg = log_val_metrics(val_metrics, val_y[None], lookup_table, epoch, writer, mask=val_m[None])
+            log_msg = log_val_metrics(val_metrics.to_np(), val_y[None], model.lookup, epoch, writer, mask=val_m[None])
             logger.warning(log_msg)
 
             model = eqx.nn.inference_mode(val_model, value=False)

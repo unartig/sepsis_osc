@@ -6,7 +6,7 @@ import jax.random as jr
 import jax.tree as jtree
 import numpy as np
 from jax import vmap
-from jaxtyping import Array, Bool, DTypeLike, Float, Int, ScalarLike, jaxtyped
+from jaxtyping import Array, Bool, DTypeLike, Float, Int, ScalarLike, jaxtyped, Scalar
 
 from sepsis_osc.dnm.abstract_ode import ConfigArgBase, ConfigBase, MetricBase, ODEBase, StateBase
 from sepsis_osc.dnm.commons import diff_angle, entropy, mean_angle, phase_entropy, std_angle
@@ -34,8 +34,8 @@ class DNMConfigArgs(ConfigArgBase):
 @jaxtyped(typechecker=typechecker)
 class DNMConfig(ConfigBase):
     N: int  # number of oscillators per layer
-    beta: float  # plasticity (age parameter)
-    sigma: float  # interlayer coupling
+    beta: float | Float[Scalar, ""] # plasticity (age parameter)
+    sigma: float | Float[Scalar, ""] # interlayer coupling
     alpha: float = -0.28  # phase lag
     C: float = 0.2  # number of infected cells
     omega_1: float = 0.0  # natural frequency parenchymal layer
