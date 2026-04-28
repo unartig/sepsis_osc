@@ -24,7 +24,6 @@ from sepsis_osc.ldm.latent_dynamics_model import LatentDynamicsModel, init_ldm_w
 from sepsis_osc.ldm.logging_utils import flatten_dict, log_train_metrics, log_val_metrics
 from sepsis_osc.ldm.lookup import (
     AnalyticalLookup,
-    IntegrationLookup,
     LatentLookup,
     LearnedLookup,
     as_2d_indices,
@@ -387,9 +386,9 @@ if __name__ == "__main__":
     # === Model ===
 
     train_conf = TrainingConfig(
-        batch_size=64, # NOTE
+        batch_size=64,
         epochs=int(1e3),
-        mini_epochs=4, # NOTE
+        mini_epochs=4,
         validate_every=1,
         calibrate=False,
         early_stop=True,
