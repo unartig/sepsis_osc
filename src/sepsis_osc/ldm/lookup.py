@@ -285,57 +285,6 @@ class LearnedLookup(eqx.Module):
     hard_get = hard_get_fsq = soft_get_local = soft_get_global = _query
 
 
-@jaxtyped(typechecker=typechecker)
-class IntegrationLookup(eqx.Module):
-    _N: int = 200
-    _T_max_base: int = 2000
-    _T_step_base: int = 100
-
-    _solver: Tsit5 = Tsit5()
-    _dnm: DynamicNetworkModel = DynamicNetworkModel(full_save=False, steady_state_check=False, progress_bar=False)
-
-    def _query(
-        self,
-        query_vectors: Float[Array, "batch latent"],
-        key: PRNGKeyArray,
-        temperature: float | Float[Array, "1"] = 0.0,
-        kernel_size: int | Int[Array, ""] = 3,
-    ) -> Float[Array, " batch"]:
-        _, rand_key = jr.split(key)
-
-        def integrate_single(carry, inputs):
-            params, key = inputs
-            run_conf = DNMConfig(
-                N=self._N,
-                C=0.2,
-                alpha=-0.28,
-                beta=params[0],
-                sigma=params[1],
-            )
-            sol = self._dnm.integrate(
-                config=run_conf,
-                M=1,
-                solver=self._solver,
-                key=key,
-                T_init=0.0,
-                T_max=self._T_max_base,
-                T_step=self._T_step_base,
-                ts=jnp.arange(0.0, self._T_max_base, self._T_step_base),
-            )
-            # sol.ys.s_1 shape is (*t, ensemble=1, N) — take final timestep, squeeze ensemble
-            return None, sol.ys.s_1[-1].mean()  # shape: (N,) or scalar depending on your reduction
-
-        batch_size = query_vectors.shape[0]
-        keys = jr.split(rand_key, batch_size)
-
-        integrate_single_remat = jax.checkpoint(integrate_single)
-        _, results = jax.lax.scan(integrate_single_remat, None, (query_vectors, keys))
-        return results
-
-    # all methods share identical behaviour.
-    hard_get = hard_get_fsq = soft_get_local = soft_get_global = _query
-
-
 def as_2d_indices(
     x_space: tuple[float, float, float],
     y_space: tuple[float, float, float],
