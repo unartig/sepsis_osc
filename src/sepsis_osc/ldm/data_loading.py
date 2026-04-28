@@ -232,7 +232,7 @@ def get_data_sets_online(
         test_x, test_y, test_m = loaded["test_x"], loaded["test_y"], loaded["test_m"]
         logger.info("Data loaded successfully.")
     else:
-        logger.warning("Processed sequence files not found, reading YAIB-data.")
+        logger.warning(f"Processed sequence files not found ({file_path}), reading YAIB-data.")
         detect_vars = copy.deepcopy(vars_copy)
         label = "yaib_label" if use_yaib_label else target_name
         detect_vars["LABEL"] = [label, "sofa", "susp_inf_ramp"]
