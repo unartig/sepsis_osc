@@ -181,12 +181,6 @@ def loss(
     weights_per_sample = class_weights[sofa_true.astype(jnp.int32)]
     aux.sofa_loss_t = (sofa_pred - (sofa_true / 23.0)) ** 2 * (weights_per_sample)
 
-    delta_sofa = jnp.diff(sofa_true, axis=1)
-    delta_pred = jnp.diff(sofa_pred, axis=1)
-    weight = jax.nn.sigmoid(jnp.abs(delta_sofa) - 0.5)
-    margin = 1.0 / 23.0  # one SOFA point in normalised space
-    aux.ranking_loss = weight * jax.nn.relu(margin - delta_pred * jnp.sign(delta_sofa))
-
     aux.infection_p_loss_t = optax.sigmoid_binary_cross_entropy(inf_pred_raw, infection_true)
 
     aux.sep3_loss_t = optax.sigmoid_binary_cross_entropy(binary_logits(aux.sep3_risk), sepsis_true)
@@ -207,7 +201,6 @@ def loss(
         + mask_padding(aux.sep3_loss_t * params.lambda_sep3, mask)
         + mask_padding(aux.spreading_loss * params.lambda_spreading)
         + mask_padding(aux.boundary_loss * params.lambda_boundary, mask)
-        + mask_padding(aux.ranking_loss * params.lambda_sofa_ranking, mask[:, 1:])
     )
     return aux.total_loss, aux
 
@@ -403,7 +396,6 @@ if __name__ == "__main__":
         lambda_sep3=600.0,
         lambda_inf=1.0,
         lambda_sofa_classification=2000.0,
-        lambda_sofa_ranking=0.0,
         lambda_spreading=6e-3,
         lambda_boundary=30.0,
         lambda_recon=2.5,
