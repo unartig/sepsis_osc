@@ -10,7 +10,7 @@ from scipy import ndimage
 from scipy.stats import binned_statistic_2d
 from sklearn.metrics import PrecisionRecallDisplay, RocCurveDisplay
 
-from sepsis_osc.ldm.lookup import LatentLookup, compute_window_bounds
+from sepsis_osc.ldm.lookup import LookupProtocol, compute_window_bounds
 from sepsis_osc.ldm.model_structs import AuxLosses
 from sepsis_osc.utils.config import BETA_SPACE, SIGMA_SPACE, plt_params
 from sepsis_osc.visualisations.viz_param_space import space_plot
@@ -114,7 +114,7 @@ def viz_space_alignment(
 def viz_trajectories_over_time(
     betas: jnp.ndarray,
     sigmas: jnp.ndarray,
-    lookup: LatentLookup,
+    lookup: LookupProtocol,
     *,
     mask: np.ndarray,
     cmaps: bool = True,
@@ -169,7 +169,7 @@ def viz_patients_latent(
     true_sofa: np.ndarray,
     betas: np.ndarray,
     sigmas: np.ndarray,
-    lookup: LatentLookup,
+    lookup: LookupProtocol,
     mask: np.ndarray,
     figax: tuple[Figure, Axes] | None = None,
     *,
@@ -261,7 +261,7 @@ def viz_patients(
     test_y: np.ndarray,
     test_m: np.ndarray,
     test_metrics: AuxLosses,
-    lookup_table: LatentLookup,
+    lookup_table: LookupProtocol,
 ) -> tuple[Figure, Axes]:
     if not isinstance(patient_idx, list):
         patient_idx = [patient_idx]

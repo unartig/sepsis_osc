@@ -83,6 +83,9 @@ class LatentDynamicsModel(eqx.Module):
     _sofa_label_smooth: Array
     _sofa_d2_pred_smooth: Array
 
+    use_inf_branch: bool
+    use_sofa_branch: bool
+
     def __init__(
         self,
         key: PRNGKeyArray,
@@ -96,6 +99,9 @@ class LatentDynamicsModel(eqx.Module):
         lookup: LookupProtocol,
         lookup_kernel_size: int = 3,
         dtype: DTypeLike = jnp.float32,
+        *,
+        use_inf_branch: bool = True,
+        use_sofa_branch: bool = True
     ) -> None:
         key_dec, key_enc, keyz, keyinf = jr.split(key, 4)
 
@@ -108,6 +114,9 @@ class LatentDynamicsModel(eqx.Module):
         self.dec_hidden_dim = dec_hidden_dim
         self.lookup = lookup
         self.lookup_kernel_size = lookup_kernel_size
+
+        self.use_inf_branch = use_inf_branch
+        self.use_sofa_branch = use_sofa_branch
 
         self.latent_pre_encoder = LatentEncoder(
             key_enc,
@@ -239,8 +248,8 @@ def make_ldm(
     inf_dim: int,
     inf_hidden_dim: int,
     dec_hidden_dim: int,
-    lookup: LookupProtocol,
     lookup_kernel_size: int,
+    lookup: LookupProtocol,
 ) -> LatentDynamicsModel:
     return LatentDynamicsModel(
         key=key,
