@@ -60,7 +60,6 @@ class AuxLosses:
                 "boundary_loss": self.boundary_loss,
                 "recon_loss": self.recon_loss,
                 "sofa": self.sofa_loss_t,
-                "ranking": self.ranking_loss,
                 "infection": self.infection_p_loss_t,
                 "sepsis-3": self.sep3_loss_t,
             },
