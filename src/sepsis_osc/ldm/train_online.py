@@ -26,6 +26,7 @@ from sepsis_osc.ldm.lookup import (
     AnalyticalLookup,
     LatentLookup,
     LearnedLookup,
+    SurrogateLookup,
     as_2d_indices,
     get_approx,
     get_linear,
@@ -169,7 +170,15 @@ def loss(
     aux.beta, aux.sigma = z_seq[..., 0], z_seq[..., 1]
 
     aux.sofa_d2_risk = jax.vmap(prob_increase_steps, in_axes=(0, None, None))(sofa_pred, model.d_thresh, model.d_scale)
-    aux.sep3_risk = causal_smoothing(aux.sofa_d2_risk, decay=model.sofa_d2_pred_smooth, radius=12) * aux.susp_inf_p
+
+    if model.use_inf_branch and model.use_sofa_branch:
+        aux.sep3_risk = causal_smoothing(aux.sofa_d2_risk, decay=model.sofa_d2_pred_smooth, radius=12) * aux.susp_inf_p
+    if model.use_inf_branch and not model.use_sofa_branch:
+        aux.sep3_risk = aux.susp_inf_p
+    if not model.use_inf_branch and model.use_sofa_branch:
+        aux.sep3_risk = causal_smoothing(aux.sofa_d2_risk, decay=model.sofa_d2_pred_smooth, radius=12)
+    if not model.use_inf_branch and not model.use_sofa_branch:
+        raise ValueError("At least one branch needs to be active")
 
     # --------- Recon Loss
     x_recon = jax.vmap(jax.vmap(model.decoder))(z_seq)
@@ -241,7 +250,7 @@ def process_train_epoch(
             x=batch_x,
             true_concepts=batch_true_c,
             mask=batch_mask,
-            step=opt_state[1][0].count,
+            step=opt_state[1][0].count,  # ty:ignore[not-subscriptable, unresolved-attribute]
             key=key,
             params=loss_params,
         )
@@ -358,22 +367,21 @@ if __name__ == "__main__":
         dtype=jnp.float32,
     )
 
-    # radial = get_radial(jnp.asarray(b), jnp.asarray(s), k=25)
+    radial = get_radial(jnp.asarray(b), jnp.asarray(s), k=25)
     linear = get_linear(jnp.asarray(b), jnp.asarray(s), k=25)
-    approx = get_approx()
-    lookup_table = AnalyticalLookup(approx)
+    # approx = get_approx()
+    lookup_table = AnalyticalLookup(radial).to_latent_lookup(BETA_SPACE, SIGMA_SPACE)
 
-    # lookup_table = IntegrationLookup()
-
-    # val_table = LatentLookup(
-    #     metrics=metrics_2d.reshape((-1, 1)),
-    #     indices=indices_2d.reshape((-1, 2)),  # since param space only beta sigma
-    #     metrics_2d=metrics_2d,
-    #     indices_2d=indices_2d,
-    #     grid_spacing=spacing_2d,
-    #     dtype=jnp.float32,
+    # lookup_table = SurrogateLookup(
+    #     jnp.arange(*BETA_SPACE),
+    #     jnp.arange(*SIGMA_SPACE),
+    #     metrics_2d.squeeze().s_1,
+    #     key,
+    #     lr=2e-2,
+    #     batch_size=512,
+    #     n_epochs=int(3e5),
+    #     hidden=32,
     # )
-
     # lookup_table = LearnedLookup(key=key)
 
     # === Model ===
@@ -415,6 +423,8 @@ if __name__ == "__main__":
         dec_hidden_dim=32,
         lookup=lookup_table,
         lookup_kernel_size=7,
+        use_inf_branch=True,
+        use_sofa_branch=False,
     )
     model = init_ldm_weights(model, key_weights, scale=1e-4)
     hyper_ldm = model.hypers_dict()
@@ -570,7 +580,7 @@ if __name__ == "__main__":
                 x_data=val_x[None],
                 y_data=val_y[None],
                 mask_data=val_m[None],
-                step=opt_state[1][0].count,
+                step=opt_state[1][0].count,  # ty:ignore[not-subscriptable, unresolved-attribute]
                 key=val_key,
                 loss_params=loss_conf,
             )

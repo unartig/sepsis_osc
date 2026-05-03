@@ -1,5 +1,7 @@
 import json
 import logging
+import pickle
+import struct
 from pathlib import Path
 
 import equinox as eqx
@@ -19,23 +21,19 @@ def save_checkpoint(
     opt_state: OptState,
     hyper_ldm: dict[str, int | float | Array],
 ) -> None:
-    """
-    Serializes the model, optimizer state, and hyperparameters to a file.
-
-    This function creates a hybrid checkpoint file. The first line is a JSON-encoded
-    string of hyperparameters, followed by the binary serialization of the model
-    and optimizer state leaves.
-    """
-    if not Path(save_dir).exists():
-        Path(save_dir).mkdir(parents=True)
-
+    Path(save_dir).mkdir(parents=True, exist_ok=True)
     filename = Path(f"{save_dir}/checkpoint_epoch_{epoch:04d}.eqx")
 
-    with Path.open(filename, "wb") as f:
-        hyperparam_str = json.dumps(hyper_ldm)
-        f.write((hyperparam_str + "\n").encode())
+    with filename.open("wb") as f:
+        f.write((json.dumps(hyper_ldm) + "\n").encode())
+
+        lookup_bytes = pickle.dumps(model.lookup)
+        f.write(struct.pack(">Q", len(lookup_bytes)))  # 8-byte big-endian length
+        f.write(lookup_bytes)
+
         eqx.tree_serialise_leaves(f, (model, opt_state))
-    logger.info(f"Model checkpoint saved for epoch {epoch} to {filename}")
+
+    logger.info(f"Checkpoint saved for epoch {epoch} to {filename}")
 
 
 def load_checkpoint(
@@ -43,29 +41,21 @@ def load_checkpoint(
     epoch: int,
     opt_template: GradientTransformation | None = None,
 ) -> tuple[PyTree, OptState]:
-    """
-    Reconstructs a model and optimizer state from a saved checkpoint.
-
-    The function first reads the JSON header to retrieve hyperparameters,
-    instantiates a 'skeleton' model using `make_ldm`, and then populates that
-    skeleton with the saved binary weights.
-    """
     filename = Path(f"{load_dir}/checkpoint_epoch_{epoch:04d}.eqx")
+    if not filename.exists():
+        raise FileNotFoundError(f"Checkpoint not found: {filename}")
 
-    if not Path(filename).exists():
-        raise FileNotFoundError(f"Checkpoint for epoch {epoch} not found at {filename}")
-
-    with Path.open(filename, "rb") as f:
+    with filename.open("rb") as f:
         hyper = json.loads(f.readline().decode())
 
-        # Build skeleton full model
+        (lookup_len,) = struct.unpack(">Q", f.read(8))
+        lookup = pickle.loads(f.read(lookup_len))
+
         key_dummy = jr.PRNGKey(0)
-        model = make_ldm(key_dummy, **hyper)
-
-        params_model, _static_model = eqx.partition(model, eqx.is_array)
-
+        model = make_ldm(key_dummy, lookup=lookup, **hyper)
+        params_model, _ = eqx.partition(model, eqx.is_array)
         opt_state = opt_template.init(params_model) if opt_template else None
-
         loaded_model, loaded_opt_state = eqx.tree_deserialise_leaves(f, (model, opt_state))
-    logger.info(f"Model checkpoint loaded for epoch {epoch} from {filename}")
+
+    logger.info(f"Checkpoint loaded for epoch {epoch} from {filename}")
     return loaded_model, loaded_opt_state
