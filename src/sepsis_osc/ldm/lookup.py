@@ -7,11 +7,11 @@ import jax
 import jax.numpy as jnp
 import jax.random as jr
 import numpy as np
-from diffrax import Tsit5
-from equinox import field, filter_jit
+import optax
+from equinox import field
 from jaxtyping import Array, DTypeLike, Float, Int, PRNGKeyArray, jaxtyped
 
-from sepsis_osc.dnm.dynamic_network_model import DNMConfig, DynamicNetworkModel, MetricBase
+from sepsis_osc.dnm.dynamic_network_model import DNMMetrics, MetricBase
 from sepsis_osc.utils.jax_config import EPS, typechecker
 
 _1 = jnp.ones((1,))
@@ -239,7 +239,51 @@ class AnalyticalLookup(eqx.Module):
     def __init__(self, f: Callable) -> None:
         self._f = f
 
-    # TODO to latent_lookup
+    @jaxtyped(typechecker=typechecker)
+    def to_latent_lookup(
+        self,
+        beta_range: tuple[float, float, float],  # (start, stop, step)
+        sigma_range: tuple[float, float, float],
+        dtype: DTypeLike = jnp.float32,
+    ) -> LatentLookup:
+        """
+        Discretizes the analytical function into a grid and returns a LatentLookup.
+        """
+        beta_grid, sigma_grid = as_2d_indices(beta_range, sigma_range)
+
+        vals = self._f(jnp.asarray(beta_grid).ravel(), jnp.asarray(sigma_grid).ravel())
+
+        _empty = jnp.empty_like(vals[..., None])
+        metrics_flat = DNMMetrics(
+            r_1=_empty,
+            r_2=_empty,
+            m_1=_empty,
+            m_2=_empty,
+            s_2=_empty,
+            q_1=_empty,
+            q_2=_empty,
+            f_1=_empty,
+            f_2=_empty,
+            cq_1=_empty,
+            cq_2=_empty,
+            cs_1=_empty,
+            cs_2=_empty,
+            s_1=vals[..., None],
+        )
+        metrics_2d = metrics_flat.reshape((*beta_grid.shape, 1))
+
+        indices_2d = jnp.stack([beta_grid, sigma_grid], axis=-1)
+        indices_flat = indices_2d.reshape(-1, 2)
+        grid_spacing = jnp.array([beta_range[2], sigma_range[2]])
+
+        return LatentLookup(
+            metrics=metrics_flat,
+            indices=indices_flat,
+            metrics_2d=metrics_2d,
+            indices_2d=indices_2d,
+            grid_spacing=grid_spacing,
+            dtype=dtype,
+        )
 
     @jaxtyped(typechecker=typechecker)
     def _query(
@@ -282,6 +326,152 @@ class LearnedLookup(eqx.Module):
         return jax.vmap(forward)(query_vectors).squeeze(-1)
 
     # all methods share identical behaviour.
+    hard_get = hard_get_fsq = soft_get_local = soft_get_global = _query
+
+
+class ODESurrogate(eqx.Module):
+    layers: list
+
+    def __init__(self, key: PRNGKeyArray, hidden: int = 64) -> None:
+        keys = jr.split(key, 4)
+        self.layers = [
+            eqx.nn.Linear(2, hidden, key=keys[0]),
+            eqx.nn.LayerNorm(hidden, hidden),
+            eqx.nn.Linear(hidden, hidden, key=keys[1]),
+            eqx.nn.LayerNorm(hidden, hidden),
+            eqx.nn.Linear(hidden, hidden, key=keys[1]),
+            eqx.nn.LayerNorm(hidden, hidden),
+            eqx.nn.Linear(hidden, 1, key=keys[2]),
+        ]
+
+    def __call__(self, x: Float[Array, "2"]) -> Float[Array, "1"]:
+        for layer in self.layers[:-1]:
+            x = jax.nn.gelu(layer(x))
+
+        return jax.nn.sigmoid(self.layers[-1](x))
+
+
+@jaxtyped(typechecker=typechecker)
+class SurrogateLookup(eqx.Module):
+    _surrogate: ODESurrogate = eqx.field(static=True)
+    _beta_min: float = eqx.field(static=True)
+    _beta_max: float = eqx.field(static=True)
+    _sigma_min: float = eqx.field(static=True)
+    _sigma_max: float = eqx.field(static=True)
+
+    def __init__(
+        self,
+        betas: Float[Array, " b"],
+        sigmas: Float[Array, " s"],
+        target_space: Float[Array, "b s"],
+        key: PRNGKeyArray,
+        *,
+        pretrained: ODESurrogate | None = None,
+        hidden: int = 64,
+        n_epochs: int = 1000,
+        batch_size: int = 256,
+        lr: float = 1e-3,
+    ) -> None:
+        self._beta_min = float(betas.min())
+        self._beta_max = float(betas.max())
+        self._sigma_min = float(sigmas.min())
+        self._sigma_max = float(sigmas.max())
+
+        if pretrained is not None:
+            self._surrogate = pretrained
+        else:
+            _, subkey = jr.split(key)
+            b2d, s2d = jnp.meshgrid(betas, sigmas, indexing="ij")
+            params = jnp.stack([b2d.ravel(), s2d.ravel()], axis=-1)  # (b*s, 2)
+            target_space = (target_space - target_space.min()) / (target_space.max() - target_space.min())
+
+            targets = target_space.ravel()
+
+            self._surrogate = self._train(subkey, params, targets, hidden, n_epochs, batch_size, lr)
+
+    def _normalize(self, query_vectors: Float[Array, "batch 2"]) -> Float[Array, "batch 2"]:
+        beta = (query_vectors[:, 0] - self._beta_min) / (self._beta_max - self._beta_min)
+        sigma = (query_vectors[:, 1] - self._sigma_min) / (self._sigma_max - self._sigma_min)
+        return jnp.stack([beta, sigma], axis=-1)
+
+    def _train(
+        self,
+        key: PRNGKeyArray,
+        params: Float[Array, "b*s 2"],
+        targets: Float[Array, " b*s"],
+        hidden: int,
+        n_epochs: int,
+        batch_size: int,
+        lr: float,
+    ) -> ODESurrogate:
+        params_norm = self._normalize(params)
+
+        key, subkey = jr.split(key)
+        surrogate = ODESurrogate(subkey, hidden)
+
+        schedule = optax.warmup_cosine_decay_schedule(
+            init_value=0.0,
+            peak_value=lr,
+            warmup_steps=100,
+            decay_steps=int(n_epochs * 0.75),
+            end_value=lr * 0.01,
+        )
+        optim = optax.radam(schedule)
+        opt_state = optim.init(eqx.filter(surrogate, eqx.is_array))
+
+        @eqx.filter_jit
+        def step(
+            model: ODESurrogate,
+            opt_state: optax.OptState,
+            p_batch: Float[Array, "sbatch 2"],
+            t_batch: Float[Array, " sbatch"],
+        ) -> tuple[ODESurrogate, optax.OptState, Float[Array, ""]]:
+            def loss_fn(model: ODESurrogate) -> Float[Array, ""]:
+                preds = jax.vmap(model)(p_batch).squeeze(-1)  # (batch,)
+                return jnp.mean((preds - t_batch) ** 2)
+
+            loss, grads = eqx.filter_value_and_grad(loss_fn)(model)
+            jax.lax.cond(
+                opt_state[0].count % 10000 == 0,  # ty:ignore[not-subscriptable, unresolved-attribute]
+                lambda: jax.debug.print("Training ODESurrogate: Loss {x} Step {y}", x=loss, y=opt_state[0].count),  # ty:ignore[not-subscriptable, unresolved-attribute]
+                lambda: None,
+            )
+            updates, new_opt_state = optim.update(grads, opt_state, eqx.filter(model, eqx.is_array))
+            return eqx.apply_updates(model, updates), new_opt_state, loss
+
+        _, subkey = jr.split(key)
+        all_indices = jax.random.randint(subkey, (n_epochs, batch_size), 0, params_norm.shape[0])
+
+        def scan_step(
+            carry: tuple[ODESurrogate, optax.OptState], indices: Float[Array, ""]
+        ) -> tuple[tuple[ODESurrogate, optax.OptState], Float[Array, ""]]:
+            model, opt_state = carry
+            p_batch = params_norm[indices]
+            t_batch = targets[indices]
+            model, opt_state, loss = step(model, opt_state, p_batch, t_batch)
+            return (model, opt_state), loss
+
+        (surrogate, _), losses = jax.lax.scan(scan_step, (surrogate, opt_state), all_indices)
+
+        jax.debug.print("Final loss: {}", losses[-1])
+        jax.debug.print("Min loss: {}", losses.min())
+        return surrogate
+
+    @eqx.filter_jit
+    def _query(
+        self,
+        query_vectors: Float[Array, "batch 2"],
+        key: PRNGKeyArray,
+        temperature: float | Float[Array, "1"] = 0.0,
+        kernel_size: int | Int[Array, ""] = 3,
+    ) -> Float[Array, " batch"]:
+        # freeze surrogate - no gradients through weights, only through inputs
+        frozen = jax.lax.stop_gradient(eqx.filter(self._surrogate, eqx.is_array))
+        surrogate = eqx.combine(frozen, eqx.filter(self._surrogate, eqx.is_inexact_array))
+
+        normed = self._normalize(query_vectors)
+        return jax.vmap(surrogate)(normed).squeeze(-1)  # (batch,)
+
     hard_get = hard_get_fsq = soft_get_local = soft_get_global = _query
 
 
@@ -383,7 +573,7 @@ def get_radial(x: Float[Array, "nb ns"], y: Float[Array, "nb ns"], k: int | floa
     return radial
 
 
-def bump(x):
+def bump(x: Float[Array, " batch"]) -> Float[Array, " batch"]:
     return x * jnp.exp(-x)
 
 
