@@ -230,50 +230,6 @@ class LatentDynamicsModel(eqx.Module):
         sofa_pred = self.lookup.soft_get_local(z_seq, key, self.lookup_temperature, self.lookup_kernel_size)
         return z_seq_sigm, z_seq, sofa_pred, inf_pred_raw, jax.nn.sigmoid(inf_pred_raw).squeeze()
 
-    @jaxtyped(typechecker=typechecker)
-    def offline_sequence(
-        self, x: Float[Array, "1 input_dim"]
-    ) -> tuple[Float[Array, "time latent_dim"], Float[Array, "time 1"]]:
-        @jaxtyped(typechecker=typechecker)
-        def z_step(
-            carry: tuple[
-                Float[Array, " latent_hidden_dim"],  # h_t
-                Float[Array, " latent_dim"],  # z_t
-            ],
-            _: tuple[Float[Array, " input_dim"], jnp.ndarray],
-        ) -> tuple[tuple[Float[Array, " latent_hidden_dim"], Float[Array, " latent_dim"]], Float[Array, " latent_dim"]]:
-            h_prev, z_t = carry
-            h_next = self.latent_rollout(z_t, h_prev)
-            z_next = self.latent_proj_out(h_next)
-            return (h_next, z_next), z_next
-
-        pre_x = self.latent_pre_encoder(x)
-        z0, zh0 = self.latent_pre_encoder(pre_x)
-        _, zhs = jax.lax.scan(z_step, zh0, x[1:])
-        z_pred = jnp.concat([zh0, zhs], axis=-1)
-        z_seq = jax.vmap(self.latent_proj_out)(z_pred)
-
-        @jaxtyped(typechecker=typechecker)
-        def inf_step(
-            carry: tuple[
-                Float[Array, " inf_hidden_dim"],  # h_t
-                Float[Array, " inf_dim"],  # i_t
-            ],
-            _: tuple[Float[Array, " input_dim"], jnp.ndarray],
-        ) -> tuple[tuple[Float[Array, " inf_hidden_dim"], Float[Array, " inf_dim"]], Float[Array, " inf_dim"]]:
-            h_prev, i_t = carry
-            h_next = self.inf_rollout(i_t, h_prev)
-            i_next = self.inf_proj_out(h_next)
-            return (h_next, i_next), i_next
-
-        ih0 = self.inf_encoder(x, self.inf_h0)
-        _, ihs = jax.lax.scan(inf_step, ih0, x[1:])
-        inf_pred = jnp.concat([ih0, ihs], axis=-1)
-        inf_seq = jax.vmap(self.latent_proj_out)(inf_pred)
-
-        return jax.nn.sigmoid(z_seq), inf_seq
-
-
 def make_ldm(
     key: PRNGKeyArray,
     input_dim: int,
