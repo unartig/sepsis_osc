@@ -11,11 +11,11 @@ import jax.random as jr
 import jax.tree_util as jtu
 import numpy as np
 import optax
-from jax._src import dispatch
 from jaxtyping import PRNGKeyArray, PyTree
 from sklearn.metrics import average_precision_score, roc_auc_score
 from tensorboardX import SummaryWriter
 
+from sepsis_osc.dnm.dynamic_network_model import DNMConfig, DNMMetrics
 from sepsis_osc.ldm.calibration_model import TemperatureScaling
 from sepsis_osc.ldm.checkpoint_utils import load_checkpoint, save_checkpoint
 from sepsis_osc.ldm.commons import build_lookup_table, custom_warmup_cosine
@@ -23,11 +23,19 @@ from sepsis_osc.ldm.data_loading import get_data_sets_online, prepare_batches_ma
 from sepsis_osc.ldm.early_stopping import EarlyStopping
 from sepsis_osc.ldm.latent_dynamics_model import LatentDynamicsModel, init_ldm_weights
 from sepsis_osc.ldm.logging_utils import flatten_dict, log_train_metrics, log_val_metrics
-from sepsis_osc.ldm.lookup import LatentLookup
+from sepsis_osc.ldm.lookup import (
+    AnalyticalLookup,
+    LatentLookup,
+    LearnedLookup,
+    LookupProtocol,
+    SurrogateLookup,
+    as_2d_indices,
+    get_radial,
+)
 from sepsis_osc.ldm.model_structs import LoadingConfig, LossesConfig, LRConfig, SaveConfig, TrainingConfig
 from sepsis_osc.ldm.train_online import process_train_epoch, process_val_epoch
 from sepsis_osc.storage.storage_interface import Storage
-from sepsis_osc.utils.config import ALPHA, BETA_SPACE, SIGMA_SPACE, jax_random_seed
+from sepsis_osc.utils.config import ALPHA, BETA_SPACE, SIGMA_SPACE, db_name, jax_random_seed
 from sepsis_osc.utils.jax_config import setup_jax
 from sepsis_osc.utils.logger import setup_logging
 
@@ -39,6 +47,7 @@ class ExperimentConfig:
     loss: LossesConfig
     load: LoadingConfig
     save: SaveConfig
+    lookup_type: str
     dtype: jnp.dtype = jnp.float32
 
 
@@ -65,6 +74,48 @@ def load_fold_data(
     }
 
 
+def build_lookup(config: ExperimentConfig, key: PRNGKeyArray) -> LookupProtocol:
+    if config.lookup_type == "standard":
+        storage = Storage(
+            key_dim=9,
+            metrics_kv_name="data/DaisyFinalSepsisMetrics.db/",
+            parameter_k_name="data/DaisyFinalSepsisParameters_index.bin",
+            use_mem_cache=True,
+        )
+        return build_lookup_table(storage, alpha=ALPHA, beta_space=BETA_SPACE, sigma_space=SIGMA_SPACE)
+    if config.lookup_type == "surrogate":
+        db_str = "DaisyFinal"
+        sim_storage = Storage(
+            key_dim=9,
+            metrics_kv_name=f"data/{db_str}SepsisMetrics.db/",
+            parameter_k_name=f"data/{db_str}SepsisParameters_index.bin",
+            use_mem_cache=True,
+        )
+        sim_storage.close()
+        b, s = as_2d_indices(BETA_SPACE, SIGMA_SPACE)
+        a = np.ones_like(b) * ALPHA
+        params = DNMConfig.batch_as_index(a, b, s, 0.2)
+        metrics_2d, _ = sim_storage.read_multiple_results(params, proto_metric=DNMMetrics, threshold=0.0)
+        metrics_2d = metrics_2d.to_jax()
+        return SurrogateLookup(
+            jnp.arange(*BETA_SPACE),
+            jnp.arange(*SIGMA_SPACE),
+            metrics_2d.squeeze().s_1,
+            key,
+            lr=2e-2,
+            batch_size=512,
+            n_epochs=int(3e5),
+            hidden=32,
+        )
+    if config.lookup_type == "mlp":
+        return LearnedLookup(key=key)
+    if config.lookup_type == "radial_modest":
+        b, s = as_2d_indices(BETA_SPACE, SIGMA_SPACE)
+        radial = get_radial(jnp.asarray(b), jnp.asarray(s), k=25)
+        return AnalyticalLookup(radial)
+    raise ValueError(f"No configuration for lookup_type {config.lookup_type}")
+
+
 def init_model_and_optimizer(
     config: ExperimentConfig,
     train_y: np.ndarray,
@@ -75,7 +126,9 @@ def init_model_and_optimizer(
     logger.error(counts)
     sofa_dist = counts / counts.sum()
 
-    key_model, key_weights = jr.split(key)
+    key_lookup, key_model, key_weights = jr.split(key, 3)
+
+    lookup = build_lookup(config, key_lookup)
 
     model = LatentDynamicsModel(
         key=key_model,
@@ -87,6 +140,7 @@ def init_model_and_optimizer(
         inf_dim=1,
         dec_hidden_dim=32,
         lookup_kernel_size=7,
+        lookup=lookup,
     )
 
     model = init_ldm_weights(model, key_weights, scale=1e-4)
@@ -117,7 +171,6 @@ def train_one_run(
     optimizer: optax.GradientTransformation,
     opt_state: optax.OptState,
     lr_schedule: Callable,
-    lookup_table: LatentLookup,
     train_data: tuple[np.ndarray, ...],
     val_data: tuple[np.ndarray, ...],
     key: PRNGKeyArray,
@@ -170,7 +223,6 @@ def train_one_run(
                     mask_data=m_shuffled[mini_epoch],
                     update=optimizer.update,
                     key=key,
-                    lookup_func=lookup_table.soft_get_local,
                     loss_params=config.loss,
                     param_filter=filter_spec,
                 )
@@ -197,7 +249,6 @@ def train_one_run(
                 mask_data=val_m[None],
                 step=opt_state[1][0].count,
                 key=val_key,
-                lookup_func=lookup_table.hard_get_fsq,
                 loss_params=config.loss,
             )
 
@@ -224,7 +275,7 @@ def train_one_run(
                     f"AUPRC {early_stop_auprc.bad_steps}|{early_stop_auprc.stopped}"
                 )
 
-            log_msg = log_val_metrics(val_metrics.to_np(), val_y[None], lookup_table, epoch, writer, mask=val_m[None])
+            log_msg = log_val_metrics(val_metrics.to_np(), val_y[None], model.lookup, epoch, writer, mask=val_m[None])
             logger.warning(log_msg)
 
             model = eqx.nn.inference_mode(val_model, value=False)
@@ -253,18 +304,9 @@ def train_one_run(
 def run_cross_validation(config: ExperimentConfig, n_folds: int = 5, repetitions: int = 1) -> list:
     results = []
 
-    storage = Storage(
-        key_dim=9,
-        metrics_kv_name="data/DaisyFinalSepsisMetrics.db/",
-        parameter_k_name="data/DaisyFinalSepsisParameters_index.bin",
-        use_mem_cache=True,
-    )
-
-    lookup_table = build_lookup_table(storage, alpha=ALPHA, beta_space=BETA_SPACE, sigma_space=SIGMA_SPACE)
-
     for rep in range(repetitions):
         for fold in range(n_folds):
-            writer = SummaryWriter(logdir=f"runs/cv/rep{rep:002}_fold{fold:002}")
+            writer = SummaryWriter(logdir=f"runs/cv/{db_name}/{config.lookup_type}/rep{rep:002}_fold{fold:002}")
             if Path(Path(writer.logdir) / "checkpoints").exists():
                 logger.warning(f"Skipping {writer.logdir}")
                 continue
@@ -280,7 +322,6 @@ def run_cross_validation(config: ExperimentConfig, n_folds: int = 5, repetitions
                 key,
             )
 
-            # config.loss.sofa_dist = sofa_dist
             loss_conf_dict = asdict(config.loss)
             loss_conf_dict["sofa_dist"] = sofa_dist
             # loss_conf_dict["steps_per_epoch"] = (
@@ -296,7 +337,6 @@ def run_cross_validation(config: ExperimentConfig, n_folds: int = 5, repetitions
                 optimizer,
                 opt_state,
                 schedule,
-                lookup_table,
                 data["train"],
                 data["val"],
                 key,
@@ -346,13 +386,15 @@ if __name__ == "__main__":
     _load_conf = LoadingConfig(from_dir="", epoch=0)
     _save_conf = SaveConfig(save_every=1, perform=True)
 
-    _config = ExperimentConfig(
-        train=_train_conf,
-        lr=_lr_conf,
-        loss=_loss_conf,
-        load=_load_conf,
-        save=_save_conf,
-    )
+    for lookup_type in ["standard", "surrogate", "mlp", "radial_modest"]:
+        _config = ExperimentConfig(
+            train=_train_conf,
+            lr=_lr_conf,
+            loss=_loss_conf,
+            load=_load_conf,
+            save=_save_conf,
+            lookup_type=lookup_type
+        )
 
-    results = run_cross_validation(_config, n_folds=5, repetitions=5)
-    print(results)
+        results = run_cross_validation(_config, n_folds=5, repetitions=5)
+        print(results)
