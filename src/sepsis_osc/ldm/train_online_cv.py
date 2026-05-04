@@ -230,10 +230,6 @@ def train_one_run(
             logger.info(log_msg)
             del shuffle_key, train_metrics, mini_train_metrics, params_model
 
-        print("grid_origin:", model.lookup.grid_origin)
-        print("grid_spacing:", model.lookup.grid_spacing)
-        print("indices_2d corner:", model.lookup.indices_2d[0, 0], model.lookup.indices_2d[-1, -1])
-
         # === VALIDATE ===
         if epoch % config.train.validate_every == 0:
             val_model = eqx.nn.inference_mode(model, value=True)
