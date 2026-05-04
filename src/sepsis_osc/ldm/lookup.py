@@ -60,20 +60,20 @@ class LatentLookup(eqx.Module):
     An Equinox module that performs differentiable and non-differentiable lookups into a precomputed metric database.
     """
 
-    metrics: MetricBase = field(static=True)
-    indices_t: Float[Array, "db_size 2"] = field(static=True)
-    relevant_metrics: Float[Array, " db_size"] = field(static=True)
+    metrics: MetricBase
+    indices_t: Float[Array, "db_size 2"]
+    relevant_metrics: Float[Array, " db_size"]
 
     # Precomputations
     # norm for faster distance calculation
-    i_norm: Float[Array, "db_size 2"] = field(static=True)
+    i_norm: Float[Array, "db_size 2"]
 
-    grid_shape: Int[Array, "2"] = field(static=True)
-    grid_origin: Float[Array, "2"] = field(static=True)
-    grid_spacing: Float[Array, "2"] = field(static=True)
-    indices_2d: Float[Array, "nb ns 2"] = field(static=True)
-    relevant_metrics_2d: Float[Array, "nb ns"] = field(static=True)
-    metrics_2d: MetricBase = field(static=True)
+    grid_shape: Int[Array, "2"]
+    grid_origin: Float[Array, "2"]
+    grid_spacing: Float[Array, "2"]
+    indices_2d: Float[Array, "nb ns 2"]
+    relevant_metrics_2d: Float[Array, "nb ns"]
+    metrics_2d: MetricBase
 
     dtype: DTypeLike = jnp.float32
 
@@ -353,11 +353,11 @@ class ODESurrogate(eqx.Module):
 
 @jaxtyped(typechecker=typechecker)
 class SurrogateLookup(eqx.Module):
-    _surrogate: ODESurrogate = eqx.field(static=True)
-    _beta_min: float = eqx.field(static=True)
-    _beta_max: float = eqx.field(static=True)
-    _sigma_min: float = eqx.field(static=True)
-    _sigma_max: float = eqx.field(static=True)
+    _surrogate: ODESurrogate
+    _beta_min: float
+    _beta_max: float
+    _sigma_min: float
+    _sigma_max: float
 
     def __init__(
         self,

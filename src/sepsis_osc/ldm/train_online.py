@@ -235,7 +235,6 @@ def process_train_epoch(
     model_params, model_static = eqx.partition(model, eqx.is_inexact_array)
 
     key, _ = jr.split(key)
-    step_losses = []
 
     def scan_step(
         carry: tuple[PyTree, optax.OptState, jnp.ndarray],
@@ -511,6 +510,8 @@ if __name__ == "__main__":
     model = eqx.nn.inference_mode(model, value=False)
 
     filter_spec = jtu.tree_map(lambda _: eqx.is_inexact_array, model)
+    if not isinstance(model.lookup, LearnedLookup):
+        filter_spec = eqx.tree_at(lambda m: m.lookup, filter_spec, replace=False)
 
     logger.info(
         f"Instatiated model with total {model.n_params} parameters. "

@@ -61,7 +61,7 @@ def load_fold_data(
         repetition_index=rep_idx,
         cv_folds=cv_folds,
         fold_index=fold_idx,
-        # sequence_files="data/cv/sequence_",
+        sequence_files=f"data/cv/{db_name}/sequence_",
     )
 
     train_x, train_y, train_m, val_x, val_y, val_m, *_ = data
@@ -74,15 +74,19 @@ def load_fold_data(
     }
 
 
+storage = Storage(
+    key_dim=9,
+    metrics_kv_name="data/DaisyFinalSepsisMetrics.db/",
+    parameter_k_name="data/DaisyFinalSepsisParameters_index.bin",
+    use_mem_cache=True,
+)
+_latent_lookup = build_lookup_table(storage, alpha=ALPHA, beta_space=BETA_SPACE, sigma_space=SIGMA_SPACE)
+storage.close()
+
+
 def build_lookup(config: ExperimentConfig, key: PRNGKeyArray) -> LookupProtocol:
     if config.lookup_type == "standard":
-        storage = Storage(
-            key_dim=9,
-            metrics_kv_name="data/DaisyFinalSepsisMetrics.db/",
-            parameter_k_name="data/DaisyFinalSepsisParameters_index.bin",
-            use_mem_cache=True,
-        )
-        return build_lookup_table(storage, alpha=ALPHA, beta_space=BETA_SPACE, sigma_space=SIGMA_SPACE)
+        return _latent_lookup
     if config.lookup_type == "surrogate":
         db_str = "DaisyFinal"
         sim_storage = Storage(
@@ -195,6 +199,8 @@ def train_one_run(
     auroc, auprc = 0, 0
 
     filter_spec = jtu.tree_map(lambda _: eqx.is_inexact_array, model)
+    if not isinstance(model.lookup, LearnedLookup):
+        filter_spec = eqx.tree_at(lambda m: m.lookup, filter_spec, replace=False)
 
     stop = False
     early_stop_auprc = EarlyStopping(direction=1, patience=10, min_steps=20)
@@ -237,6 +243,10 @@ def train_one_run(
             )
             logger.info(log_msg)
             del shuffle_key, train_metrics, mini_train_metrics, params_model
+
+        print("grid_origin:", model.lookup.grid_origin)
+        print("grid_spacing:", model.lookup.grid_spacing)
+        print("indices_2d corner:", model.lookup.indices_2d[0, 0], model.lookup.indices_2d[-1, -1])
 
         # === VALIDATE ===
         if epoch % config.train.validate_every == 0:
@@ -388,13 +398,10 @@ if __name__ == "__main__":
 
     for lookup_type in ["standard", "surrogate", "mlp", "radial_modest"]:
         _config = ExperimentConfig(
-            train=_train_conf,
-            lr=_lr_conf,
-            loss=_loss_conf,
-            load=_load_conf,
-            save=_save_conf,
-            lookup_type=lookup_type
+            train=_train_conf, lr=_lr_conf, loss=_loss_conf, load=_load_conf, save=_save_conf, lookup_type=lookup_type
         )
 
         results = run_cross_validation(_config, n_folds=5, repetitions=5)
+        eqx.clear_caches()
+        jax.clear_caches()
         print(results)
