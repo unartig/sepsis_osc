@@ -12,8 +12,9 @@ matplotlib>=3.7.1
 msgpack-numpy==0.4.8
 numpy>=2.0.1
 optax==0.2.6
-rocksdb-py==0.6.0
+polars==1.37.1
 pysr==1.5.10
+rocksdb-py==0.0.6
 tbparse==0.0.9
 tensorboard==2.20.0
 tensorboardx==2.6.4
