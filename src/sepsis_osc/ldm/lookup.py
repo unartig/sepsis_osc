@@ -8,10 +8,10 @@ import jax.numpy as jnp
 import jax.random as jr
 import numpy as np
 import optax
-from equinox import field
 from jaxtyping import Array, DTypeLike, Float, Int, PRNGKeyArray, jaxtyped
 
-from sepsis_osc.dnm.dynamic_network_model import DNMMetrics, MetricBase
+from sepsis_osc.dnm.dynamic_network_model import DNMConfig, DNMMetrics, MetricBase
+from sepsis_osc.storage.storage_interface import Storage
 from sepsis_osc.utils.jax_config import EPS, typechecker
 
 _1 = jnp.ones((1,))
@@ -102,6 +102,28 @@ class LatentLookup(eqx.Module):
         object.__setattr__(self, "metrics_2d", metrics_2d.astype(dtype))
         relevant_metrics_3d = self._extract_relevant(metrics_2d)
         object.__setattr__(self, "relevant_metrics_2d", relevant_metrics_3d)
+
+    @staticmethod
+    def build(storage: Storage, alpha: float, beta_space: tuple[float, float, float], sigma_space: tuple[float, float, float]) -> "LatentLookup":
+        b, s = as_2d_indices(beta_space, sigma_space)
+        a = np.ones_like(b) * alpha
+
+        indices_2d = jnp.concatenate([b[..., None], s[..., None]], axis=-1)
+        spacing_2d = jnp.array([beta_space[2], sigma_space[2]])
+
+        params = DNMConfig.batch_as_index(a, b, s, 0.2)
+        metrics_2d, _ = storage.read_multiple_results(params, proto_metric=DNMMetrics, threshold=0.0)
+
+        metrics_2d = metrics_2d.to_jax()
+
+        return LatentLookup(
+            metrics=metrics_2d.reshape((-1, 1)),
+            indices=indices_2d.reshape((-1, 2)),
+            metrics_2d=metrics_2d,
+            indices_2d=indices_2d,
+            grid_spacing=spacing_2d,
+            dtype=jnp.float32,
+        )
 
     @staticmethod
     @jaxtyped(typechecker=typechecker)

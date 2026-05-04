@@ -15,10 +15,9 @@ from jaxtyping import PRNGKeyArray, PyTree
 from sklearn.metrics import average_precision_score, roc_auc_score
 from tensorboardX import SummaryWriter
 
-from sepsis_osc.dnm.dynamic_network_model import DNMConfig, DNMMetrics
 from sepsis_osc.ldm.calibration_model import TemperatureScaling
 from sepsis_osc.ldm.checkpoint_utils import load_checkpoint, save_checkpoint
-from sepsis_osc.ldm.commons import build_lookup_table, custom_warmup_cosine
+from sepsis_osc.ldm.commons import custom_warmup_cosine
 from sepsis_osc.ldm.data_loading import get_data_sets_online, prepare_batches_mask
 from sepsis_osc.ldm.early_stopping import EarlyStopping
 from sepsis_osc.ldm.latent_dynamics_model import LatentDynamicsModel, init_ldm_weights
@@ -80,7 +79,7 @@ storage = Storage(
     parameter_k_name="data/DaisyFinalSepsisParameters_index.bin",
     use_mem_cache=True,
 )
-_latent_lookup = build_lookup_table(storage, alpha=ALPHA, beta_space=BETA_SPACE, sigma_space=SIGMA_SPACE)
+_latent_lookup = LatentLookup.build(storage, alpha=ALPHA, beta_space=BETA_SPACE, sigma_space=SIGMA_SPACE)
 storage.close()
 
 
@@ -88,23 +87,10 @@ def build_lookup(config: ExperimentConfig, key: PRNGKeyArray) -> LookupProtocol:
     if config.lookup_type == "standard":
         return _latent_lookup
     if config.lookup_type == "surrogate":
-        db_str = "DaisyFinal"
-        sim_storage = Storage(
-            key_dim=9,
-            metrics_kv_name=f"data/{db_str}SepsisMetrics.db/",
-            parameter_k_name=f"data/{db_str}SepsisParameters_index.bin",
-            use_mem_cache=True,
-        )
-        sim_storage.close()
-        b, s = as_2d_indices(BETA_SPACE, SIGMA_SPACE)
-        a = np.ones_like(b) * ALPHA
-        params = DNMConfig.batch_as_index(a, b, s, 0.2)
-        metrics_2d, _ = sim_storage.read_multiple_results(params, proto_metric=DNMMetrics, threshold=0.0)
-        metrics_2d = metrics_2d.to_jax()
         return SurrogateLookup(
             jnp.arange(*BETA_SPACE),
             jnp.arange(*SIGMA_SPACE),
-            metrics_2d.squeeze().s_1,
+            _latent_lookup.metrics_2d.squeeze().s_1,
             key,
             lr=2e-2,
             batch_size=512,
