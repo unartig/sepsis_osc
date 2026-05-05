@@ -148,10 +148,14 @@ def init_model_and_optimizer(
         optax.adamw(learning_rate=schedule, weight_decay=config.lr.enc_wd),
     )
 
-    params, static = eqx.partition(model, eqx.is_inexact_array)
+    filter_spec = jtu.tree_map(lambda _: eqx.is_inexact_array, model)
+    if not isinstance(model.lookup, LearnedLookup):
+        filter_spec = eqx.tree_at(lambda m: m.lookup, filter_spec, replace=False)
+
+    params, static = eqx.partition(model, filter_spec)
     opt_state = optimizer.init(params)
 
-    return model, static, optimizer, opt_state, schedule, jnp.asarray(sofa_dist)
+    return model, static, optimizer, opt_state, schedule, jnp.asarray(sofa_dist), filter_spec
 
 
 def train_one_run(
@@ -165,6 +169,7 @@ def train_one_run(
     val_data: tuple[np.ndarray, ...],
     key: PRNGKeyArray,
     writer: SummaryWriter,
+    filter_spec: PyTree,
 ) -> tuple[LatentDynamicsModel, dict[str, float]]:
     hyper_ldm = model.hypers_dict()
     hyper_params = flatten_dict(
@@ -183,10 +188,6 @@ def train_one_run(
     del train_data, val_data
 
     auroc, auprc = 0, 0
-
-    filter_spec = jtu.tree_map(lambda _: eqx.is_inexact_array, model)
-    if not isinstance(model.lookup, LearnedLookup):
-        filter_spec = eqx.tree_at(lambda m: m.lookup, filter_spec, replace=False)
 
     stop = False
     early_stop_auprc = EarlyStopping(direction=1, patience=10, min_steps=20)
@@ -307,7 +308,7 @@ def run_cross_validation(config: ExperimentConfig, n_folds: int = 5, repetitions
 
             key = jr.PRNGKey(jax_random_seed + rep * 100 + fold)
 
-            model, static, optimizer, opt_state, schedule, sofa_dist = init_model_and_optimizer(
+            model, static, optimizer, opt_state, schedule, sofa_dist, filter_spec = init_model_and_optimizer(
                 config,
                 data["train"][1],
                 data["train"][2],
@@ -333,6 +334,7 @@ def run_cross_validation(config: ExperimentConfig, n_folds: int = 5, repetitions
                 data["val"],
                 key,
                 writer,
+                filter_spec=filter_spec
             )
 
             results.append(metrics)

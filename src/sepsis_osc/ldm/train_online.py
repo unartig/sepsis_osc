@@ -34,7 +34,7 @@ from sepsis_osc.ldm.lookup import (
 )
 from sepsis_osc.ldm.model_structs import AuxLosses, LoadingConfig, LossesConfig, LRConfig, SaveConfig, TrainingConfig
 from sepsis_osc.storage.storage_interface import Storage
-from sepsis_osc.utils.config import ALPHA, BETA_SPACE, SIGMA_SPACE, jax_random_seed
+from sepsis_osc.utils.config import ALPHA, BETA_SPACE, SIGMA_SPACE, jax_random_seed, db_name
 from sepsis_osc.utils.jax_config import EPS, setup_jax, typechecker
 from sepsis_osc.utils.logger import setup_logging
 from sepsis_osc.utils.utils import timing
@@ -232,7 +232,7 @@ def process_train_epoch(
     Executes a single training epoch.
     It uses `jax.lax.scan` to iterate through batches, computing gradients and updating model parameters.
     """
-    model_params, model_static = eqx.partition(model, eqx.is_inexact_array)
+    model_params, model_static = eqx.partition(model, param_filter)
 
     key, _ = jr.split(key)
 
@@ -242,24 +242,25 @@ def process_train_epoch(
     ) -> tuple[tuple[PyTree, optax.OptState, jnp.ndarray], AuxLosses]:
         _model_params, opt_state, key = carry
         batch_x, batch_true_c, batch_mask = batch
-        _model = eqx.combine(_model_params, model_static)
+        def loss_on_params(_model_params: PyTree) -> tuple:
+            _model = eqx.combine(_model_params, model_static)
+            return loss(
+                _model,
+                x=batch_x,
+                true_concepts=batch_true_c,
+                mask=batch_mask,
+                step=opt_state[1][0].count,  # ty:ignore[not-subscriptable, unresolved-attribute]
+                key=key,
+                params=loss_params,
+            )
 
-        (_, aux_losses), grads = eqx.filter_value_and_grad(loss, has_aux=True)(
-            _model,
-            x=batch_x,
-            true_concepts=batch_true_c,
-            mask=batch_mask,
-            step=opt_state[1][0].count,  # ty:ignore[not-subscriptable, unresolved-attribute]
-            key=key,
-            params=loss_params,
-        )
+        (_, aux_losses), grads = eqx.filter_value_and_grad(loss_on_params, has_aux=True)(_model_params)
 
         updates, opt_state = update(
             grads,
             opt_state,
             _model_params,
         )
-        updates = eqx.filter(updates, param_filter)
         model_params = eqx.apply_updates(_model_params, updates)
 
         return (
@@ -440,7 +441,7 @@ if __name__ == "__main__":
         _y,
         _m,
     ) = get_data_sets_online(
-        swapaxes_y=(1, 2, 0), dtype=jnp.float32, cv_repetitions=5, repetition_index=0, cv_folds=5, fold_index=0
+        swapaxes_y=(1, 2, 0), dtype=jnp.float32, cv_repetitions=5, repetition_index=0, cv_folds=5, fold_index=0, sequence_files=f"data/cv/{db_name}/sequence_",
     )
     train_m, val_m = train_m.astype(np.bool), val_m.astype(np.bool)
     logger.error(f"{jnp.unique(train_y[..., 0])}")
@@ -492,11 +493,14 @@ if __name__ == "__main__":
     )
 
     # === Initialization ===
+    filter_spec = jtu.tree_map(lambda _: eqx.is_inexact_array, model)
+    if not isinstance(model.lookup, LearnedLookup):
+        filter_spec = eqx.tree_at(lambda m: m.lookup, filter_spec, replace=False)
     optimizer = optax.chain(
         optax.clip_by_global_norm(1.0),
         optax.adamw(learning_rate=schedule, weight_decay=lr_conf.enc_wd),
     )
-    params_model, static_model = eqx.partition(model, eqx.is_inexact_array)
+    params_model, static_model = eqx.partition(model, filter_spec)
     opt_state = optimizer.init(params_model)
     if load_conf.from_dir:
         try:
@@ -509,9 +513,6 @@ if __name__ == "__main__":
             load_conf.from_dir = ""
     model = eqx.nn.inference_mode(model, value=False)
 
-    filter_spec = jtu.tree_map(lambda _: eqx.is_inexact_array, model)
-    if not isinstance(model.lookup, LearnedLookup):
-        filter_spec = eqx.tree_at(lambda m: m.lookup, filter_spec, replace=False)
 
     logger.info(
         f"Instatiated model with total {model.n_params} parameters. "
