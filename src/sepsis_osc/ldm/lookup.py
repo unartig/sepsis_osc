@@ -199,7 +199,7 @@ class LatentLookup(eqx.Module):
 
         # Convert query points into fractional voxel coordinates
         rel_pos = (q - self.grid_origin) / self.grid_spacing
-        voxel_idx = self.round_ste(rel_pos).astype(jnp.int32)
+        voxel_idx = jnp.round(rel_pos).astype(jnp.int32)
 
         radius = kernel_size // 2
         offsets = jnp.arange(-radius, radius + 1, dtype=jnp.int32)
@@ -569,38 +569,72 @@ def compute_window_bounds(
     return beta_min, beta_max, sigma_min, sigma_max
 
 
-@jaxtyped(typechecker=typechecker)
-def get_linear(x: Float[Array, "nb ns"], y: Float[Array, "nb ns"], k: int | float) -> Callable:
-    xmid = x.min() + (x.max() - x.min()) / 2
+class RadialFn(eqx.Module):
+    xmin: float
+    xmax: float
+    ymin: float
+    ymax: float
+    k: float
 
-    @jaxtyped(typechecker=typechecker)
-    def linear(xs: Float[Array, " batch"], ys: Float[Array, " batch"]) -> Float[Array, " batch"]:
-        return jax.nn.sigmoid(k * (xs - xmid))
-
-    return linear
-
-
-@jaxtyped(typechecker=typechecker)
-def get_radial(x: Float[Array, "nb ns"], y: Float[Array, "nb ns"], k: int | float) -> Callable:
-    xmin, xmax = x.min(), x.max()
-    ymin, ymax = y.min(), y.max()
-
-    @jaxtyped(typechecker=typechecker)
-    def radial(xs: Float[Array, " batch"], ys: Float[Array, " batch"]) -> Float[Array, " batch"]:
-        x_symm = (xs - xmin) / (xmax - xmin)
-        y_symm = (ys - ymin) / (ymax - ymin)
+    def __call__(
+        self,
+        xs: Float[Array, " batch"],
+        ys: Float[Array, " batch"],
+    ) -> Float[Array, " batch"]:
+        x_symm = (xs - self.xmin) / (self.xmax - self.xmin)
+        y_symm = (ys - self.ymin) / (self.ymax - self.ymin)
         r = jnp.sqrt((x_symm - 0.5) ** 2 + (y_symm - 0.5) ** 2)
-        return jax.nn.sigmoid(k * (0.2 - r))
+        return jax.nn.sigmoid(self.k * (0.2 - r))
 
-    return radial
+
+@jaxtyped(typechecker=typechecker)
+def get_radial(
+    x: Float[Array, "nb ns"],
+    y: Float[Array, "nb ns"],
+    k: int | float,
+) -> RadialFn:
+    return RadialFn(
+        xmin=float(x.min()),
+        xmax=float(x.max()),
+        ymin=float(y.min()),
+        ymax=float(y.max()),
+        k=float(k),
+    )
 
 
 def bump(x: Float[Array, " batch"]) -> Float[Array, " batch"]:
     return x * jnp.exp(-x)
 
+class LinearFn(eqx.Module):
+    xmid: float
+    k: float
 
-def get_approx() -> Callable:
-    def approx(xs: Float[Array, " batch"], ys: Float[Array, " batch"]) -> Float[Array, " batch"]:
+    def __call__(
+        self,
+        xs: Float[Array, " batch"],
+        ys: Float[Array, " batch"],
+    ) -> Float[Array, " batch"]:
+        return jax.nn.sigmoid(self.k * (xs - self.xmid))
+
+
+def get_linear(
+    x: Float[Array, "nb ns"],
+    y: Float[Array, "nb ns"],
+    k: int | float,
+) -> LinearFn:
+    return LinearFn(
+        xmid=float(x.min() + (x.max() - x.min()) / 2),
+        k=float(k),
+    )
+
+
+class ApproxFn(eqx.Module):
+    def __call__(
+        self,
+        xs: Float[Array, " batch"],
+        ys: Float[Array, " batch"],
+    ) -> Float[Array, " batch"]:
         return (jnp.sin((jnp.sin((jnp.sin(xs / (0.50825256 - bump(jnp.sin(jnp.sin((ys / 0.60103625) - (xs * 1.1470096))) + 0.4785785))) - 0.10480727)**4))**2 + (ys * 0.11145829)))  # fmt: off
 
-    return approx
+def get_approx() -> ApproxFn:
+    return ApproxFn()
