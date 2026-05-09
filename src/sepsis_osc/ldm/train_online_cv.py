@@ -186,6 +186,17 @@ def train_one_run(
     val_x, val_y, val_m = val_data
 
     del train_data, val_data
+    key, val_key = jr.split(key)
+    val_x, val_y, val_m, _ = prepare_batches_mask(
+        val_x,
+        val_y,
+        val_m,
+        batch_size=config.train.batch_size,
+        key=val_key,
+        mini_epochs=3,
+        shuffle=False,
+        pos_fraction=-1.0,
+    )
 
     auroc, auprc = 0, 0
 
@@ -196,7 +207,7 @@ def train_one_run(
         # === TRAIN ===
         if epoch > 0:
             shuffle_key = jr.fold_in(key, epoch)
-            x_shuffled, y_shuffled, m_shuffled, ntrain_batches = prepare_batches_mask(
+            x_shuffled, y_shuffled, m_shuffled, _ = prepare_batches_mask(
                 train_x,
                 train_y,
                 train_m,
@@ -234,16 +245,20 @@ def train_one_run(
         # === VALIDATE ===
         if epoch % config.train.validate_every == 0:
             val_model = eqx.nn.inference_mode(model, value=True)
-            val_key = jr.fold_in(key, epoch + 2)
-            val_metrics = process_val_epoch(
-                val_model,
-                x_data=val_x[None],
-                y_data=val_y[None],
-                mask_data=val_m[None],
-                step=opt_state[1][0].count,
-                key=val_key,
-                loss_params=config.loss,
-            )
+            val_metrics = []
+            for mini_epoch in range(3):
+                val_key = jr.fold_in(key, epoch + 2)
+                mini_val_metrics = process_val_epoch(
+                    val_model,
+                    x_data=val_x[mini_epoch],
+                    y_data=val_y[mini_epoch],
+                    mask_data=val_m[mini_epoch],
+                    step=opt_state[1][0].count,
+                    key=val_key,
+                    loss_params=config.loss,
+                )
+                val_metrics.append(mini_val_metrics)
+            val_metrics = jtu.tree_map(lambda *xs: jnp.concatenate(xs, axis=0), *val_metrics)
 
             if config.train.calibrate and epoch > 0:
                 cal = TemperatureScaling().calibrate(
@@ -252,14 +267,24 @@ def train_one_run(
                     y_shuffled[m_shuffled, 2],
                 )
                 val_metrics.sep3_risk = np.zeros_like(val_metrics.sep3_risk)
-                val_metrics.sep3_risk[val_m[None]] = cal.get_sepsis_probs(
-                    val_metrics.sofa_d2_risk[val_m[None]], val_metrics.susp_inf_p[val_m[None]]
+                val_metrics.sep3_risk[val_m] = cal.get_sepsis_probs(
+                    val_metrics.sofa_d2_risk[val_m], val_metrics.susp_inf_p[val_m]
                 )
                 logger.error(cal.coeffs)
 
+            val_metrics_np = jtu.tree_map(lambda x: x.reshape(-1, *x.shape[2:]), val_metrics.to_np())
+            val_y_flat = val_y.reshape(-1, *val_y.shape[3:])
+            val_m_flat = val_m.reshape(-1, *val_m.shape[3:])
+
             if config.train.early_stop:
-                auprc = average_precision_score((val_y[val_m, 2] == 1.0), val_metrics.to_np().sep3_risk[val_m[None]])
-                auroc = roc_auc_score((val_y[val_m, 2] == 1.0), val_metrics.to_np().sep3_risk[val_m[None]])
+                auprc = average_precision_score(
+                    (val_y_flat[val_m_flat, 2] == 1.0),
+                    val_metrics_np.sep3_risk[val_m_flat],
+                )
+                auroc = roc_auc_score(
+                    (val_y_flat[val_m_flat, 2] == 1.0),
+                    val_metrics_np.sep3_risk[val_m_flat],
+                )
                 auprc_stop = early_stop_auprc.step(auprc)
                 auroc_stop = early_stop_auroc.step(auroc)
                 stop = auprc_stop & auroc_stop
@@ -268,7 +293,8 @@ def train_one_run(
                     f"AUPRC {early_stop_auprc.bad_steps}|{early_stop_auprc.stopped}"
                 )
 
-            log_msg = log_val_metrics(val_metrics.to_np(), val_y[None], model.lookup, epoch, writer, mask=val_m[None])
+            val_metrics_log = jtu.tree_map(lambda x: x.reshape(1, -1, *x.shape[2:]), val_metrics.to_np())
+            log_msg = log_val_metrics(val_metrics_log, val_y_flat[None], model.lookup, epoch, writer, mask=val_m_flat[None])
             logger.warning(log_msg)
 
             model = eqx.nn.inference_mode(val_model, value=False)
@@ -334,7 +360,7 @@ def run_cross_validation(config: ExperimentConfig, n_folds: int = 5, repetitions
                 data["val"],
                 key,
                 writer,
-                filter_spec=filter_spec
+                filter_spec=filter_spec,
             )
 
             results.append(metrics)
