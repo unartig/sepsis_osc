@@ -94,12 +94,14 @@ dynamic_vars = [
 print("Start creating the SOFA task.")
 print("   Preload variables")
 sepsis_args = {}
+if args.src in ["eicu", "eicu_demo", "hirid"]:
+    sepsis_args["si_mode"] = "abx"
 
 # Load the concepts SOFA, suspected infection and Sepsis3
 with robjects.default_converter.context():
     sofa = LoadStep(outc_vars, args.src, cache=True, **sepsis_args).perform()
     sepsis = LoadStep([main_target], args.src, cache=True, **sepsis_args).perform()
-    los_icu = LoadStep(["los_icu"], args.src, cache=True, **sepsis_args).perform()
+    los_icu = sofa[["stay_id", "los_icu"]].groupby("stay_id").first().reset_index()
 
     static = LoadStep(static_vars, args.src, cache=True).perform()
     dynamic = LoadStep(dynamic_vars, args.src, cache=True).perform()
@@ -151,7 +153,7 @@ sepsis_add6["time"] += 6
 patients = stop_window_at(patients, end=sepsis_add6)
 
 get_first_sepsis = Pipeline("Get patients")
-get_first_sepsis.add_step([InputStep(csofa), AggStep("stay_id", "max")])
+get_first_sepsis.add_step([InputStep(sepsis), AggStep("stay_id", "max")])
 load_hospital_id = LoadStep("hospital_id", src=args.src)
 excl6 = SelectionCriterion("Low sepsis prevalence")
 excl6.add_step(
@@ -170,7 +172,7 @@ excl7.add_step(
 print("   Select cohort\n")
 cohort = Cohort(patients)
 cohort.add_criterion(
-    [excl1, excl2, excl3, excl4, excl5, excl6]
+    [excl1, excl2, excl3, excl4, excl5, excl6, excl7]
     if args.src in ["eicu", "eicu_demo"]
     else [excl1, excl2, excl3, excl4, excl5, excl7]
 )
@@ -209,6 +211,7 @@ print(f"Data Shapes: {outc.shape}, {dyn.shape}, {sta.shape}")
 pq.write_table(pa.Table.from_pandas(outc), os.path.join(save_dir, "outc.parquet"))
 pq.write_table(pa.Table.from_pandas(dyn), os.path.join(save_dir, "dyn.parquet"))
 pq.write_table(pa.Table.from_pandas(sta), os.path.join(save_dir, "sta.parquet"))
+attrition.to_csv(os.path.join(save_dir, "attrition.csv"))
 
 
 sofa_index = outc.set_index(["stay_id", "time"]).index
@@ -320,4 +323,3 @@ pq.write_table(pa.Table.from_pandas(routc), os.path.join(save_dir, "outc.parquet
 pq.write_table(pa.Table.from_pandas(dyn), os.path.join(save_dir, "dyn.parquet"))
 pq.write_table(pa.Table.from_pandas(sta), os.path.join(save_dir, "sta.parquet"))
 attrition.to_csv(os.path.join(save_dir, "attrition.csv"))
-
