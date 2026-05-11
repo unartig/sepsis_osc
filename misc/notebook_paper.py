@@ -37,11 +37,11 @@ def _():
     from scipy.stats import binned_statistic_2d
     from scipy.signal import fftconvolve
     from sklearn.metrics import average_precision_score, roc_auc_score
+    from statsmodels.stats.multitest import multipletests
     from tbparse import SummaryReader
 
     from sepsis_osc.dnm.dynamic_network_model import DNMConfig, DNMMetrics, DNMState, DynamicNetworkModel
     from sepsis_osc.ldm.checkpoint_utils import load_checkpoint
-    from sepsis_osc.ldm.commons import build_lookup_table
     from sepsis_osc.ldm.data_loading import get_data_sets_online
     from sepsis_osc.ldm.latent_dynamics_model import LatentDynamicsModel
     from sepsis_osc.ldm.lookup import LatentLookup, as_2d_indices
@@ -73,6 +73,7 @@ def _():
         Ellipse,
         GridSpec,
         LatentDynamicsModel,
+        LatentLookup,
         LoadingConfig,
         LossesConfig,
         SIGMA_SPACE,
@@ -81,7 +82,6 @@ def _():
         SummaryReader,
         as_2d_indices,
         average_precision_score,
-        build_lookup_table,
         colors,
         eqx,
         fftconvolve,
@@ -94,6 +94,7 @@ def _():
         load_checkpoint,
         logger,
         model_to_latex_figure,
+        multipletests,
         np,
         pd,
         plt,
@@ -133,16 +134,23 @@ def _():
 
 
 @app.cell
+def _():
+    figdir = "rev2"
+    db_name = "miiv"
+    return db_name, figdir
+
+
+@app.cell
 def _(
     ALPHA,
     BETA_SPACE,
     DNMConfig,
     DNMMetrics,
+    LatentLookup,
     LossesConfig,
     SIGMA_SPACE,
     Storage,
     as_2d_indices,
-    build_lookup_table,
     np,
 ):
     db_str = "DaisyFinal"
@@ -153,8 +161,8 @@ def _(
         use_mem_cache=True,
     )
 
-    lookup_table = build_lookup_table(storage, alpha=ALPHA, beta_space=BETA_SPACE, sigma_space=SIGMA_SPACE)
-    large_lookup_table =  build_lookup_table(storage, alpha=ALPHA, beta_space=(0, 1.0, 0.01), sigma_space=SIGMA_SPACE)
+    lookup_table = LatentLookup.build(storage, alpha=ALPHA, beta_space=BETA_SPACE, sigma_space=SIGMA_SPACE)
+    large_lookup_table =  LatentLookup.build(storage, alpha=ALPHA, beta_space=(0, 1.0, 0.01), sigma_space=SIGMA_SPACE)
 
     b, r = as_2d_indices(BETA_SPACE, SIGMA_SPACE)
     a = np.ones_like(b) * ALPHA
@@ -329,9 +337,9 @@ def _(plot_init):
 
 
 @app.cell
-def _(init_fig):
-    init_fig.savefig("typst/images/paper/init.svg")
-    init_fig.savefig("typst/images/paper/init.png", dpi=400)
+def _(figdir, init_fig):
+    init_fig.savefig(f"typst/images/{figdir}/init.svg")
+    init_fig.savefig(f"typst/images/{figdir}/init.png", dpi=400)
     return
 
 
@@ -343,9 +351,9 @@ def _(plot_init):
 
 
 @app.cell
-def _(init_hist_fig):
-    init_hist_fig.savefig("typst/images/paper/init_hist.svg")
-    init_hist_fig.savefig("typst/images/paper/init_hist.png", dpi=400)
+def _(figdir, init_hist_fig):
+    init_hist_fig.savefig(f"typst/images/{figdir}/init_hist.svg")
+    init_hist_fig.savefig(f"typst/images/{figdir}/init_hist.png", dpi=400)
     return
 
 
@@ -357,9 +365,9 @@ def _(plot_init):
 
 
 @app.cell
-def _(init_polar_fig):
-    init_polar_fig.savefig("typst/images/paper/init_polar.svg")
-    init_polar_fig.savefig("typst/images/paper/init_polar.png", dpi=400)
+def _(figdir, init_polar_fig):
+    init_polar_fig.savefig(f"typst/images/{figdir}/init_polar.svg")
+    init_polar_fig.savefig(f"typst/images/{figdir}/init_polar.png", dpi=400)
     return
 
 
@@ -425,20 +433,20 @@ def _(plot_phase):
 
 
 @app.cell
-def _(phase_fig):
-    phase_fig.savefig("typst/images/paper/phase.svg")
-    phase_fig.savefig("typst/images/paper/phase.png", dpi=400)
+def _(figdir, phase_fig):
+    phase_fig.savefig(f"typst/images/{figdir}/phase.svg")
+    phase_fig.savefig(f"typst/images/{figdir}/phase.png", dpi=400)
     return
 
 
 @app.cell
-def _(metrics_2d, plt):
+def _(figdir, metrics_2d, plt):
     _fig, _ax = plt.subplots(1, 1)
     _ax.imshow(metrics_2d.s_1.T[::-1, :], aspect="auto", cmap="viridis")
     _fig.subplots_adjust(top=1.0, bottom=0, left=0, right=1.0)
     _ax.set_yticks([])
     _ax.set_xticks([])
-    _fig.savefig("typst/images/paper/phase_empty.svg")
+    _fig.savefig(f"typst/images/{figdir}/phase_empty.svg")
     return
 
 
@@ -563,9 +571,9 @@ def _(plot_snapshots):
 
 
 @app.cell
-def _(snap_fig):
-    snap_fig.savefig("typst/images/paper/snapshots.svg")
-    snap_fig.savefig("typst/images/paper/snapshots.png", dpi=400)
+def _(figdir, snap_fig):
+    snap_fig.savefig(f"typst/images/{figdir}/snapshots.svg")
+    snap_fig.savefig(f"typst/images/{figdir}/snapshots.png", dpi=400)
     return
 
 
@@ -577,9 +585,9 @@ def _(plot_snapshots):
 
 
 @app.cell
-def _(snap_hist_fig):
-    snap_hist_fig.savefig("typst/images/paper/snapshots_hist.svg")
-    snap_hist_fig.savefig("typst/images/paper/snapshots_hist.png", dpi=400)
+def _(figdir, snap_hist_fig):
+    snap_hist_fig.savefig(f"typst/images/{figdir}/snapshots_hist.svg")
+    snap_hist_fig.savefig(f"typst/images/{figdir}/snapshots_hist.png", dpi=400)
     return
 
 
@@ -602,7 +610,7 @@ def _(
     pd,
 ):
     def get_model(
-        rep: int, fold: int
+        rep: int, fold: int, cv_dir: str
     ) -> tuple[
         LatentDynamicsModel,
         pd.DataFrame,
@@ -613,7 +621,7 @@ def _(
         pd.DataFrame,
     ]:
         _run_name = f"rep{rep:002}_fold{fold:002}"
-        run_dir = f"runs/cv3/{_run_name}"
+        run_dir = cv_dir + _run_name
         tb_reader = SummaryReader(run_dir)
         _tb_df = tb_reader.scalars
         hparams = tb_reader.hparams.T
@@ -648,20 +656,20 @@ def _(get_model, model_to_latex_figure):
 @app.cell
 def _(
     average_precision_score,
+    db_name,
+    eqx,
     get_data_sets_online,
     get_model,
     jax_random_seed,
     jnp,
     jr,
     logger,
-    lookup_table,
     loss_conf,
     np,
     pd,
     process_val_epoch,
     roc_auc_score,
 ):
-    from jax.tree_util import Partial
     repetitions = 5
     n_folds = 5
     rows = []
@@ -669,96 +677,135 @@ def _(
     dtype = jnp.float32
     key = jr.PRNGKey(jax_random_seed)
 
-    process_val_epoch._cached.clear_cache()
+    def evaluate_cv_models(base_path, loss_conf, key, repetitions: int = 5, n_folds: int = 5, dtype=np.float32):
+        """
+        Evaluates CV models and returns a summary DataFrame and a dict of heavy metrics.
+        """
+        rows = []
+        heavy_data = {}
 
-    for rep in range(repetitions):
-        for fold in range(n_folds):
-            try:
-                model, _tb_df, hparams, _run_name, _load_epoch, _auroc, _auprc = get_model(rep, fold)
-            except ValueError as e:
-                logger.warning(f"Summary not found {rep}-{repetitions - 1} {fold}-{n_folds - 1}")
-                continue
-            except FileNotFoundError as e:
-                logger.warning(f"Failed loading checkpoint: {e}.")
-                continue
-            except Exception as e:
-                logger.warning(f"Failed to load {rep}-{repetitions - 1} {fold}-{n_folds - 1} sequences. {e}")
-                continue
-            logger.info(f"Loaded {rep}-{repetitions} {fold}-{n_folds}.")
-            _data = get_data_sets_online(
-                swapaxes_y=(1, 2, 0),
-                dtype=dtype,
-                cv_repetitions=repetitions,
-                repetition_index=rep,
-                cv_folds=n_folds,
-                fold_index=fold,
-                sequence_files="data/cv/sequence_",
-            )
-            *_, test_x, test_y, test_m = _data
-            test_m = test_m.astype(np.bool)
-            test_x, test_y, test_m = (test_x[None], test_y[None], test_m[None])
-            test_metrics = process_val_epoch(
-                model,
-                x_data=test_x,
-                y_data=test_y,
-                mask_data=test_m,
-                step=jnp.array(1000000.0, dtype=jnp.int32),
-                key=key,
-                lookup_func=Partial(lookup_table.soft_get_local),
-                loss_params=loss_conf,
-            )
-            true_sofa = np.asarray(test_y[..., 0])[test_m]
-            _true_sofa_d2 = np.concat([np.zeros(test_y.shape[:-2])[..., None], np.asarray(jnp.diff(test_y[..., 0], axis=-1) > 0)], axis=-1)[
-                test_m
-            ]
-            true_inf = np.asarray(test_y[..., 1])[test_m]
-            true_sep3 = np.asarray(test_y[..., 2] == 1.0)[test_m]
-            pred_sep3_risk = np.asarray(test_metrics.sep3_risk)[test_m]
-            _pred_sofa_d2_risk = np.asarray(test_metrics.sofa_d2_risk)[test_m]
-            pred_susp_inf_p = np.asarray(test_metrics.susp_inf_p)[test_m]
-            pred_sofa_score = np.asarray(test_metrics.hists_sofa_score)[test_m]
-            row = {
-                "repetition": rep,
-                "fold": fold,
-                "run_name": _run_name,
-                "best_epoch": int(_load_epoch),
-                "val_auprc_max": float(_auprc["value"].max()),
-                "val_auroc_max": float(_auroc["value"].max()),
-                "test_auroc_sep3": roc_auc_score(true_sep3, pred_sep3_risk),
-                "test_auprc_sep3": average_precision_score(true_sep3, pred_sep3_risk),
-                "test_auroc_sofa_d2": roc_auc_score(_true_sofa_d2, _pred_sofa_d2_risk),
-                "test_auprc_sofa_d2": average_precision_score(_true_sofa_d2, _pred_sofa_d2_risk),
-                "test_auroc_susp_inf": roc_auc_score(true_inf > 0, pred_susp_inf_p),
-                "test_auprc_susp_inf": average_precision_score(true_inf > 0, pred_susp_inf_p),
-            }
-            rows.append(row)
-            all_cv_metrics[(rep, fold)] = test_metrics, test_x, test_y, test_m
+        for rep in range(repetitions):
+            for fold in range(n_folds):
+                try:
+                    # Load model and hparams
+                    model, _tb_df, hparams, _run_name, _load_epoch, _auroc, _auprc = get_model(
+                        rep, fold, cv_dir=base_path
+                    )
 
-    results_df = pd.DataFrame(rows)  # validation info from tensorboard
+                    # Load data
+                    _data = get_data_sets_online(
+                        swapaxes_y=(1, 2, 0),
+                        dtype=dtype,
+                        cv_repetitions=repetitions,
+                        repetition_index=rep,
+                        cv_folds=n_folds,
+                        fold_index=fold,
+                        sequence_files=f"data/cv/{db_name}/sequence_",
+                    )
+                    *_, test_x, test_y, test_m = _data
+
+                    test_m = test_m.astype(np.bool)
+                    test_x, test_y, test_m = (test_x[None], test_y[None], test_m[None])
+
+
+                    # JIT Inference
+                    test_metrics = eqx.filter_jit(process_val_epoch)(
+                        model,
+                        x_data=test_x,
+                        y_data=test_y,
+                        mask_data=test_m,
+                        step=jnp.array(1_000_000, dtype=jnp.int32),
+                        key=key,
+                        loss_params=loss_conf,
+                    )
+
+                    # Process Metrics
+                    true_sep3 = np.asarray(test_y[..., 2] == 1.0)[test_m]
+                    pred_sep3 = np.asarray(test_metrics.sep3_risk)[test_m]
+
+                    true_sofa_d2 = np.concatenate([
+                        np.zeros(test_y.shape[:-2])[..., None], 
+                        np.asarray(jnp.diff(test_y[..., 0], axis=-1) > 0)
+                    ], axis=-1)[test_m]
+                    pred_sofa_d2 = np.asarray(test_metrics.sofa_d2_risk)[test_m]
+
+                    true_inf = np.asarray(test_y[..., 1] > 0)[test_m]
+                    pred_inf = np.asarray(test_metrics.susp_inf_p)[test_m]
+                    # Append to summary table
+                    rows.append({
+                        "repetition": rep,
+                        "fold": fold,
+                        "run_name": _run_name,
+                        "best_epoch": int(_load_epoch),
+                        "val_auprc_max": float(_auprc["value"].max()),
+                        "val_auroc_max": float(_auroc["value"].max()),
+                        "test_auroc_sep3": roc_auc_score(true_sep3, pred_sep3),
+                        "test_auprc_sep3": average_precision_score(true_sep3, pred_sep3),
+                        "test_auroc_sofa_d2": roc_auc_score(true_sofa_d2, pred_sofa_d2),
+                        "test_auprc_sofa_d2": average_precision_score(true_sofa_d2, pred_sofa_d2),
+                        "test_auroc_susp_inf": roc_auc_score(true_inf, pred_inf),            
+                        "test_auprc_susp_inf": average_precision_score(true_inf, pred_inf),
+                        "test_auroc_sep3_sofa_only": roc_auc_score(true_sep3, pred_sofa_d2),            
+                        "test_auprc_sep3_sofa_only": average_precision_score(true_sep3, pred_sofa_d2),
+                        "test_auroc_sep3_inf_only": roc_auc_score(true_sep3, pred_inf),            
+                        "test_auprc_sep3_inf_only": average_precision_score(true_sep3, pred_inf),
+
+                    })
+
+                    # Keep heavy objects separate
+                    heavy_data[(rep, fold)] = test_metrics, test_x, test_y, test_m
+                except (ValueError, FileNotFoundError, Exception) as e:
+                    logger.warning(f"Skipping {rep}-{fold}: {e}")
+                    continue
+
+        return pd.DataFrame(rows), heavy_data
+
+    results_df, all_cv_metrics = evaluate_cv_models(base_path=f"runs/cv/{db_name}/standard/", loss_conf=loss_conf, key=key)
+    results_df_mlp, _ = evaluate_cv_models(base_path=f"runs/cv/{db_name}/mlp/", loss_conf=loss_conf, key=key)
     return (
         all_cv_metrics,
         dtype,
-        hparams,
         key,
         n_folds,
         repetitions,
         results_df,
+        results_df_mlp,
     )
 
 
 @app.cell
 def _(results_df):
     c = results_df.copy()
+    c
     return
 
 
 @app.cell
-def _(np, results_df):
-    print(len(results_df))
-    _summary = results_df.agg({'test_auroc_sep3': ['mean', 'std'], 'test_auprc_sep3': ['mean', 'std']})
-    print(np.round(_summary * 100, 4))
-    _summary_inf = results_df.agg({'test_auroc_susp_inf': ['mean', 'std'], 'test_auprc_susp_inf': ['mean', 'std']})
-    print(np.round(_summary_inf * 100, 4))
+def _(results_df_mlp):
+    results_df_mlp
+    return
+
+
+@app.cell
+def _(np, results_df, results_df_mlp):
+    def print_summary(df):
+        print(len(df))
+        _summary = df.agg({'test_auroc_sep3': ['mean', 'std'], 'test_auprc_sep3': ['mean', 'std']})
+        print(np.round(_summary * 100, 4))
+        _summary_sep_inf = df.agg({'test_auroc_sep3_inf_only': ['mean', 'std'], 'test_auprc_sep3_inf_only': ['mean', 'std']})
+        print(np.round(_summary_sep_inf * 100, 4))
+        _summary_sofa_inf = df.agg({'test_auroc_sep3_sofa_only': ['mean', 'std'], 'test_auprc_sep3_sofa_only': ['mean', 'std']})
+        print(np.round(_summary_sofa_inf * 100, 4))
+        _summary_inf = df.agg({'test_auroc_susp_inf': ['mean', 'std'], 'test_auprc_susp_inf': ['mean', 'std']})
+        print(np.round(_summary_inf * 100, 4))
+        _summary_inf = df.agg({'test_auroc_sofa_d2': ['mean', 'std'], 'test_auprc_sofa_d2': ['mean', 'std']})
+        print(np.round(_summary_inf * 100, 4))
+
+    print("Standard LDM")
+    print_summary(results_df)
+
+    print("\nLDM with MLP")
+    print_summary(results_df_mlp)
     return
 
 
@@ -781,7 +828,7 @@ def _(
     sigmas_space = jnp.arange(SIGMA_SPACE[0], SIGMA_SPACE[1] + SIGMA_SPACE[2], SIGMA_SPACE[2])
     beta_grid, sigma_grid = np.meshgrid(betas_space, sigmas_space, indexing="ij")
     param_grid = np.stack([beta_grid.ravel(), sigma_grid.ravel()], axis=1)
-    metrics = lookup_table.hard_get_fsq(jnp.asarray(param_grid)).reshape(len(betas_space), len(sigmas_space))
+    metrics = lookup_table.hard_get_fsq(jnp.asarray(param_grid), jnp.array([0, 0], dtype=jnp.uint32)).reshape(len(betas_space), len(sigmas_space))
 
     cv_fig_combined, _axs = plt.subplots(1, 4, sharex=True, sharey=True)
 
@@ -847,9 +894,9 @@ def _(
 
 
 @app.cell
-def _(cv_fig_combined):
-    cv_fig_combined.savefig("typst/images/paper/cv_comparison_combined.svg")
-    cv_fig_combined.savefig("typst/images/paper/cv_comparison_combined.png", dpi=400)
+def _(cv_fig_combined, figdir):
+    cv_fig_combined.savefig(f"typst/images/{figdir}/cv_comparison_combined.svg")
+    cv_fig_combined.savefig(f"typst/images/{figdir}/cv_comparison_combined.png", dpi=400)
     return
 
 
@@ -924,9 +971,9 @@ def _(
 
 
 @app.cell
-def _(cv_fig):
-    cv_fig.savefig("typst/images/paper/cv_comparison.svg")
-    cv_fig.savefig("typst/images/paper/cv_comparison.png", dpi=400)
+def _(cv_fig, figdir):
+    cv_fig.savefig(f"typst/images/{figdir}/cv_comparison.svg")
+    cv_fig.savefig(f"typst/images/{figdir}/cv_comparison.png", dpi=400)
     return
 
 
@@ -977,6 +1024,7 @@ def _(results_df, welch_t):
         "LSTM":                     (82.0, 0.3, 8.0, 0.2),
         "TCN":                      (82.7, 0.3, 8.8, 0.2),
         "GRU":                      (83.6, 0.3, 9.1, 0.3),
+        "LDM MLP":                  (84.0659, 0.7482, 9.8986, 0.9443),
     }
 
     ldm_auroc = (ldm_auroc_mean * 100, ldm_auroc_std * 100)
@@ -987,17 +1035,46 @@ def _(results_df, welch_t):
     print(header)
     print("-" * len(header))
 
+    results = []
     for name, (b_au_m, b_au_s, b_pr_m, b_pr_s) in baselines.items():
         # AUROC Stats
-        t_au, df_au, _, p_au = welch_t(ldm_auroc[0], ldm_auroc[1], n_ldm, b_au_m, b_au_s, n_base)
+        t_au, df_au, p_au, _ = welch_t(ldm_auroc[0], ldm_auroc[1], n_ldm, b_au_m, b_au_s, n_base)
         p_au_str = f"{p_au:.3f}" if p_au >= 0.001 else "<0.001"
 
         # AUPRC Stats
-        t_pr, df_pr, _, p_pr = welch_t(ldm_auprc[0], ldm_auprc[1], n_ldm, b_pr_m, b_pr_s, n_base)
+        t_pr, df_pr, p_pr, _ = welch_t(ldm_auprc[0], ldm_auprc[1], n_ldm, b_pr_m, b_pr_s, n_base)
         p_pr_str = f"{p_pr:.3f}" if p_pr >= 0.001 else "<0.001"
 
+        results.append((name, t_au, df_au, p_au, t_pr, df_pr, p_pr))
+
         print(f"{name:<24} | {t_au:6.3f}, {df_au:6.3f}, {p_au_str:>6} | {t_pr:6.3f}, {df_pr:6.3f}, {p_pr_str:>6}")
-    return yaib_auprc_mean, yaib_auprc_std, yaib_auroc_mean, yaib_auroc_std
+    return (
+        header,
+        results,
+        yaib_auprc_mean,
+        yaib_auprc_std,
+        yaib_auroc_mean,
+        yaib_auroc_std,
+    )
+
+
+@app.cell
+def _(header, multipletests, results):
+    # Correct all 12 p-values together
+    all_pvals = [r[3] for r in results] + [r[6] for r in results]  # 6 AUROC + 6 AUPRC
+    _, pvals_corrected, _, _ = multipletests(all_pvals, method='holm')
+    p_au_corrected = pvals_corrected[:7]
+    p_pr_corrected = pvals_corrected[7:]
+
+    # Print with corrected p-values
+    _header = f"{'Baseline':<24} | {'AUROC [t, df, p_corr]':^28} | {'AUPRC [t, df, p_corr]':^28}"
+    print(_header)
+    print("-" * len(header))
+    for _i, (_name, _t_au, _df_au, _, _t_pr, _df_pr, _) in enumerate(results):
+        _p_au_str = f"{p_au_corrected[_i]:.3f}" if p_au_corrected[_i] >= 0.001 else "<0.001"
+        _p_pr_str = f"{p_pr_corrected[_i]:.3f}" if p_pr_corrected[_i] >= 0.001 else "<0.001"
+        print(f"{_name:<24} | {_t_au:6.3f}, {_df_au:6.3f}, {_p_au_str:>6} | {_t_pr:6.3f}, {_df_pr:6.3f}, {_p_pr_str:>6}")
+    return
 
 
 @app.cell
@@ -1028,6 +1105,12 @@ def _(Ellipse, np):
         ax.add_patch(ellipse)  # Width & height = 2 * n_std * sqrt(eigenvalues)
 
     return (plot_cov_ellipse,)
+
+
+@app.cell
+def _(results_df):
+    results_df.sort_values(by="test_auroc_sep3")
+    return
 
 
 @app.cell
@@ -1121,11 +1204,9 @@ def _(aggregate_runs, load_tb_scalars, n_folds, repetitions):
     # Prepare run directories
     run_dirs = [f'runs/cv3/rep{rep:02}_fold{fold:02}' for rep in range(repetitions) for fold in range(n_folds)]
     losses = ['total_loss', 'sepsis-3', 'sofa', 'infection', 'recon_loss', 'spreading_loss', 'boundary_loss']
-    # Define tags you want
     eval_metrics = ['AUROC_pred_sep', 'AUPRC_pred_sep']
     eval_tags = [f'sepsis_metrics/{m}' for m in eval_metrics]
     for loss in losses:
-    # Dynamically build the list
         eval_tags.extend([f'train_losses/{loss}_mean', f'val_losses/{loss}_mean'])
     all_data = load_tb_scalars(run_dirs, eval_tags)
     agg_data = aggregate_runs(all_data)
@@ -1144,9 +1225,9 @@ def _(agg_data, hparams, lambdas, loss_subscripts, losses, viz_loss_mean_std):
 
 
 @app.cell
-def _(loss_fig):
-    loss_fig.savefig("typst/images/paper/losses_std.svg")
-    loss_fig.savefig("typst/images/paper/losses_std.png", dpi=400)
+def _(figdir, loss_fig):
+    loss_fig.savefig(f"typst/images/{figdir}/losses_std.svg")
+    loss_fig.savefig(f"typst/images/{figdir}/losses_std.png", dpi=400)
     return
 
 
@@ -1210,6 +1291,7 @@ def _(mo):
 
 @app.cell
 def _(
+    db_name,
     dtype,
     fold_avg,
     get_data_sets_online,
@@ -1219,8 +1301,8 @@ def _(
     rep_avg,
     repetitions,
 ):
-    single_model, _tb_df, single_hparams, _run_name, _load_epoch, _auroc, _auprc = get_model(rep_avg, fold_avg)
-    _data = get_data_sets_online(swapaxes_y=(1, 2, 0), dtype=dtype, cv_repetitions=repetitions, repetition_index=rep_avg, cv_folds=n_folds, fold_index=fold_avg, sequence_files='data/cv/sequence_')
+    single_model, _tb_df, single_hparams, _run_name, _load_epoch, _auroc, _auprc = get_model(rep_avg, fold_avg, "runs/cv/miiv/standard/")
+    _data = get_data_sets_online(swapaxes_y=(1, 2, 0), dtype=dtype, cv_repetitions=repetitions, repetition_index=rep_avg, cv_folds=n_folds, fold_index=fold_avg, sequence_files=f'data/cv/{db_name}/sequence_')
     *_, single_test_x, single_test_y, single_test_m = _data
     single_test_m = single_test_m.astype(np.bool)
     single_test_x, single_test_y, single_test_m = (single_test_x[None], single_test_y[None], single_test_m[None])
@@ -1243,7 +1325,6 @@ def _(single_hparams):
 def _(
     jnp,
     key,
-    lookup_table,
     loss_conf,
     process_val_epoch,
     single_model,
@@ -1258,7 +1339,6 @@ def _(
         mask_data=single_test_m,
         step=jnp.array(1000000.0, dtype=jnp.int32),
         key=key,
-        lookup_func=lookup_table.soft_get_local,
         loss_params=loss_conf,
     )
     return (single_test_metrics,)
@@ -1346,9 +1426,9 @@ def _(
 
 
 @app.cell
-def _(heat_fig):
-    heat_fig.savefig("typst/images/paper/heat.svg")
-    heat_fig.savefig("typst/images/paper/heat.png", dpi=400)
+def _(figdir, heat_fig):
+    heat_fig.savefig(f"typst/images/{figdir}/heat.svg")
+    heat_fig.savefig(f"typst/images/{figdir}/heat.png", dpi=400)
     return
 
 
@@ -1358,11 +1438,18 @@ def _(np, single_test_metrics, single_test_y):
     print(_p_idx)
     _p_idx = np.argsort(single_test_y[0, :, :, 0].max(axis=-1))[-10:]
     print(_p_idx)
-    _p_idx = np.argsort(np.diff(single_test_y[0, :, :, 0], axis=-1).sum(axis=-1))[-10:]
+    _p_idx = np.argsort(np.diff(single_test_y[0, :, :, 0], axis=-1).sum(axis=-1))[10:15]
     print(_p_idx)
     _p_idx = np.argsort(np.square(single_test_y[0, :, :, 0] - single_test_metrics.hists_sofa_score[0, :]).mean(axis=-1))[:10]
     print(_p_idx)
     _p_idx = np.argsort(np.square(single_test_y[0, :, :, 0] - single_test_metrics.hists_sofa_score[0, :]).mean(axis=-1))[-10:]
+    print(_p_idx)
+    print(single_test_metrics.beta.shape)
+    _p_idx = np.argsort(single_test_metrics.beta[0, :, :].mean(axis=-1))[:10]
+    print(_p_idx)
+    _p_idx = np.argsort(single_test_metrics.beta[0, :, 0])[-15:-10]
+    print(_p_idx)
+    _p_idx = np.argsort(single_test_metrics.beta[0, :, 0])[:10]
     print(_p_idx)
     return
 
@@ -1376,6 +1463,11 @@ def _(
     viz_patients,
 ):
     _p_idx = [3638, 12, 4154]
+    _p_idx = [6180, 9, 2456, 100, 101, 996, 2131]
+    curr = 0
+    _p_idx = [6224, 100, 101] 
+    #_p_idx = list(np.argsort(single_test_metrics.beta[0, :, :].max(axis=-1)))[curr:curr+5]
+    print(_p_idx)
     patient_fig, _axes = viz_patients(_p_idx, single_test_y, single_test_m, single_test_metrics, lookup_table)
     _axes.text(-.1, 1.1, r"\textbf{A}", transform=_axes.transAxes, fontsize=14, fontweight="bold", va="top")
     _axes.text(1.6, 1.1, r"\textbf{B}", transform=_axes.transAxes, fontsize=14, fontweight="bold", va="top")
@@ -1384,9 +1476,9 @@ def _(
 
 
 @app.cell
-def _(patient_fig):
-    patient_fig.savefig("typst/images/paper/trajectory.svg")
-    patient_fig.savefig("typst/images/paper/trajectory.png", dpi=400)
+def _(figdir, patient_fig):
+    patient_fig.savefig(f"typst/images/{figdir}/trajectory.svg")
+    patient_fig.savefig(f"typst/images/{figdir}/trajectory.png", dpi=400)
     return
 
 
@@ -1436,14 +1528,28 @@ def _(
     _cbar_ax.set_position([_pos.x0 - 0.04, _pos.y0, _pos.width, _pos.height])
 
     heat_space_fig.subplots_adjust(top=0.95, bottom=0.15, wspace=0.1, left=0.07, right=0.9)
+
     heat_space_fig
     return (heat_space_fig,)
 
 
 @app.cell
-def _(heat_space_fig):
-    heat_space_fig.savefig("typst/images/paper/heat_space.svg")
-    heat_space_fig.savefig("typst/images/paper/heat_space.png", dpi=400)
+def _(figdir, heat_space_fig):
+    heat_space_fig.savefig(f"typst/images/{figdir}/heat_space.svg")
+    heat_space_fig.savefig(f"typst/images/{figdir}/heat_space.png", dpi=400)
+    return
+
+
+@app.cell
+def _(np, single_test_m, single_test_metrics):
+    hist, x_edges, y_edges = np.histogram2d(single_test_metrics.beta[single_test_m], single_test_metrics.sigma[single_test_m], bins=100)
+
+    idx = np.unravel_index(hist.argmax(), hist.shape)
+
+    x_peak = x_edges[idx[0]] + (x_edges[1] - x_edges[0]) / 2
+    y_peak = y_edges[idx[1]] + (y_edges[1] - y_edges[0]) / 2
+
+    print(y_peak, x_peak)
     return
 
 
@@ -1492,9 +1598,9 @@ def _(
 
 
 @app.cell
-def _(heat_space_combined_fig):
-    heat_space_combined_fig.savefig("typst/images/paper/heat_space_combined.png", dpi=400)
-    heat_space_combined_fig.savefig("typst/images/paper/heat_space_combined.svg")
+def _(figdir, heat_space_combined_fig):
+    heat_space_combined_fig.savefig(f"typst/images/{figdir}/heat_space_combined.png", dpi=400)
+    heat_space_combined_fig.savefig(f"typst/images/{figdir}/heat_space_combined.svg")
     return
 
 
@@ -1506,8 +1612,13 @@ def _(pred_sep3_risk_1, true_sep3_1, viz_curves_sepsis):
 
 
 @app.cell
-def _(area_fig):
-    area_fig.savefig("typst/images/paper/areas.png", dpi=400)
+def _(area_fig, figdir):
+    area_fig.savefig(f"typst/images/{figdir}/areas.png", dpi=400)
+    return
+
+
+@app.cell
+def _():
     return
 
 

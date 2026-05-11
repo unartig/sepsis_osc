@@ -1,7 +1,7 @@
 import marimo
 
 __generated_with = "0.20.4"
-app = marimo.App()
+app = marimo.App(width="full")
 
 
 @app.cell
@@ -17,16 +17,17 @@ def _():
     import matplotlib.pyplot as plt
     import numpy as np
     from sklearn.manifold import TSNE
-    from icu_benchmarks.data.split_process_data import preprocess_data
+    #from icu_benchmarks.data.split_process_data import preprocess_data
     from icu_benchmarks.constants import RunMode
-    from icu_benchmarks.data.preprocessor import PolarsRegressionPreprocessor
+    #from icu_benchmarks.data.preprocessor import PolarsRegressionPreprocessor
     import os
 
     from sepsis_osc.ldm.gin_configs import file_names, new_vars, paper_vars, modality_mapping
 
-    label_col = "sep3_alt_first"
-    sep3_path = Path(f"/home/unartig/Desktop/uni/ResearchProject/yaib_docker/YAIB-cohorts/data/{label_col}_with_marginals_ramp/miiv")
-    cohort_demo_path = Path("cohort_stats.csv")
+    label_col = "sep3_alt"
+    db_name = "miiv"
+    sep3_path = Path(f"/home/unartig/Desktop/uni/ResearchProject/YAIB-cohorts/data/{label_col}_with_marginals_ramp/{db_name}")
+    cohort_demo_path = Path(f"misc/cohort_stats_{db_name}.csv")
 
     def get_data(p):
         return {
@@ -38,11 +39,10 @@ def _():
     sep3_data = get_data(sep3_path)
     cohort_demo = pd.read_csv(cohort_demo_path)
 
-
     print(sep3_data["OUTCOME"].columns)
     print("Samples:", len(sep3_data["OUTCOME"]))
     print("Patients:", sep3_data["OUTCOME"]["stay_id"].unique().len())
-    return cohort_demo, json, label_col, np, pd, plt, sep3_data
+    return cohort_demo, db_name, json, label_col, np, pd, plt, sep3_data
 
 
 @app.cell
@@ -69,7 +69,7 @@ def _(df, label_col, pd):
 @app.cell
 def _(df, json, pd):
     dir = "."
-    file = "concept-dict.json"
+    file = "misc/concept-dict.json"
 
     with open(f"{dir}/{file}") as f:
         _json = json.load(f)
@@ -84,9 +84,17 @@ def _(df, json, pd):
             short["min"] = concept["min"] if "min" in concept else ""
             short["max"] = concept["max"] if "max" in concept else ""
             short["description"] = concept["description"] if "description" in concept else ""
+
+            short["% missing"] = round(df[col].isna().sum()/len(df[col])*100, 2)
             conc_list.append(short)
     conc = pd.DataFrame(conc_list)
     conc
+    return (conc,)
+
+
+@app.cell
+def _(conc):
+    print(conc.to_latex(index=False))
     return
 
 
@@ -301,6 +309,12 @@ def _(feature_pie, patient_level):
 
 
 @app.cell
+def _(feature_pie, patient_level):
+    feature_pie("inf", df=patient_level)
+    return
+
+
+@app.cell
 def _(df, label_col, np):
     from matplotlib_venn import venn3
     p_inf = np.asarray(df["susp_inf_ramp"] > 0.0).astype(np.float32)
@@ -358,7 +372,7 @@ def _(np, p_inf, p_sep3, p_sofa, plt, venn3):
     plt.title("Venn Diagram (Percentages)")
     plt.show()
 
-    plt.savefig("../typst/images/yaib_sets.svg")
+    #plt.savefig("../typst/images/yaib_sets.svg")
 
     # TODO percentages
     print(f"Total Observations (Union of Sets): {sum(subset_sizes)}")
@@ -367,10 +381,10 @@ def _(np, p_inf, p_sep3, p_sofa, plt, venn3):
 
 
 @app.cell
-def _(df, pd):
+def _(db_name, df, pd):
     stay_ids = df.index.get_level_values("stay_id").unique()
     print(stay_ids)
-    pd.DataFrame(stay_ids).to_csv("cohort_ids.csv")
+    pd.DataFrame(stay_ids).to_csv(f"cohort_ids_{db_name}.csv")
     return
 
 
