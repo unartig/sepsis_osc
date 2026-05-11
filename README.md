@@ -2,7 +2,7 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/Python-3.12.12-blue.svg)](https://www.python.org/)
-[![JAX](https://img.shields.io/badge/JAX-0.8.0-orange.svg)](https://github.com/google/jax)
+[![JAX](https://img.shields.io/badge/JAX-0.10.0-orange.svg)](https://github.com/google/jax)
 
 This repository contains the code accompanying the thesis:
 
