@@ -1,25 +1,25 @@
-# Python 3.12.12
+# Python 3.13.13
 
 beartype==0.21.0
 colorlog>=0.6.9
-diffrax==0.7.0
-equinox==0.13.2
+diffrax>=0.7.2
+equinox>=0.13.8
 faiss-cpu==1.12.0
-jax[cuda13]==0.8.0  # or jax[cudaXY]
+jax[cuda13]>=0.10.0  # or jax[cudaXY]
 jaxlie==1.5.0
 marimo==0.20.4
 matplotlib>=3.7.1
 msgpack-numpy==0.4.8
 numpy>=2.0.1
-optax==0.2.6
+optax>=0.2.6
 polars==1.37.1
 pysr==1.5.10
 rocksdb-py==0.0.6
+statsmodels==0.14.6
 tbparse==0.0.9
 tensorboard==2.20.0
 tensorboardx==2.6.4
 tqdm==4.67.1
-
 
 # yaib==0.3.1 --install-option="--no-deps"
 # YAIB dependencies: polars scikit-learn joblib threadpoolctl recipies gin-config torch
