@@ -109,7 +109,7 @@ Access to MIMIC-IV requires credentialing via PhysioNet — see their [access in
 Follow the [YAIB documentation](https://github.com/rvandewater/YAIB) to install.
 
 > [!NOTE]
-> Currently YAIB does not support multiple labels out of the box, for that install this [fork](https://github.com/unartig/YAIB).
+> Currently YAIB does not support multiple labels out of the box, for the LDM to work, install this [fork](https://github.com/unartig/YAIB).
 > A corresponding [pull request](https://github.com/rvandewater/YAIB/pull/183) is under review!
 
 ### 2. Generate the cohort
