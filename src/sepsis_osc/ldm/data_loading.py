@@ -75,6 +75,7 @@ def get_raw_data(
         # label=target_name
     )
 
+    m_index = ["stay_id", "time"]
     for si, s in data.items():
         for k in s:
             by = []
@@ -83,117 +84,14 @@ def get_raw_data(
             if "time" in s[k].columns:
                 by.append("time")
             data[si][k] = s[k].sort(by=by)
+
+        if k == "FEATURES":
+            cols = s[k].columns
+            front = sorted([c for c in cols if not c.startswith("MissingIndicator_") and c not in m_index])
+            back = sorted([c for c in cols if c.startswith("MissingIndicator_") and c not in m_index])
+            data[si][k] = s[k][m_index + front + back]
+
     return data
-
-
-def prepare_sequences(
-    x_df: pl.DataFrame, y_df: pl.DataFrame, window_len: int, time_step: int = 1
-) -> tuple[np.ndarray, np.ndarray]:
-    """
-    Extracts fixed-length sliding window sequences from longitudinal data.
-
-    This function iterates through individual clinical stays, ensuring that
-    sequences are only extracted from continuous time points (no temporal gaps).
-    """
-    m_index = ["stay_id", "time"]
-
-    cols = x_df.columns
-    front = sorted([c for c in cols if not c.startswith("MissingIndicator_") and c not in m_index])
-    back = sorted([c for c in cols if c.startswith("MissingIndicator_") and c not in m_index])
-    x_df = x_df[m_index + front + back]
-
-    # Sort and group only once
-    x_df = x_df.sort(m_index)
-    y_df = y_df.sort(m_index)
-
-    x_seqs = []
-    y_seqs = []
-
-    uniques = x_df["stay_id"].unique()
-    for i in trange(len(uniques)):
-        sid = uniques[i]
-        times = x_df.filter(pl.col("stay_id") == sid)["time"].to_numpy()
-        x_group = x_df.filter(pl.col("stay_id") == sid).drop(m_index)
-        y_group = y_df.filter(pl.col("stay_id") == sid).drop(m_index)
-
-        x_np = x_group.to_numpy()
-        y_np = y_group.to_numpy()
-        n = len(x_np)
-
-        if n < window_len:
-            continue
-
-        # only fully consecutive sequences
-        for j in range(n - window_len + 1):
-            if np.all(np.diff(times[j : j + window_len]) == time_step):
-                x_seqs.append(x_np[j : j + window_len])
-                y_seqs.append(y_np[j : j + window_len])
-
-    x_out = np.array(x_seqs)
-    y_out = np.array(y_seqs)
-    return x_out, y_out
-
-
-def get_data_sets_offline(
-    window_len: int = 6,
-    dtype: jnp.dtype = jnp.float32,
-    swapaxes_y: tuple[int, int, int] = (0, 1, 2),
-    *,
-    full: bool = False,
-) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
-    """
-    High-level loader for sequence-to-sequence prediction tasks.
-
-    Checks for preprocessed `.npz` files on disk; if missing, it triggers the
-    full raw data pipeline and saves the result for future use.
-    """
-    file_name = f"len_{window_len}_{cohort_name}{'_full' if full else ''}"
-    if Path(sequence_files + f"{file_name}.npz").exists():
-        logger.info("Processed sequence files found. Loading data from disk...")
-        loaded = np.load(sequence_files + f"{file_name}.npz")
-        train_x, train_y = loaded["train_x"], loaded["train_y"]
-        val_x, val_y = loaded["val_x"], loaded["val_y"]
-        test_x, test_y = loaded["test_x"], loaded["test_y"]
-        logger.info("Data loaded successfully.")
-    else:
-        logger.warning("Processed sequence files not found, reading YAIB-data.")
-        train_y, train_x, val_y, val_x, test_y, test_x = [
-            v.drop(
-                [
-                    col
-                    for col in v.columns
-                    if col.startswith("Missing" if not full else "WWW")
-                    or col in {"__index_level_0__", "los_icu", "susp_inf_alt", "sep3_alt", "yaib_label"}
-                ]
-            )
-            for inner in get_raw_data().values()
-            for v in inner.values()
-        ]
-        logger.info("Preparing sequences and saving data...")
-        train_x, train_y = prepare_sequences(train_x, train_y, window_len)
-        val_x, val_y = prepare_sequences(val_x, val_y, window_len)
-        test_x, test_y = prepare_sequences(test_x, test_y, window_len)
-
-        np.savez_compressed(
-            sequence_files + f"{file_name}",
-            train_x=train_x,
-            train_y=train_y,
-            val_x=val_x,
-            val_y=val_y,
-            test_x=test_x,
-            test_y=test_y,
-        )
-        logger.info("Data prepared and saved sequences successfully.")
-
-    # reorder for (sofa, susp_inf_ramp, sep3_alt)
-    return (
-        train_x.astype(dtype),
-        train_y.astype(dtype)[..., swapaxes_y],
-        val_x.astype(dtype),
-        val_y.astype(dtype)[..., swapaxes_y],
-        test_x.astype(dtype),
-        test_y.astype(dtype)[..., swapaxes_y],
-    )
 
 
 def _get_all(data: PredictionPolarsDataset) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
@@ -254,19 +152,6 @@ def get_data_sets_online(
         ) = _get_all(
             PredictionPolarsDataset(data, split="train", vars=detect_vars, ram_cache=True, name=f"{cohort_name}_train")
         )
-        # (
-        #     old_train_x,
-        #     old_train_y,
-        #     old_train_m,
-        # ) = _get_all(
-        #     PredictionPolarsDataset(data, split="train", vars=detect_vars, ram_cache=False, name=f"{cohort_name}_train")
-        # )
-        # print("ASSERTING")
-        # assert np.allclose(old_train_x, train_x)
-        # assert np.allclose(old_train_y, train_y)
-        # assert np.allclose(old_train_m, train_m)
-        # print("HELL YEAH")
-        # exit(0)
         (
             val_test_x,
             val_test_y,
