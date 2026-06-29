@@ -48,11 +48,6 @@ def get_raw_data(
     """
     yaib_vars = copy.deepcopy(yaib_vars)
     yaib_vars["LABEL"][0] = target_name
-    # NOTE: this uses a forked version of YAIB,
-    # the default version does not allow to specify train_size when complete_train=True
-    # also the default version does not support multiple labels
-    # see https://github.com/unartig/YAIB for the fork
-    # and https://github.com/rvandewater/YAIB/pull/183 for the pull request
     logger.info(f"Searching for sequence_files in {_data_dir}")
     data = preprocess_data(
         data_dir=_data_dir,
