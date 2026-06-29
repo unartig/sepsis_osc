@@ -6,7 +6,7 @@ import jax.random as jr
 import jax.tree as jtree
 import numpy as np
 from jax import vmap
-from jaxtyping import Array, Bool, DTypeLike, Float, Int, ScalarLike, jaxtyped, Scalar
+from jaxtyping import Array, Bool, DTypeLike, Float, Int, Scalar, ScalarLike, jaxtyped
 
 from sepsis_osc.dnm.abstract_ode import ConfigArgBase, ConfigBase, MetricBase, ODEBase, StateBase
 from sepsis_osc.dnm.commons import diff_angle, entropy, mean_angle, phase_entropy, std_angle
