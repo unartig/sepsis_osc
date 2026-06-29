@@ -198,7 +198,7 @@ class LatentLookup(eqx.Module):
         temp = temperature.astype(self.dtype)
 
         # Convert query points into fractional voxel coordinates
-        rel_pos = (q - self.grid_origin) / self.grid_spacing
+        rel_pos = (q - jax.lax.stop_gradient(self.grid_origin)) / jax.lax.stop_gradient(self.grid_spacing)
         voxel_idx = jnp.round(rel_pos).astype(jnp.int32)
 
         radius = kernel_size // 2
@@ -211,8 +211,8 @@ class LatentLookup(eqx.Module):
 
             x, y = coords[:, 0], coords[:, 1]
 
-            neighbor_xy = self.indices_2d[x, y]
-            neighbor_metrics = self.relevant_metrics_2d[x, y]
+            neighbor_xy = jax.lax.stop_gradient(self.indices_2d)[x, y]
+            neighbor_metrics = jax.lax.stop_gradient(self.relevant_metrics_2d)[x, y]
 
             dists = jnp.sum((q_point - neighbor_xy) ** 2, axis=-1)
 
