@@ -239,6 +239,7 @@
     in-outline.update(false)
   }
   if table-of-figures != none {
+    pagebreak()
     let tof = outline(title: [List of figures], target: figure.where(kind:image))
     in-outline.update(true)
     tof

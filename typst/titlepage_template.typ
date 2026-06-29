@@ -21,9 +21,10 @@
   )
   // #align(right, logo)
   
+  #let full_type =  if thesis-type in ("Master", "Bachelor") {thesis-type + " Thesis"} else {thesis-type}
   #line(length: 100%, stroke: gray)
   #v(-0.3em)
-  #align(left, text(thesis-type + " Thesis", size: 1.5em))
+  #align(left, text(full_type, size: 1.5em))
   #v(-0.7em)
   #line(length: 100%, stroke: gray)
   #v(1fr)
