@@ -182,15 +182,18 @@ sepsis_osc/
 
 ## Citation
 
-If you use this code or build on this work, please cite (bibtex of a _wip_ paper will be replacing the following):
+If you use this code or build on this work, please cite:
 
 ```bibtex
-@thesis{backes2026sepsis,
-  title  = {Combining Machine-Learning and Dynamic Network Models to Improve Sepsis Prediction},
-  author = {Juri Backes},
-  year   = {2026},
-  school = {Technical University Hamburg (TUHH)},
-  url    = {https://github.com/unartig/sepsis_osc}
+@article{backes2026,
+	AUTHOR = {Backes, Juri and Tsanda, Artyom and Knopp, Tobias and Renz, Wolfgang and Schöll, Eckehard },
+	TITLE = {Combining machine learning and physiological network models for sepsis prediction},
+	JOURNAL = {Frontiers in Network Physiology},
+	VOLUME = {Volume 6 - 2026},
+	YEAR = {2026},
+	URL = {https://www.frontiersin.org/journals/network-physiology/articles/10.3389/fnetp.2026.1852577},
+	DOI = {10.3389/fnetp.2026.1852577},
+	ISSN = {2674-0109},
 }
 ```
 
