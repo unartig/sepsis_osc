@@ -3,8 +3,12 @@ from collections.abc import Callable
 import equinox as eqx
 import jax
 import jax.numpy as jnp
+import jax.random as jr
+import numpy as np
 from jaxtyping import Array, Float, Int, PyTree, jaxtyped
 
+from sepsis_osc.ldm.lookup import LookupProtocol
+from sepsis_osc.utils.config import BETA_SPACE, SIGMA_SPACE, jax_random_seed
 from sepsis_osc.utils.jax_config import EPS, typechecker
 
 
@@ -151,3 +155,13 @@ def custom_warmup_cosine(
 def binary_logits(probs: Float[Array, "*"]) -> Float[Array, "*"]:
     probs = jnp.clip(probs, EPS, 1 - EPS)
     return jnp.log(probs) - jnp.log1p(-probs)
+
+
+def get_space_vals(lookup: LookupProtocol) -> tuple[jnp.ndarray, jnp.ndarray, np.ndarray]:
+    betas_space = jnp.arange(BETA_SPACE[0], BETA_SPACE[1] + BETA_SPACE[2], BETA_SPACE[2])
+    sigmas_space = jnp.arange(SIGMA_SPACE[0], SIGMA_SPACE[1] + SIGMA_SPACE[2], SIGMA_SPACE[2])
+    beta_grid, sigma_grid = np.meshgrid(np.arange(*BETA_SPACE), np.arange(*SIGMA_SPACE), indexing="ij")
+    param_grid = np.stack([beta_grid.ravel(), sigma_grid.ravel()], axis=1)
+    metric = jax.vmap(lookup.hard_get, in_axes=(0, None))(jnp.asarray(param_grid)[:, None, :], jr.PRNGKey(jax_random_seed))
+    metric_np = np.asarray(metric.reshape(len(betas_space) - 1, len(sigmas_space) - 1))
+    return betas_space, sigmas_space, metric_np

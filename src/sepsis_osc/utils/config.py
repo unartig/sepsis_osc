@@ -49,3 +49,19 @@ plt_params = {
     "font.family": "serif",
     "font.serif": ["Termes", "DejaVu Serif", "serif"],
 }
+
+
+SOFA_FEATURES = {
+    "Respiratory": ["po2", "fio2"],
+    "Coagulation": ["plt"],
+    "Hepatic": ["bili"],
+    "Cardiovascular": ["map"],
+    "Renal": ["crea", "urine"],
+}
+SOFA_FLAT = [f for feats in SOFA_FEATURES.values() for f in feats]
+INFL_FEATURES = ["crp", "wbc", "neut", "lact", "temp"]
+AGE_FEATURES = ["age", "hgb", "alb"]
+HIGH_SOFA_THRESH = 8
+
+CV_REPETITIONS = 5
+CV_FOLDS = 5
