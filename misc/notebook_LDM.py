@@ -1,7 +1,7 @@
 import marimo
 
-__generated_with = "0.20.4"
-app = marimo.App()
+__generated_with = "0.23.2"
+app = marimo.App(width="full")
 
 
 @app.cell
@@ -27,7 +27,7 @@ def _():
     from sepsis_osc.storage.storage_interface import Storage
     from sepsis_osc.utils.config import ALPHA, ALPHA_SPACE, BETA_SPACE, SIGMA_SPACE, jax_random_seed, plt_params
     from sepsis_osc.utils.jax_config import setup_jax
-    from sepsis_osc.visualisations.viz_model_results import viz_concept_densities, viz_patients_latent, viz_patients, viz_space_heatmap, viz_losses, viz_curves_sepsis
+    from sepsis_osc.visualisations.viz_model_results import viz_concept_densities, viz_patients_latent, viz_patients, viz_losses, viz_curves_sepsis, viz_space_distribution_countour
     from sepsis_osc.ldm.commons import build_lookup_table
     from sepsis_osc.ldm.checkpoint_utils import load_checkpoint
     from sepsis_osc.ldm.model_structs import LoadingConfig
@@ -73,7 +73,6 @@ def _():
         viz_curves_sepsis,
         viz_losses,
         viz_patients,
-        viz_space_heatmap,
     )
 
 
@@ -96,7 +95,7 @@ def _(
         test_x,
         test_y,
         test_m,
-    ) = get_data_sets_online(swapaxes_y=(1, 2, 0), dtype=jnp.float32, cv_repetitions=2, repetition_index=0, cv_folds=2, fold_index=0)
+    ) = get_data_sets_online(swapaxes_y=(1, 2, 0), dtype=jnp.float32, cv_repetitions=5, repetition_index=0, cv_folds=5, fold_index=0)
     for y, m, s in ((train_y, train_m, "Train"), (val_y, val_m, "Val"), (test_y, test_m, "Test")):
         print(f"Prevalence {s} Set {((y * m[..., None]).max(axis=1) == 1.0).mean(axis=0) * 100}%")
 
@@ -152,7 +151,7 @@ def _(
     load_checkpoint,
     logger,
 ):
-    run_name = 'best'
+    run_name = 'May03_10-42-58_tinkpad'
     RUN_DIR = f'runs/{run_name}'
     tb_reader = SummaryReader(RUN_DIR)
     tb_df = tb_reader.scalars
@@ -166,6 +165,7 @@ def _(
     best_epoch = round((prc_epoch + roc_epoch) / 2)
     print(f"Best Epoch: {best_epoch} with between AUPRC={auprc['value'].max():.3f}@{prc_epoch} AUROC={auroc['value'].max():.3f}@{roc_epoch}")
     LOAD_EPOCH = best_epoch
+    LOAD_EPOCH = 1
     key_1 = jr.PRNGKey(jax_random_seed)
     load_conf = LoadingConfig(from_dir=RUN_DIR, epoch=LOAD_EPOCH)
     if load_conf.from_dir:
@@ -202,18 +202,8 @@ def _(eqx, jtu, model):
 
 
 @app.cell
-def _(
-    jnp,
-    key_1,
-    lookup_table,
-    loss_conf,
-    model,
-    process_val_epoch,
-    test_m,
-    test_x,
-    test_y,
-):
-    test_metrics = process_val_epoch(model, x_data=test_x, y_data=test_y, mask_data=test_m, step=jnp.array(1000000.0, dtype=jnp.int32), key=key_1, lookup_func=lookup_table.soft_get_local, loss_params=loss_conf)
+def _(jnp, key_1, loss_conf, model, process_val_epoch, test_m, test_x, test_y):
+    test_metrics = process_val_epoch(model, x_data=test_x, y_data=test_y, mask_data=test_m, step=jnp.array(1000000.0, dtype=jnp.int32), key=key_1, loss_params=loss_conf)
     return (test_metrics,)
 
 

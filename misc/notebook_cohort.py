@@ -1,6 +1,6 @@
 import marimo
 
-__generated_with = "0.20.4"
+__generated_with = "0.23.9"
 app = marimo.App(width="full")
 
 
@@ -12,51 +12,54 @@ def _():
 
     import json
 
-    #pd.set_option('display.max_columns', None)
-    #pd.set_option('display.max_rows', None)
+    # pd.set_option('display.max_columns', None)
+    # pd.set_option('display.max_rows', None)
     import matplotlib.pyplot as plt
     import numpy as np
     from sklearn.manifold import TSNE
-    #from icu_benchmarks.data.split_process_data import preprocess_data
+
+    # from icu_benchmarks.data.split_process_data import preprocess_data
     from icu_benchmarks.constants import RunMode
-    #from icu_benchmarks.data.preprocessor import PolarsRegressionPreprocessor
+
+    # from icu_benchmarks.data.preprocessor import PolarsRegressionPreprocessor
     import os
 
     from sepsis_osc.ldm.gin_configs import file_names, new_vars, paper_vars, modality_mapping
 
-    label_col = "sep3_alt"
-    db_name = "miiv"
-    sep3_path = Path(f"/home/unartig/Desktop/uni/ResearchProject/YAIB-cohorts/data/{label_col}_with_marginals_ramp/{db_name}")
-    cohort_demo_path = Path(f"misc/cohort_stats_{db_name}.csv")
+    LABEL_COL = "sep3_alt"
 
-    def get_data(p):
-        return {
-            f: pl.read_parquet(p / file_names[f])
-            for f in file_names.keys()
-            if os.path.exists(p / file_names[f])
-        }
 
-    sep3_data = get_data(sep3_path)
-    cohort_demo = pd.read_csv(cohort_demo_path)
+    def get_data(db_name):
+        sep3_path = Path(f"/home/unartig/Desktop/uni/ResearchProject/YAIB-cohorts/data/{LABEL_COL}_with_marginals_ramp/{db_name}")
+        cohort_demo_path = Path(f"misc/cohort_stats_{db_name}.csv")
 
-    print(sep3_data["OUTCOME"].columns)
-    print("Samples:", len(sep3_data["OUTCOME"]))
-    print("Patients:", sep3_data["OUTCOME"]["stay_id"].unique().len())
-    return cohort_demo, db_name, json, label_col, np, pd, plt, sep3_data
+        sep3_data = {f: pl.read_parquet(sep3_path / file_names[f]) for f in file_names.keys() if os.path.exists(sep3_path / file_names[f])}
+        cohort_demo_data = pd.read_csv(cohort_demo_path)
+
+        print(sep3_data["OUTCOME"].columns)
+        print("Samples:", len(sep3_data["OUTCOME"]))
+        print("Patients:", sep3_data["OUTCOME"]["stay_id"].unique().len())
+        df_outcome = sep3_data["OUTCOME"].to_pandas().set_index(["stay_id", "time"])
+        df_dynamic = sep3_data["DYNAMIC"].to_pandas()
+        df_static = sep3_data["STATIC"].to_pandas().set_index(["stay_id"])
+        df_merged_temp = pd.merge(df_dynamic, df_static, on='stay_id', how='left').set_index(['stay_id', 'time'])
+        df = pd.merge(df_merged_temp, df_outcome, left_index=True, right_index=True, how='left')
+        del df_outcome, df_dynamic, df_static, sep3_data
+        df["sex"] = np.where(df["sex"] == "Female", 0, 1)
+    
+        cohort_demo_data.index = cohort_demo_data["stay_id"]
+        return df, cohort_demo_data
+
+    return LABEL_COL, get_data, json, pd
 
 
 @app.cell
-def _(cohort_demo, np, pd, sep3_data):
-    df_outcome = sep3_data["OUTCOME"].to_pandas().set_index(["stay_id", "time"])
-    df_dynamic = sep3_data["DYNAMIC"].to_pandas()
-    df_static = sep3_data["STATIC"].to_pandas().set_index(["stay_id"])
-    df_merged_temp = pd.merge(df_dynamic, df_static, on='stay_id', how='left').set_index(['stay_id', 'time'])
-    df = pd.merge(df_merged_temp, df_outcome, left_index=True, right_index=True, how='left')
-    del df_outcome, df_dynamic, df_static, sep3_data
-    df["sex"] = np.where(df["sex"] == "Female", 0, 1)
+def _(get_data):
+    miiv_df, miiv_demo = get_data("miiv")
+    eicu_df, eicu_demo = get_data("eicu")
 
-    cohort_demo.index = cohort_demo["stay_id"]
-    return (df,)
+    dfs = {"MIIV": miiv_df, "eICU": eicu_df}
+    return dfs, eicu_demo, eicu_df, miiv_demo, miiv_df
 
 
 @app.cell
@@ -67,14 +70,14 @@ def _(df, label_col, pd):
 
 
 @app.cell
-def _(df, json, pd):
+def _(dfs, json, miiv_df, pd):
     dir = "."
     file = "misc/concept-dict.json"
 
     with open(f"{dir}/{file}") as f:
         _json = json.load(f)
 
-    columns = df.columns
+    columns = miiv_df.columns
     conc_list = []
     for col in columns:
         if col not in ("stay_id", "time") and not col.startswith("Missing") and col in _json.keys():
@@ -85,80 +88,76 @@ def _(df, json, pd):
             short["max"] = concept["max"] if "max" in concept else ""
             short["description"] = concept["description"] if "description" in concept else ""
 
-            short["% missing"] = round(df[col].isna().sum()/len(df[col])*100, 2)
+            for name, df in dfs.items():  
+                short[f"{name} % missing"] = f"{df[col].isna().sum()/len(df[col])*100:.2f}"
             conc_list.append(short)
     conc = pd.DataFrame(conc_list)
+    conc.index = conc["name"]
+    conc = conc.drop(columns=["name"])
     conc
-    return (conc,)
+    return conc, df
 
 
 @app.cell
 def _(conc):
-    print(conc.to_latex(index=False))
+    print(conc.style.to_typst())
+
     return
 
 
 @app.cell
-def _(cohort_demo):
-    print(cohort_demo.columns)
+def _(LABEL_COL, eicu_demo, eicu_df, miiv_demo, miiv_df):
+    def get_cohort_stats(df, demo):
+        cdf = df.copy().reset_index()
+    
+        patient_sep = (
+            cdf.groupby("stay_id")[LABEL_COL]
+              .max()
+              .rename("sep3")
+        )
+        sep_onset = (
+            cdf[cdf[LABEL_COL] == 1]
+            .groupby("stay_id")["time"]
+            .min()
+            .rename("sep_onset_time")
+        )
+        death_icu_label = (
+            cdf.groupby("stay_id")["death_icu"]
+            .max()
+            .rename("death_icu")
+        )
+        death_label = (
+            cdf.groupby("stay_id")["death"]
+            .max()
+            .rename("death")
+        )
+    
+    
+        patient_level = (
+            cdf.groupby("stay_id")
+              .agg(
+                  sex=("sex", "first"),
+                  age=("age", "first"),
+                  weight=("weight", "first"),
+                  sofa_median=("sofa", "median"),
+                  sofa_max=("sofa", "max"),
+                  los=("time", "max"),
+                  #death=("death", "max"),
+                  death_icu=("death_icu", "max"),
+              )
+              .join(patient_sep)
+              .join(sep_onset)
+              .join(death_label)
+              .join(demo)
+        )
+    
+        sep_pos = patient_level[patient_level["sep3"] == 1]
+        sep_neg = patient_level[patient_level["sep3"] == 0]
+        return patient_level, sep_pos, sep_neg, len(patient_level)
 
-    print(cohort_demo["ethnicity_group"].unique())
-    print(cohort_demo["admission_group"].unique())
-    print(cohort_demo["hospital_expire_flag"].unique())
-    return
-
-
-@app.cell
-def _(cohort_demo, df, label_col, pd):
-    cdf = df.copy().reset_index()
-
-    patient_sep = (
-        cdf.groupby("stay_id")[label_col]
-          .max()
-          .rename("sep3")
-    )
-    sep_onset = (
-        cdf[cdf[label_col] == 1]
-        .groupby("stay_id")["time"]
-        .min()
-        .rename("sep_onset_time")
-    )
-    death_icu_label = (
-        cdf.groupby("stay_id")["death_icu"]
-        .max()
-        .rename("death_icu")
-    )
-    death_label = (
-        cdf.groupby("stay_id")["death"]
-        .max()
-        .rename("death")
-    )
-
-
-    patient_level = (
-        cdf.groupby("stay_id")
-          .agg(
-              sex=("sex", "first"),
-              age=("age", "first"),
-              weight=("weight", "first"),
-              sofa_median=("sofa", "median"),
-              sofa_max=("sofa", "max"),
-              los=("time", "max"),
-              #death=("death", "max"),
-              death_icu=("death_icu", "max"),
-          )
-          .join(patient_sep)
-          .join(sep_onset)
-          .join(death_label)
-          .join(cohort_demo)
-    )
-
-    sep_pos = patient_level[patient_level["sep3"] == 1]
-    sep_neg = patient_level[patient_level["sep3"] == 0]
-
-    def cohort_summary(df, include_onset=False):
+    def cohort_summary(df, n, include_onset=False):
         summary = {
-            "N": f"{len(df)} ({len(df)/len(patient_level) * 100:.1f}%)",
+            "N": f"{len(df)} ({len(df)/n * 100:.1f}%)",
             "Male n (%)": f"{(df.sex == 1).sum()} ({100 * (df.sex == 1).mean():.1f}%)",
             "Age at admission, median (IQR)": f"{df.age.median():.1f} ({df.age.quantile(0.25):.1f}–{df.age.quantile(0.75):.1f})",
             "Weight at admission, median (IQR)": f"{df.weight.median():.1f} ({df.weight.quantile(0.25):.1f}–{df.weight.quantile(0.75):.1f})",
@@ -189,202 +188,62 @@ def _(cohort_demo, df, label_col, pd):
 
         return summary
 
+    miiv_patient_level, miiv_sep_pos_level, miiv_sep_neg_level, miiv_n = get_cohort_stats(miiv_df, miiv_demo)
+    eicu_patient_level, eicu_sep_pos_level, eicu_sep_neg_level, eicu_n = get_cohort_stats(eicu_df, eicu_demo)
+    return (
+        cohort_summary,
+        eicu_n,
+        eicu_patient_level,
+        eicu_sep_neg_level,
+        eicu_sep_pos_level,
+        miiv_n,
+        miiv_patient_level,
+        miiv_sep_neg_level,
+        miiv_sep_pos_level,
+    )
 
-    table1 = pd.DataFrame.from_dict(
+
+@app.cell
+def _(
+    cohort_summary,
+    miiv_n,
+    miiv_patient_level,
+    miiv_sep_neg_level,
+    miiv_sep_pos_level,
+    pd,
+):
+    miiv_table = pd.DataFrame.from_dict(
         {
-            "All patients": cohort_summary(patient_level),
-            "SEP-3 positive": cohort_summary(sep_pos, include_onset=True),
-            "SEP-3 negative": cohort_summary(sep_neg),
+            "All patients": cohort_summary(miiv_patient_level, miiv_n),
+            "SEP-3 positive": cohort_summary(miiv_sep_pos_level, miiv_n, include_onset=True),
+            "SEP-3 negative": cohort_summary(miiv_sep_neg_level, miiv_n),
         },
         orient="columns"
     )
 
-    table1
-    return patient_level, table1
-
-
-@app.cell
-def _(table1):
-    for row in table1.iterrows():
-        print(f"[{row[0].replace(", (%)", "").replace(", median (IQR)", "").replace("Ethnicity ", "").replace("Admission", "")}],")
-        print(f"[{row[1]["All patients"]}],")
-        print(f"[{row[1]["SEP-3 positive"]}],")
-        print(f"[{row[1]["SEP-3 negative"]}],")
-        print()
+    print(miiv_table.style.to_typst())
     return
 
 
 @app.cell
-def _(df, np, plt):
-    def single_feature(y, log=False):
-        fig, (ax0, ax1) = plt.subplots(1, 2, figsize=(14, 4))
-        ax0.scatter(df.index.get_level_values("stay_id"), df[y], s=0.1, alpha=0.1)
-        ax0.set_title(f"{y}")
-        ax1.hist(df[y], bins=100, density=True);
-        if log:
-            ax0.set_yscale("log")
-            ax1.set_yscale("log")
-        ax1.set_title(f"{y} Histogram")
-        return fig
-
-    def single_stay(sid, x_list, df=df):
-        stay = df.loc[sid]
-        n = len(x_list)
-        fig, axes = plt.subplots(1, n, figsize=(5 * n, 4))  # dynamic width
-
-        if n == 1:
-            axes = [axes]
-
-        for ax, x in zip(axes, x_list):
-            ax.scatter(stay.index, stay[x])
-            ax.set_title(x)
-
-        plt.tight_layout()
-
-        return fig
-
-
-    def feature_hist(y, log=False, bs=50, df=df):
-        fig, ax = plt.subplots(1, 1, figsize=(5, 3))
-        uniques = np.unique(df[y])
-        ax.hist(df[y], bins=bs, density=True)
-        plt.tight_layout()
-        if log:
-            ax.set_yscale("log")
-        return fig
-
-    def feature_pie(y, df=df):
-        fig, ax = plt.subplots(1, 1, figsize=(5, 3))
-        uniques, counts = np.unique(df[y], return_counts=True)
-        ax.pie(x=counts, labels=uniques)
-        plt.tight_layout()
-        return fig
-
-    return feature_hist, feature_pie
-
-
-@app.cell
-def _(feature_hist, patient_level, plt):
-    feature_hist("weight", df=patient_level)
-    plt.show()
-    return
-
-
-@app.cell
-def _(feature_hist, patient_level, plt):
-    feature_hist("age", bs=8, df=patient_level)
-
-    plt.show()
-    return
-
-
-@app.cell
-def _(df, feature_hist):
-    feature_hist("sofa", bs=24, df=df)
-    return
-
-
-@app.cell
-def _(df, label_col, np, plt):
-    plt.hist(df.loc[df[label_col] == 1.0, "sofa"], bins=np.arange(24));
-    return
-
-
-@app.cell
-def _(df, feature_pie):
-    feature_pie("sofa", df=df)
-    return
-
-
-@app.cell
-def _(feature_pie, patient_level):
-    feature_pie("sex", df=patient_level)
-    return
-
-
-@app.cell
-def _(feature_pie, patient_level):
-    feature_pie("sep3", df=patient_level)
-    return
-
-
-@app.cell
-def _(feature_pie, patient_level):
-    feature_pie("inf", df=patient_level)
-    return
-
-
-@app.cell
-def _(df, label_col, np):
-    from matplotlib_venn import venn3
-    p_inf = np.asarray(df["susp_inf_ramp"] > 0.0).astype(np.float32)
-    df["sofa_diff_direct"] = df.groupby(level="stay_id", group_keys=False)["sofa"].diff().fillna(0)
-    p_sofa = np.asarray(df["sofa_diff_direct"] > 0.0).astype(np.float32)
-    p_sep3 = np.asarray(df[label_col] == 1.0).astype(np.float32)
-    return p_inf, p_sep3, p_sofa, venn3
-
-
-@app.cell
-def _(np, p_inf, p_sep3, p_sofa, plt, venn3):
-    A = p_inf.astype(bool)
-    B = p_sofa.astype(bool)
-    C = p_sep3.astype(bool)
-
-    A_only = np.sum(A & ~B & ~C)
-    B_only = np.sum(~A & B & ~C)
-    AB_only = np.sum(A & B & ~C)
-    C_only = np.sum(~A & ~B & C)
-    AC_only = np.sum(A & ~B & C)  # for some reason here is one :^?
-    BC_only = np.sum(~A & B & C)
-    ABC_overlap = np.sum(A & B & C)
-
-    print("total sep", np.sum(C))
-    print("AB", AB_only)
-    print("AC", AC_only)
-    print("BC", BC_only)
-    print("C", C_only)
-    print("ABC", ABC_overlap)
-
-    subset_sizes = (
-        A_only,      # 100: A & ~B & ~C
-        B_only,      # 010: ~A & B & ~C
-        AB_only,     # 110: A & B & ~C
-        C_only,      # 001: ~A & ~B & C
-        AC_only,     # 101: A & ~B & C
-        BC_only,     # 011: ~A & B & C
-        ABC_overlap  # 111: A & B & C
+def _(
+    cohort_summary,
+    eicu_n,
+    eicu_patient_level,
+    eicu_sep_neg_level,
+    eicu_sep_pos_level,
+    pd,
+):
+    eicu_table = pd.DataFrame.from_dict(
+        {
+            "All patients": cohort_summary(eicu_patient_level, eicu_n),
+            "SEP-3 positive": cohort_summary(eicu_sep_pos_level, eicu_n, include_onset=True),
+            "SEP-3 negative": cohort_summary(eicu_sep_neg_level, eicu_n),
+        },
+        orient="columns"
     )
 
-    set_labels = ('Suspected Infection', 'SOFA increase', 'Sepsis-Label')
-
-    # --- percentages ---
-    total = np.array(A.size)
-    subset_percentages = subset_sizes / total * 100
-
-    plt.figure(figsize=(8, 8))
-    v = venn3(subsets=subset_percentages, set_labels=set_labels)
-
-    # format labels as percentages
-    for idx, label in enumerate(v.subset_labels):
-        if label:
-            label.set_text(f"{subset_percentages[idx]:.1f}%")
-
-    plt.title("Venn Diagram (Percentages)")
-    plt.show()
-
-    #plt.savefig("../typst/images/yaib_sets.svg")
-
-    # TODO percentages
-    print(f"Total Observations (Union of Sets): {sum(subset_sizes)}")
-    print(f"Total Observations (DataFrame/Array Length): {len(p_inf)}")
-    return
-
-
-@app.cell
-def _(db_name, df, pd):
-    stay_ids = df.index.get_level_values("stay_id").unique()
-    print(stay_ids)
-    pd.DataFrame(stay_ids).to_csv(f"cohort_ids_{db_name}.csv")
+    print(eicu_table.style.to_typst())
     return
 
 
