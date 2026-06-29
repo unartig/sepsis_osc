@@ -23,18 +23,13 @@ from sepsis_osc.ldm.early_stopping import EarlyStopping
 from sepsis_osc.ldm.latent_dynamics_model import LatentDynamicsModel, init_ldm_weights
 from sepsis_osc.ldm.logging_utils import flatten_dict, log_train_metrics, log_val_metrics
 from sepsis_osc.ldm.lookup import (
-    AnalyticalLookup,
     LatentLookup,
     LearnedLookup,
-    SurrogateLookup,
     as_2d_indices,
-    get_approx,
-    get_linear,
-    get_radial,
 )
 from sepsis_osc.ldm.model_structs import AuxLosses, LoadingConfig, LossesConfig, LRConfig, SaveConfig, TrainingConfig
 from sepsis_osc.storage.storage_interface import Storage
-from sepsis_osc.utils.config import ALPHA, BETA_SPACE, SIGMA_SPACE, jax_random_seed, db_name
+from sepsis_osc.utils.config import ALPHA, BETA_SPACE, SIGMA_SPACE, db_name, jax_random_seed
 from sepsis_osc.utils.jax_config import EPS, setup_jax, typechecker
 from sepsis_osc.utils.logger import setup_logging
 from sepsis_osc.utils.utils import timing
@@ -54,10 +49,13 @@ def prob_increase_steps(
     the result through a sigmoid function. It essentially acts as a soft
     thresholding mechanism to detect 'jumps'.
     """
-    # return jnp.concat([jnp.array([0.0]), jnp.tanh((jax.nn.relu(jnp.diff(preds, axis=-1) - threshold)) * scale)])
+    diffs = jnp.diff(preds, axis=-1)
+    # probs = jnp.tanh((jax.nn.relu(diffs-threshold)) * scale)
+    # probs = jax.nn.relu(2 * jax.nn.sigmoid((diffs - threshold) * scale) - 1)
+    probs = jax.nn.sigmoid((diffs - threshold) * scale)  # default
+    return jnp.concat([jnp.array([0.0]), probs])
     # return jnp.concat([jnp.array([0.0]), jax.nn.sigmoid((jax.nn.leaky_relu(jnp.diff(preds, axis=-1), negative_slope=1e2) - threshold) * scale)])
 
-    return jnp.concat([jnp.array([0.0]), jax.nn.sigmoid((jnp.diff(preds, axis=-1) - threshold) * scale)])
 
 
 @jaxtyped(typechecker=typechecker)
@@ -242,6 +240,7 @@ def process_train_epoch(
     ) -> tuple[tuple[PyTree, optax.OptState, jnp.ndarray], AuxLosses]:
         _model_params, opt_state, key = carry
         batch_x, batch_true_c, batch_mask = batch
+
         def loss_on_params(_model_params: PyTree) -> tuple:
             _model = eqx.combine(_model_params, model_static)
             return loss(
@@ -367,23 +366,6 @@ if __name__ == "__main__":
         dtype=jnp.float32,
     )
 
-    radial = get_radial(jnp.asarray(b), jnp.asarray(s), k=25)
-    linear = get_linear(jnp.asarray(b), jnp.asarray(s), k=25)
-    # approx = get_approx()
-    lookup_table = AnalyticalLookup(radial).to_latent_lookup(BETA_SPACE, SIGMA_SPACE)
-
-    # lookup_table = SurrogateLookup(
-    #     jnp.arange(*BETA_SPACE),
-    #     jnp.arange(*SIGMA_SPACE),
-    #     metrics_2d.squeeze().s_1,
-    #     key,
-    #     lr=2e-2,
-    #     batch_size=512,
-    #     n_epochs=int(3e5),
-    #     hidden=32,
-    # )
-    # lookup_table = LearnedLookup(key=key)
-
     # === Model ===
 
     train_conf = TrainingConfig(
@@ -441,7 +423,13 @@ if __name__ == "__main__":
         _y,
         _m,
     ) = get_data_sets_online(
-        swapaxes_y=(1, 2, 0), dtype=jnp.float32, cv_repetitions=5, repetition_index=0, cv_folds=5, fold_index=0, sequence_files=f"data/cv/{db_name}/sequence_",
+        swapaxes_y=(1, 2, 0),
+        dtype=jnp.float32,
+        cv_repetitions=5,
+        repetition_index=0,
+        cv_folds=5,
+        fold_index=0,
+        sequence_files=f"data/cv/{db_name}/sequence_",
     )
     train_m, val_m = train_m.astype(np.bool), val_m.astype(np.bool)
     logger.error(f"{jnp.unique(train_y[..., 0])}")
@@ -512,7 +500,6 @@ if __name__ == "__main__":
             load_conf.epoch = 0
             load_conf.from_dir = ""
     model = eqx.nn.inference_mode(model, value=False)
-
 
     logger.info(
         f"Instatiated model with total {model.n_params} parameters. "

@@ -83,6 +83,8 @@ class LatentDynamicsModel(eqx.Module):
     _sofa_label_smooth: Array
     _sofa_d2_pred_smooth: Array
 
+    # these are actually unused
+    # removing them would break serialization of existing models
     use_inf_branch: bool
     use_sofa_branch: bool
 

@@ -29,12 +29,14 @@ from sepsis_osc.ldm.lookup import (
     LookupProtocol,
     SurrogateLookup,
     as_2d_indices,
+    get_approx,
+    get_linear,
     get_radial,
 )
 from sepsis_osc.ldm.model_structs import LoadingConfig, LossesConfig, LRConfig, SaveConfig, TrainingConfig
 from sepsis_osc.ldm.train_online import process_train_epoch, process_val_epoch
 from sepsis_osc.storage.storage_interface import Storage
-from sepsis_osc.utils.config import ALPHA, BETA_SPACE, SIGMA_SPACE, db_name, jax_random_seed
+from sepsis_osc.utils.config import ALPHA, BETA_SPACE, CV_FOLDS, CV_REPETITIONS, SIGMA_SPACE, db_name, jax_random_seed
 from sepsis_osc.utils.jax_config import setup_jax
 from sepsis_osc.utils.logger import setup_logging
 
@@ -84,7 +86,7 @@ storage.close()
 
 
 def build_lookup(config: ExperimentConfig, key: PRNGKeyArray) -> LookupProtocol:
-    if config.lookup_type == "standard":
+    if "standard" in config.lookup_type:
         return _latent_lookup
     if config.lookup_type == "surrogate":
         return SurrogateLookup(
@@ -103,6 +105,22 @@ def build_lookup(config: ExperimentConfig, key: PRNGKeyArray) -> LookupProtocol:
         b, s = as_2d_indices(BETA_SPACE, SIGMA_SPACE)
         radial = get_radial(jnp.asarray(b), jnp.asarray(s), k=25)
         return AnalyticalLookup(radial)
+    if config.lookup_type == "radial_modest_latent_lookup":
+        b, s = as_2d_indices(BETA_SPACE, SIGMA_SPACE)
+        radial = get_radial(jnp.asarray(b), jnp.asarray(s), k=25)
+        return AnalyticalLookup(radial).to_latent_lookup(BETA_SPACE, SIGMA_SPACE)
+    if config.lookup_type == "linear_step":
+        b, s = as_2d_indices(BETA_SPACE, SIGMA_SPACE)
+        radial = get_linear(jnp.asarray(b), jnp.asarray(s), k=100)
+        return AnalyticalLookup(radial).to_latent_lookup(BETA_SPACE, SIGMA_SPACE)
+    if config.lookup_type == "linear_smooth":
+        b, s = as_2d_indices(BETA_SPACE, SIGMA_SPACE)
+        radial = get_linear(jnp.asarray(b), jnp.asarray(s), k=25)
+        return AnalyticalLookup(radial).to_latent_lookup(BETA_SPACE, SIGMA_SPACE)
+    if config.lookup_type == "approx":
+        approx = get_approx()
+        return AnalyticalLookup(approx)
+
     raise ValueError(f"No configuration for lookup_type {config.lookup_type}")
 
 
@@ -294,7 +312,9 @@ def train_one_run(
                 )
 
             val_metrics_log = jtu.tree_map(lambda x: x.reshape(1, -1, *x.shape[2:]), val_metrics.to_np())
-            log_msg = log_val_metrics(val_metrics_log, val_y_flat[None], model.lookup, epoch, writer, mask=val_m_flat[None])
+            log_msg = log_val_metrics(
+                val_metrics_log, val_y_flat[None], model.lookup, epoch, writer, mask=val_m_flat[None]
+            )
             logger.warning(log_msg)
 
             model = eqx.nn.inference_mode(val_model, value=False)
@@ -320,19 +340,20 @@ def train_one_run(
     return model, {"auprc": auprc, "auroc": auroc}
 
 
-def run_cross_validation(config: ExperimentConfig, n_folds: int = 5, repetitions: int = 1) -> list:
+def run_cross_validation(config: ExperimentConfig, n_folds: int = CV_FOLDS, repetitions: int = CV_REPETITIONS) -> list:
     results = []
 
     for rep in range(repetitions):
         for fold in range(n_folds):
-            writer = SummaryWriter(logdir=f"runs/cv/{db_name}/{config.lookup_type}/rep{rep:002}_fold{fold:002}")
+            logger.info(f"Starting rep {rep}, fold {fold}")
+            writer = SummaryWriter(logdir=f"runs/cv_clean/{db_name}/{config.lookup_type}/rep{rep:002}_fold{fold:002}")
             if Path(Path(writer.logdir) / "checkpoints").exists():
                 logger.warning(f"Skipping {writer.logdir}")
                 continue
 
             data = load_fold_data(config.dtype, repetitions, rep, n_folds, fold)
 
-            key = jr.PRNGKey(jax_random_seed + rep * 100 + fold)
+            key = jr.PRNGKey(jax_random_seed + rep * 666 + fold)
 
             model, static, optimizer, opt_state, schedule, sofa_dist, filter_spec = init_model_and_optimizer(
                 config,
@@ -343,10 +364,6 @@ def run_cross_validation(config: ExperimentConfig, n_folds: int = 5, repetitions
 
             loss_conf_dict = asdict(config.loss)
             loss_conf_dict["sofa_dist"] = sofa_dist
-            # loss_conf_dict["steps_per_epoch"] = (
-            #     (train_x.shape[0] // train_conf.mini_epochs) // train_conf.batch_size
-            # ) * train_conf.mini_epochs
-            # loss_conf_dict["steps_per_epoch"] = config.train.batch_size
             config.loss = LossesConfig(**loss_conf_dict)
 
             model, metrics = train_one_run(
@@ -406,12 +423,14 @@ if __name__ == "__main__":
     _load_conf = LoadingConfig(from_dir="", epoch=0)
     _save_conf = SaveConfig(save_every=1, perform=True)
 
-    for lookup_type in ["standard", "surrogate", "mlp", "radial_modest"]:
+    for lookup_type in [
+        "standard",
+    ]:
         _config = ExperimentConfig(
             train=_train_conf, lr=_lr_conf, loss=_loss_conf, load=_load_conf, save=_save_conf, lookup_type=lookup_type
         )
 
-        results = run_cross_validation(_config, n_folds=5, repetitions=5)
+        results = run_cross_validation(_config, n_folds=CV_FOLDS, repetitions=CV_REPETITIONS)
         eqx.clear_caches()
         jax.clear_caches()
         print(results)
